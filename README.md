@@ -391,7 +391,7 @@ services/
 templates/service/                ← шаблон для make new-service
 frontend/                         ← React + Vite + TS; в Docker — nginx, проксирующий /api и /ws
 infra/ansible/                    ← деплой на сервер по IP
-docker/python.Dockerfile          ← один образ на все Python-сервисы (build-arg PACKAGE)
+Dockerfile                        ← один образ на все Python-сервисы (build-arg PACKAGE)
 scripts/                          ← gen_proto.py, new_service.py, smoke.py
 docs/                             ← рецепты, соглашения, реестр событий
 ```

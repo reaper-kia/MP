@@ -1,5 +1,5 @@
 # Один образ на все Python-сервисы воркспейса; какой пакет ставить — build-arg PACKAGE:
-#   docker build -f docker/python.Dockerfile --build-arg PACKAGE=auth-service .
+#   docker build --build-arg PACKAGE=auth-service .
 FROM python:3.13-slim
 
 COPY --from=ghcr.io/astral-sh/uv:0.11.29 /uv /uvx /bin/

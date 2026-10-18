@@ -3,7 +3,6 @@ name: mp
 # Общие куски для Python-сервисов (один Dockerfile на все, пакет выбирается build-arg'ом)
 x-python-build: &python-build
   context: .
-  dockerfile: docker/python.Dockerfile
 
 x-service-env: &service-env
   LOG_LEVEL: ${LOG_LEVEL:-INFO}
