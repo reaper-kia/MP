@@ -1,0 +1,24 @@
+---
+# Копируем текущую папку проекта (включая незакоммиченное) — git на сервере не нужен
+- name: Ensure deploy dir
+  ansible.builtin.file:
+    path: "{{ deploy_dir }}"
+    state: directory
+    mode: "0755"
+
+- name: Sync project
+  ansible.posix.synchronize:
+    src: "{{ playbook_dir }}/../../../"
+    dest: "{{ deploy_dir }}/"
+    delete: true
+    rsync_opts:
+      - "--exclude=.git"
+      - "--exclude=.venv"
+      - "--exclude=__pycache__"
+      - "--exclude=.pytest_cache"
+      - "--exclude=.mypy_cache"
+      - "--exclude=.ruff_cache"
+      - "--exclude=node_modules"
+      - "--exclude=frontend/dist"
+      - "--exclude=infra/ansible/.secrets"
+      - "--exclude=.env"

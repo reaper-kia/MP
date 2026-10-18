@@ -1,10 +1,10 @@
-// WebSocket к Gateway: ws(s)://<host>/ws/v1?token=<access>. Автопереподключение.
-// Протокол: клиент → {type, request_id, payload}; сервер → {type, request_id, payload},
-// ответ на команду — "<type>.ok" или "error". См. services/gateway/src/gateway/ws/handlers.py
-export type WsMessage = { type: string; request_id: string | null; payload: unknown };
+// WebSocket к Gateway: ws(s)://<host>/ws/v1?token=<access>. Переподключается сам.
+// Сервер шлёт {type, payload}; клиент может послать {type: "ping"}.
+// См. services/gateway/src/gateway/ws.py
+export type WsMessage = { type: string; payload: unknown };
 
 export type WsConnection = {
-  send: (type: string, payload?: unknown) => string | null;
+  send: (type: string, payload?: unknown) => void;
   close: () => void;
 };
 
@@ -25,17 +25,14 @@ export function connectWs(getToken: () => string | null, onMessage: (msg: WsMess
     socket.onclose = () => {
       if (closed) return;
       retry = Math.min(retry + 1, 5);
-      setTimeout(open, 1000 * retry); // берём свежий токен при переподключении
+      setTimeout(open, 1000 * retry); // при переподключении берём свежий токен
     };
   };
 
   open();
   return {
     send(type, payload = {}) {
-      if (!socket || socket.readyState !== WebSocket.OPEN) return null;
-      const request_id = crypto.randomUUID();
-      socket.send(JSON.stringify({ type, request_id, payload }));
-      return request_id;
+      if (socket?.readyState === WebSocket.OPEN) socket.send(JSON.stringify({ type, payload }));
     },
     close() {
       closed = true;

@@ -1,99 +1,90 @@
 SHELL := /bin/bash
 .DEFAULT_GOAL := help
 
+# все папки в services/ — это сервисы
 SERVICES := $(notdir $(wildcard services/*))
-COMPOSE  := docker compose
-# имя консольной команды сервиса: gateway → gateway, orders → orders-service
-bin = $(if $(filter gateway,$(1)),gateway,$(subst _,-,$(1))-service)
+COMPOSE := docker compose
 
 ANSIBLE_DIR := infra/ansible
 comma := ,
-ANSIBLE_ARGS := $(if $(HOST),-i "$(HOST)$(comma)" -e target=all) \
-                $(if $(SSH_USER),-e ansible_user=$(SSH_USER)) \
-                $(if $(KAFKA),-e kafka_enabled=$(KAFKA))
+ANSIBLE_ARGS := $(if $(HOST),-i "$(HOST)$(comma)" -e target=all) $(if $(SSH_USER),-e ansible_user=$(SSH_USER))
 
-.PHONY: help env install proto new-service up up-kafka down reset ps logs infra infra-kafka \
-        run migration fmt lint typecheck test check smoke server-setup deploy front-dev
+.PHONY: help env install lock proto new-service up down reset ps logs db run migration \
+        lint fmt typecheck test check smoke front-dev deploy
 
-help: ## показать команды
-	@grep -E '^[a-zA-Z_-]+:.*?## ' $(MAKEFILE_LIST) | awk 'BEGIN{FS=":.*?## "}{printf "  \033[36m%-14s\033[0m %s\n", $$1, $$2}'
+help: ## список команд
+	@grep -E '^[a-zA-Z_-]+:.*?## ' $(MAKEFILE_LIST) | awk 'BEGIN{FS=":.*?## "}{printf "  \033[36m%-12s\033[0m %s\n", $$1, $$2}'
 
-# ───────────── setup / codegen ─────────────
-env: ## создать .env из .env.example (если ещё нет)
+# ───────── установка и кодогенерация ─────────
+env: ## создать .env из .env.example
 	@test -f .env || (cp .env.example .env && echo "created .env")
 
-install: env ## поставить всё (uv sync всего воркспейса, создаст uv.lock)
-	uv sync --all-packages
+install: env ## uv sync в каждом сервисе
+	@for s in $(SERVICES); do echo "── $$s"; (cd services/$$s && uv sync) || exit 1; done
 
-proto: ## сгенерировать Python из contracts/**/*.proto
-	uv run python scripts/gen_proto.py
+lock: ## uv lock в каждом сервисе (uv.lock коммитим)
+	@for s in $(SERVICES); do (cd services/$$s && uv lock) || exit 1; done
 
-new-service: ## каркас сервиса: make new-service name=orders [entity=Order] [port=50060]
-	@test -n "$(name)" || (echo "usage: make new-service name=orders [entity=Order] [port=50060]"; exit 1)
-	uv run python scripts/new_service.py $(name) $(if $(entity),--entity $(entity)) $(if $(port),--port $(port))
-	uv sync --all-packages
+proto: ## contracts/*.proto → packages/platform_contracts
+	uv run --project services/gateway python scripts/generate_proto.py
 
-# ───────────── docker ─────────────
-up: env ## поднять всё в Docker (без Kafka). Фронт: http://localhost, Swagger: :8000/docs
-	KAFKA_ENABLED=false $(COMPOSE) up -d --build --remove-orphans
+new-service: ## make new-service name=orders [entity=Order] [port=50053] [db_port=5435]
+	@test -n "$(name)" || (echo "usage: make new-service name=orders [entity=Order]"; exit 1)
+	python3 scripts/new_service.py $(name) $(if $(entity),--entity $(entity)) $(if $(port),--port $(port)) $(if $(db_port),--db-port $(db_port))
 
-up-kafka: env ## поднять всё + Kafka (kafka-ui: http://localhost:8081)
-	KAFKA_ENABLED=true $(COMPOSE) --profile kafka up -d --build --remove-orphans
+# ───────── docker ─────────
+up: env ## собрать и поднять всё. Фронт: http://localhost, Swagger: http://localhost:8000/docs
+	$(COMPOSE) up -d --build
 
 down: ## остановить (данные сохраняются)
-	$(COMPOSE) --profile kafka down
+	$(COMPOSE) down
 
-reset: ## остановить и УДАЛИТЬ данные (volumes)
-	$(COMPOSE) --profile kafka down -v
+reset: ## остановить и удалить данные БД
+	$(COMPOSE) down -v
 
 ps: ## статус контейнеров
-	$(COMPOSE) --profile kafka ps
+	$(COMPOSE) ps
 
 logs: ## логи: make logs [s=gateway]
 	$(COMPOSE) logs -f --tail=100 $(s)
 
-# ───────────── локальная разработка ─────────────
-infra: env ## только Postgres + Redis в Docker, сервисы гоняешь локально через make run
-	$(COMPOSE) up -d postgres redis
+# ───────── локальная разработка ─────────
+db: env ## поднять только базы (*_db) — сервисы запускаешь локально через make run
+	$(COMPOSE) up -d $$($(COMPOSE) config --services | grep '_db$$')
 
-infra-kafka: env ## Postgres + Redis + Kafka (сервисам: KAFKA_ENABLED=true в .env)
-	$(COMPOSE) --profile kafka up -d postgres redis kafka kafka-ui
-
-run: ## запустить сервис локально: make run s=auth | s=gateway [cmd=serve|migrate]
+run: ## запустить сервис локально: make run s=auth_service | s=gateway
 	@test -n "$(s)" || (echo "usage: make run s=<$(SERVICES)>"; exit 1)
-	cd services/$(s) && uv run $(call bin,$(s)) $(if $(filter gateway,$(s)),,$(or $(cmd),run))
+	@if [ "$(s)" = "gateway" ]; then \
+		cd services/gateway && uv run uvicorn gateway.main:app --reload --port 8000; \
+	else \
+		cd services/$(s) && uv run alembic upgrade head && uv run $(subst _,-,$(s)); \
+	fi
 
-migration: ## автогенерация миграции: make migration s=auth m="add phone"
+migration: ## новая миграция: make migration s=auth_service m="add phone"
 	@test -n "$(s)" -a -n "$(m)" || (echo 'usage: make migration s=<service> m="message"'; exit 1)
-	cd services/$(s) && uv run $(call bin,$(s)) makemigrations "$(m)"
+	cd services/$(s) && uv run alembic revision --autogenerate -m "$(m)"
 
-front-dev: ## фронт с hot reload на :5173 (проксирует /api в localhost:8000)
+front-dev: ## фронт с hot reload на :5173 (проксирует /api на localhost:8000)
 	cd frontend && (test -d node_modules || npm install) && npm run dev
 
-# ───────────── качество ─────────────
-fmt: ## автоформат + автофиксы
-	uv run ruff format .
-	uv run ruff check --fix .
+# ───────── проверки ─────────
+fmt: ## автоформат
+	@for s in $(SERVICES); do (cd services/$$s && uv run ruff format . && uv run ruff check --fix .); done
 
 lint: ## ruff
-	uv run ruff check .
-	uv run ruff format --check .
+	@for s in $(SERVICES); do echo "── $$s"; (cd services/$$s && uv run ruff check . && uv run ruff format --check .) || exit 1; done
 
 typecheck: ## mypy --strict
-	uv run mypy packages/platform_common/src $(wildcard services/*/src)
+	@for s in $(SERVICES); do echo "── $$s"; (cd services/$$s && uv run mypy src) || exit 1; done
 
-test: ## pytest по всем пакетам (интеграционные тесты сами пропустятся без Postgres)
-	@set -e; for d in packages/platform_common $(addprefix services/,$(SERVICES)); do \
-		echo "── $$d"; (cd $$d && uv run pytest -q); done
+test: ## pytest
+	@for s in $(SERVICES); do echo "── $$s"; (cd services/$$s && uv run pytest -q) || exit 1; done
 
 check: lint typecheck test ## всё сразу (как в CI)
 
-smoke: ## e2e по живому стенду: make smoke [URL=http://1.2.3.4]
-	uv run python scripts/smoke.py $(or $(URL),http://localhost:8000)
+smoke: ## сквозная проверка живого стенда: make smoke [URL=http://1.2.3.4]
+	uv run --project services/gateway python scripts/smoke.py $(or $(URL),http://localhost:8000)
 
-# ───────────── деплой (infra/ansible/README.md) ─────────────
-server-setup: ## подготовить сервер: make server-setup HOST=1.2.3.4 SSH_USER=ubuntu
-	cd $(ANSIBLE_DIR) && ansible-playbook playbooks/setup.yml $(ANSIBLE_ARGS)
-
-deploy: ## выкатить: make deploy HOST=1.2.3.4 SSH_USER=ubuntu [KAFKA=true]
+# ───────── деплой ─────────
+deploy: ## выкатить на сервер: make deploy HOST=1.2.3.4 SSH_USER=ubuntu
 	cd $(ANSIBLE_DIR) && ansible-playbook playbooks/deploy.yml $(ANSIBLE_ARGS)

@@ -1,0 +1,18 @@
+[project]
+name = "platform-contracts"
+version = "0.1.0"
+description = "Сгенерированный из contracts/*.proto код. Руками не править — make proto"
+readme = "README.md"
+requires-python = ">=3.13"
+dependencies = [
+    "grpcio>=1.83.0,<2",
+    "protobuf>=7.35.1,<8",
+]
+
+[build-system]
+requires = ["uv_build>=0.11.0,<0.12.0"]
+build-backend = "uv_build"
+
+[tool.uv.build-backend]
+# Список верхних пакетов из contracts/. scripts/generate_proto.py обновляет его сам.
+module-name = ["auth", "common", "example"]

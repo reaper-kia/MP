@@ -31,7 +31,7 @@ export type Item = {
   updated_at: string;
 };
 
-export type Page<T> = { items: T[]; next_cursor: string | null };
+export type Page<T> = { items: T[]; has_more: boolean };
 
 // ── auth ──
 export async function register(email: string, name: string, password: string): Promise<User> {
@@ -59,12 +59,7 @@ export async function restoreSession(): Promise<User | null> {
 
 // ── items (образец) ──
 export const items = {
-  list: (cursor = "", status?: ItemStatus) => {
-    const q = new URLSearchParams({ limit: "20" });
-    if (cursor) q.set("cursor", cursor);
-    if (status) q.set("status", status);
-    return request<Page<Item>>("GET", `/items?${q}`);
-  },
+  list: (offset = 0, limit = 20) => request<Page<Item>>("GET", `/items?limit=${limit}&offset=${offset}`),
   create: (title: string, description = "") => request<Item>("POST", "/items", { title, description }),
   update: (id: string, patch: Partial<Pick<Item, "title" | "description" | "status">>) =>
     request<Item>("PATCH", `/items/${id}`, patch),

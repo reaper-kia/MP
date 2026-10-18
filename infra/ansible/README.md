@@ -1,32 +1,28 @@
-# Деплой на сервер по IP
+# Деплой
 
-Нужно на своей машине: `ansible` (на Arch: `pacman -S ansible`, там уже есть `ansible.posix` и `community.general`), `rsync`.
+Нужно у себя: `ansible` и `rsync` (Arch: `pacman -S ansible rsync`).
 На сервере: Ubuntu 22.04+/Debian 12+, SSH-доступ пользователем с sudo.
 
 ```bash
-# 1. Один раз на новый сервер — Docker, зеркала Docker Hub, firewall
-make server-setup HOST=1.2.3.4 SSH_USER=ubuntu
-
-# 2. Выкатить (и каждый следующий раз — то же самое)
-make deploy HOST=1.2.3.4 SSH_USER=ubuntu
-make deploy HOST=1.2.3.4 SSH_USER=ubuntu KAFKA=true   # с Kafka
-
-# Проверка снаружи
-make smoke URL=http://1.2.3.4
+make deploy HOST=1.2.3.4 SSH_USER=ubuntu     # из корня проекта
+make smoke URL=http://1.2.3.4                # проверка снаружи
 ```
 
-Без `HOST=` используется `inventory.ini` (впиши туда IP). Настройки (порт, Kafka, админы, зеркала) — `playbooks/group_vars/all.yml`. Развернуть на этой же машине —
-раскомментируй `local ansible_connection=local`.
+Без `HOST=` берётся `inventory/dev.yml`. Настройки — `playbooks/group_vars/all.yml`.
 
-Что происходит при deploy:
-1. rsync текущей рабочей папки в `/opt/mp` (git не нужен, незакоммиченное тоже уедет);
-2. `.env` рендерится из `playbooks/group_vars/all.yml`, пароли/секреты генерируются один раз и лежат локально в `.secrets/` (не в git);
-3. `docker compose up -d --build`;
-4. ждём `/health/ready` через nginx.
+Роли по порядку:
 
-Наружу открыт только `http_port` (80): nginx фронта отдаёт SPA и проксирует `/api`, `/ws`, `/docs` в gateway.
-Postgres/Redis/gRPC-порты привязаны к 127.0.0.1 сервера.
+| Роль | Что делает |
+|---|---|
+| `common` | проверка SSH, git/curl/rsync |
+| `docker` | Docker + compose + buildx из репозиториев дистрибутива, зеркало Docker Hub |
+| `sync` | rsync папки проекта в `/opt/mp` (git на сервере не нужен, незакоммиченное тоже уедет) |
+| `env` | `.env` из шаблона; пароли и JWT-секрет генерируются один раз и хранятся в `infra/ansible/.secrets/` |
+| `start` | `docker compose up -d --build`, ждёт `/health/ready` |
 
-Посмотреть логи на сервере: `ssh ubuntu@1.2.3.4 'cd /opt/mp && docker compose logs -f --tail=100 gateway'`.
+Новый сервис со своей БД → добавь строку `<NAME>_DB_PASSWORD=...` в `roles/env/templates/env.j2`
+по образцу `EXAMPLE_DB_PASSWORD`.
 
-Если `ansible.posix` нет: `ansible-galaxy collection install ansible.posix community.general`.
+Логи на сервере: `ssh ubuntu@1.2.3.4 'cd /opt/mp && sudo docker compose logs -f --tail=100 gateway'`.
+
+Если ругается на `ansible.posix.synchronize`: `ansible-galaxy collection install ansible.posix`.

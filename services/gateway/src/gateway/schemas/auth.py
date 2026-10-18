@@ -2,13 +2,12 @@ from datetime import datetime
 from typing import Literal
 from uuid import UUID
 
+from auth.v1 import auth_service_pb2 as pb
 from pydantic import BaseModel, Field
 
-from contracts.auth.v1 import auth_pb2 as pb
-from gateway.schemas.common import empty_to_none, ts
+from gateway.schemas.common import ts
 
-Role = Literal["user", "admin", "unknown"]
-ROLE_FROM_PB: dict[int, Role] = {pb.USER_ROLE_USER: "user", pb.USER_ROLE_ADMIN: "admin"}
+ROLE_FROM_PROTO: dict[int, str] = {pb.USER_ROLE_USER: "user", pb.USER_ROLE_ADMIN: "admin"}
 
 
 class RegisterIn(BaseModel):
@@ -26,16 +25,16 @@ class UserOut(BaseModel):
     id: UUID
     email: str | None
     name: str
-    role: Role
+    role: str
     created_at: datetime
 
     @classmethod
-    def from_pb(cls, user: pb.User) -> "UserOut":
+    def from_proto(cls, user: pb.User) -> "UserOut":
         return cls(
             id=UUID(user.id),
-            email=empty_to_none(user.email),
+            email=user.email or None,
             name=user.name,
-            role=ROLE_FROM_PB.get(user.role, "unknown"),
+            role=ROLE_FROM_PROTO.get(user.role, "unknown"),
             created_at=ts(user.created_at),
         )
 
@@ -44,10 +43,6 @@ class TokenOut(BaseModel):
     access_token: str
     token_type: Literal["bearer"] = "bearer"
     access_expires_at: datetime
-
-    @classmethod
-    def from_pb(cls, tokens: pb.TokenPair) -> "TokenOut":
-        return cls(access_token=tokens.access_token, access_expires_at=ts(tokens.access_expires_at))
 
 
 class AuthOut(TokenOut):

@@ -6,8 +6,5 @@
 **/.ruff_cache
 **/.env
 .git
-.tmp
 frontend
 infra
-docs
-templates

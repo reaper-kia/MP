@@ -6,7 +6,7 @@ import type { WsMessage } from "../api/ws";
 // Образец экрана: список + создание + смена статуса + удаление.
 export function ItemsPage({ lastEvent }: { lastEvent?: WsMessage }) {
   const [list, setList] = useState<Item[]>([]);
-  const [cursor, setCursor] = useState<string | null>(null);
+  const [hasMore, setHasMore] = useState(false);
   const [title, setTitle] = useState("");
   const [error, setError] = useState<string | null>(null);
 
@@ -16,7 +16,7 @@ export function ItemsPage({ lastEvent }: { lastEvent?: WsMessage }) {
     try {
       const page = await items.list();
       setList(page.items);
-      setCursor(page.next_cursor);
+      setHasMore(page.has_more);
     } catch (err) {
       handle(err);
     }
@@ -32,11 +32,10 @@ export function ItemsPage({ lastEvent }: { lastEvent?: WsMessage }) {
   }, [lastEvent, load]);
 
   const loadMore = async () => {
-    if (!cursor) return;
-    const page = await items.list(cursor).catch((err) => (handle(err), null));
+    const page = await items.list(list.length).catch((err) => (handle(err), null));
     if (!page) return;
     setList((prev) => [...prev, ...page.items]);
-    setCursor(page.next_cursor);
+    setHasMore(page.has_more);
   };
 
   const create = async (e: FormEvent) => {
@@ -89,7 +88,7 @@ export function ItemsPage({ lastEvent }: { lastEvent?: WsMessage }) {
           </li>
         ))}
       </ul>
-      {cursor && (
+      {hasMore && (
         <button className="ghost" onClick={loadMore}>
           Ещё
         </button>

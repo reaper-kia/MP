@@ -1,0 +1,23 @@
+---
+- name: Build and start containers
+  ansible.builtin.command:
+    cmd: docker compose up -d --build --remove-orphans
+    chdir: "{{ deploy_dir }}"
+  changed_when: true
+
+- name: Wait until all services are ready
+  ansible.builtin.uri:
+    url: "http://127.0.0.1:{{ http_port }}/health/ready"
+    return_content: true
+  register: ready
+  until: ready.status == 200 and ready.json.status == 'ok'
+  retries: 30
+  delay: 5
+  failed_when: false
+
+- name: Result
+  ansible.builtin.debug:
+    msg:
+      - "App:     http://{{ ansible_host | default(inventory_hostname) }}:{{ http_port }}"
+      - "Swagger: http://{{ ansible_host | default(inventory_hostname) }}:{{ http_port }}/docs"
+      - "Ready:   {{ ready.json | default('не поднялось — смотри: docker compose logs') }}"

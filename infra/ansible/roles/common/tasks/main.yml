@@ -1,0 +1,11 @@
+---
+- name: Check connect
+  ansible.builtin.ping:
+  become: false
+
+- name: Install base packages
+  ansible.builtin.apt:
+    name: [git, curl, ca-certificates, rsync]
+    state: present
+    update_cache: true
+    cache_valid_time: 3600

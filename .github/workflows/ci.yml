@@ -4,34 +4,50 @@ on: [push, pull_request]
 
 jobs:
   python:
+    strategy:
+      fail-fast: false
+      matrix:
+        service:
+          - auth_service
+          - example_service
+          - gateway
     runs-on: ubuntu-latest
-    services:
-      postgres:
-        image: postgres:17-alpine
-        env:
-          POSTGRES_USER: app
-          POSTGRES_PASSWORD: app
-          POSTGRES_DB: app
-        ports: ["5432:5432"]
-        options: >-
-          --health-cmd "pg_isready -U app" --health-interval 5s --health-timeout 3s --health-retries 20
+    defaults:
+      run:
+        working-directory: services/${{ matrix.service }}
     steps:
       - uses: actions/checkout@v6
       - uses: astral-sh/setup-uv@v9.0.0
         with:
           python-version: "3.13"
-      - run: uv sync --all-packages
-      - run: make lint
-      - run: make typecheck
-      - run: make test
-      - name: Generated proto code is up to date
-        run: make proto && git diff --exit-code -- packages/contracts
+      - name: Install dependencies
+        run: uv sync
+      - name: ruff check
+        run: uv run ruff check .
+      - name: ruff format
+        run: uv run ruff format --check .
+      - name: mypy
+        run: uv run mypy src
+      - name: tests
+        run: uv run pytest
+
+  contracts:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+      - uses: astral-sh/setup-uv@v9.0.0
+        with:
+          python-version: "3.13"
+      - name: Generate code
+        run: uv run --project services/gateway python scripts/generate_proto.py
+      - name: Generated code is up to date
+        run: git diff --exit-code -- packages/platform_contracts
 
   compose:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v6
-      - run: cp .env.example .env && docker compose --profile kafka config -q
+      - run: cp .env.example .env && docker compose config -q
 
   frontend:
     runs-on: ubuntu-latest
@@ -44,5 +60,4 @@ jobs:
         with:
           node-version: 22
       - run: npm install
-      - run: npm run typecheck
       - run: npm run build

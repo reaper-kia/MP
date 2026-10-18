@@ -1,0 +1,30 @@
+---
+# Docker из репозиториев Ubuntu/Debian — без внешних репозиториев, работает и из РФ
+- name: Install Docker
+  ansible.builtin.apt:
+    name: [docker.io, docker-compose-v2, docker-buildx]
+    state: present
+
+- name: Registry mirrors
+  ansible.builtin.copy:
+    dest: /etc/docker/daemon.json
+    content: "{{ {'registry-mirrors': docker_registry_mirrors} | to_nice_json }}"
+    mode: "0644"
+  when: docker_registry_mirrors | length > 0
+  notify: Restart docker
+
+- name: Ensure Docker service is running
+  ansible.builtin.systemd_service:
+    name: docker
+    state: started
+    enabled: true
+
+- name: Add user to docker group
+  ansible.builtin.user:
+    name: "{{ ansible_user }}"
+    groups: docker
+    append: true
+  when: ansible_user is defined and ansible_user != 'root'
+
+- name: Apply handlers now (mirrors before first pull)
+  ansible.builtin.meta: flush_handlers

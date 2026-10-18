@@ -1,24 +1,19 @@
 # Куда кладём проект на сервере
-app_dir: /opt/mp
+deploy_dir: /opt/mp
 
-# Наружу торчит только nginx фронта (он проксирует /api, /ws, /docs в gateway)
+# Порт фронта (nginx), единственный порт, который нужен снаружи
 http_port: 80
-
-# true — поднять профиль kafka (Kafka + kafka-ui) и включить outbox relay/consumer'ов
-kafka_enabled: false
 
 # true только за HTTPS, иначе браузер не сохранит refresh-cookie
 cookie_secure: false
 
-# Эти email при регистрации станут admin (через запятую)
+# Эти email при регистрации станут admin
 admin_emails: ""
 
-# Docker Hub из РФ бывает недоступен — зеркала. Пустой список — без зеркал.
+# Docker Hub из РФ бывает недоступен — зеркала. [] — без зеркал.
 docker_registry_mirrors:
   - https://mirror.gcr.io
 
-# Открыть 22/80/443 в ufw и включить его
-configure_firewall: true
-
-# Секреты генерируются один раз и хранятся локально в infra/ansible/.secrets (в .gitignore)
+# Пароли и JWT-секрет генерируются при первом деплое и лежат тут (в .gitignore).
+# Не удаляй, иначе на сервере поменяются пароли БД.
 secrets_dir: "{{ playbook_dir }}/../.secrets"

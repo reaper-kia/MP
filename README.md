@@ -1,21 +1,18 @@
-# MP — микросервисы на gRPC за единым Gateway
+# MP — микросервисы на gRPC за Gateway
 
-Каркас для хакатона: транспорт, авторизация, ошибки, миграции, Docker и деплой уже сделаны.
-На месте остаётся описать контракты (`.proto`) и написать бизнес-логику.
+Каркас для хакатона в стиле Casino Platform: отдельные сервисы, общие `.proto`-контракты, gateway на FastAPI.
+Транспорт, авторизация, ошибки, Docker и деплой уже сделаны — на хакатоне пишем контракты и бизнес-логику.
 
 ```
-Браузер ──HTTP/WS──▶ nginx (frontend :80) ──▶ Gateway (FastAPI :8000) ──gRPC──▶ auth    :50051
-                                                 │ JWT → RequestContext            example :50052
-                                                 │ ошибки gRPC → HTTP              <ваши>  :50053+
-                                                 │ WebSocket, rate limit (Redis)       │
-                                                                                       ├─ Postgres (своя БД у каждого)
-                                                                                       └─ outbox → Kafka (по желанию)
+Браузер ──HTTP/WS──▶ frontend (nginx :80) ──▶ gateway (FastAPI :8000) ──gRPC──▶ auth_service    :50051 ──▶ auth_db
+                                                 JWT → RequestContext                example_service :50052 ──▶ example_db
+                                                 ошибки gRPC → HTTP                    <ваш>_service  :50053 ──▶ <ваш>_db
 ```
 
-**Работает из коробки:** регистрация, логин, refresh-токен в HttpOnly cookie, logout; образец CRUD-сервиса;
-вызов одного сервиса из другого; единый формат ошибок; сквозной `request_id` в логах всех сервисов;
-WebSocket с группами и push-событиями; outbox и идемпотентный consumer (Kafka включается флагом);
-автосоздание БД и миграции при старте; генератор новых сервисов; тесты; CI; деплой на сервер по IP.
+**Работает из коробки:** регистрация, логин, refresh-токен в HttpOnly cookie, logout, `GET /users/me`;
+образец CRUD-сервиса (`example_service`) с вызовом другого сервиса по gRPC; единый формат ошибок с кодами
+из сервисов; `request_id` в логах; WebSocket с push-событиями; миграции при старте; фронт-заглушка;
+скрипт создания нового сервиса; тесты; CI; деплой на сервер по IP одной командой.
 
 ---
 
@@ -24,556 +21,541 @@ WebSocket с группами и push-событиями; outbox и идемпо
 1. [Установка](#1-установка)
 2. [Первый запуск](#2-первый-запуск)
 3. [Два режима работы](#3-два-режима-работы)
-4. [Как устроен запрос](#4-как-устроен-запрос)
-5. [Гайд: от ТЗ до работающей фичи](#5-гайд-от-тз-до-работающей-фичи)
-6. [Работа в команде](#6-работа-в-команде)
-7. [Структура проекта](#7-структура-проекта)
-8. [Все команды](#8-все-команды)
-9. [Конфигурация (.env)](#9-конфигурация-env)
+4. [Структура проекта](#4-структура-проекта)
+5. [Как устроен сервис](#5-как-устроен-сервис)
+6. [Как проходит запрос](#6-как-проходит-запрос)
+7. [Гайд: от ТЗ до фичи](#7-гайд-от-тз-до-фичи)
+8. [Новый сервис](#8-новый-сервис)
+9. [Вызов другого сервиса](#9-вызов-другого-сервиса)
 10. [Ошибки, права, пагинация](#10-ошибки-права-пагинация)
 11. [WebSocket](#11-websocket)
-12. [Kafka и события](#12-kafka-и-события)
-13. [Тесты и CI](#13-тесты-и-ci)
-14. [Деплой на сервер](#14-деплой-на-сервер)
-15. [Отладка](#15-отладка)
-16. [Как убрать образец example](#16-как-убрать-образец-example)
-17. [Залить в свой GitHub](#17-залить-в-свой-github)
-
-Дополнительно: [docs/recipes.md](docs/recipes.md) — короткие рецепты и таблица проблем,
-[docs/conventions.md](docs/conventions.md) — все соглашения в одном месте,
-[docs/events.md](docs/events.md) — реестр событий.
+12. [Все команды](#12-все-команды)
+13. [Конфигурация и порты](#13-конфигурация-и-порты)
+14. [Тесты и CI](#14-тесты-и-ci)
+15. [Деплой](#15-деплой)
+16. [Отладка и частые проблемы](#16-отладка-и-частые-проблемы)
+17. [Работа в команде](#17-работа-в-команде)
+18. [Как убрать example_service](#18-как-убрать-example_service)
+19. [Залить в свой GitHub](#19-залить-в-свой-github)
 
 ---
 
 ## 1. Установка
 
-Нужно: **Python 3.13**, **[uv](https://docs.astral.sh/uv/)**, **Docker + compose + buildx**, **Node 22** (для фронта
-локально), **Ansible + rsync** (только для деплоя).
-
-Arch:
+Нужно: **Python 3.13**, **[uv](https://docs.astral.sh/uv/)**, **Docker + compose + buildx**, **Node 22** (фронт локально),
+**Ansible + rsync** (только для деплоя).
 
 ```bash
+# Arch
 sudo pacman -S python uv docker docker-compose docker-buildx nodejs npm ansible rsync
 sudo systemctl enable --now docker
-sudo usermod -aG docker $USER      # перелогиниться
+sudo usermod -aG docker $USER        # и перелогиниться
 ```
-
-Ubuntu:
-
-```bash
-sudo apt install -y python3 docker.io docker-compose-v2 docker-buildx nodejs npm ansible rsync make
-curl -LsSf https://astral.sh/uv/install.sh | sh
-sudo usermod -aG docker $USER
-```
-
-Проверка: `uv --version && docker compose version && node --version`.
 
 ## 2. Первый запуск
 
 ```bash
-make install     # создаёт .env из .env.example и ставит все Python-пакеты (появится uv.lock — закоммить его)
-make up          # собирает и поднимает всё в Docker
+make install     # .env из .env.example + uv sync в каждом сервисе (создаст uv.lock — коммитим)
+make up          # собрать и поднять всё в Docker
 make smoke       # сквозная проверка: register → login → items → refresh → logout
 ```
-
-После `make up`:
 
 | Что | Адрес |
 |---|---|
 | Фронт | http://localhost |
-| Swagger (все HTTP-ручки) | http://localhost:8000/docs |
-| Готовность всех сервисов | http://localhost:8000/health/ready |
+| Swagger | http://localhost:8000/docs |
+| Готовность сервисов | http://localhost:8000/health/ready |
 
-В Swagger: `POST /api/v1/auth/register` → скопируй `access_token` → кнопка **Authorize** → дальше любые ручки.
+В Swagger: `POST /api/v1/auth/register` → скопировать `access_token` → кнопка **Authorize** → дальше любые ручки.
 Админом становится email из `ADMIN_EMAILS` в `.env` (по умолчанию `admin@example.com`).
 
-Остановить — `make down` (данные остаются), снести вместе с данными — `make reset`.
+`make down` — остановить (данные остаются), `make reset` — снести вместе с данными.
 
 ## 3. Два режима работы
 
-**Всё в Docker** (`make up`) — для демо, проверки перед деплоем и для фронтендера, которому нужен готовый бэк.
-После правок кода — снова `make up` (пересоберёт только изменившееся).
+**Всё в Docker** (`make up`) — для демо, проверки перед деплоем и для фронтендера. После правок кода — снова `make up`.
 
-**Локальная разработка** — быстрее: сервисы перезапускаются за секунду, видны логи, работает отладчик.
+**Локально** — быстрее, видно логи, работает отладчик:
 
 ```bash
-make infra              # только Postgres и Redis в Docker
-make run s=auth         # терминал 1
-make run s=example      # терминал 2
-make run s=gateway      # терминал 3  → http://localhost:8000/docs
-make front-dev          # терминал 4  → http://localhost:5173 (hot reload, /api проксируется на :8000)
+make db                         # только базы (auth_db, example_db, ...) в Docker
+make run s=auth_service         # терминал 1: миграции + сервер
+make run s=example_service      # терминал 2
+make run s=gateway              # терминал 3, с --reload → http://localhost:8000/docs
+make front-dev                  # терминал 4 → http://localhost:5173 (hot reload)
 ```
 
-Сервис при старте сам создаёт свою БД и применяет миграции. Если в Docker уже запущен тот же сервис, его порт
-занят — останови контейнер: `docker compose stop auth`.
+Настройки по умолчанию в `infra/config.py` каждого сервиса уже смотрят на `localhost` и порты баз из compose,
+поэтому `.env` для локального запуска не обязателен. Нужно поменять — `cp .env.example .env` в папке сервиса.
 
-В VS Code/PyCharm интерпретатор — `.venv/bin/python` в корне. Запуск под отладчиком: модуль
-`auth_service.main` с аргументом `serve`, рабочая папка `services/auth`.
+Если тот же сервис уже запущен в Docker, порт занят: `docker compose stop auth_service`.
 
-## 4. Как устроен запрос
+Каждый сервис — отдельный uv-проект. В IDE открывай папку сервиса (или добавь все в workspace),
+интерпретатор — `services/<сервис>/.venv/bin/python`.
 
-На примере `GET /api/v1/items/{id}`:
+## 4. Структура проекта
 
-1. **nginx** (`frontend/nginx.conf`) отдаёт статику, а `/api`, `/ws`, `/docs` проксирует в gateway.
-2. **Gateway** (`services/gateway`):
-   - `RequestIdMiddleware` берёт `X-Request-ID` от клиента или генерирует его;
-   - зависимость `AuthCtx` проверяет JWT и собирает `RequestContext{request_id, actor_user_id, actor_role}`;
-   - роутер `routers/items.py` превращает HTTP-запрос в proto-сообщение и вызывает `clients.example.GetItem(...)`.
-3. **gRPC-канал** (`platform_common/grpc/client.py`) добавляет таймаут (5 с) и `x-request-id`.
-4. **Сервис example**:
-   - servicer (`transport/grpc/servicer.py`) с декоратором `@rpc` превращает proto в команду `GetItem(ctx, id)`;
-   - `mediator.send(...)` находит обработчик в `application/queries/items.py`;
-   - обработчик через Unit of Work и репозиторий достаёт сущность из БД, проверяет права
-     (`ctx.require_owner_or_admin`) и вызывает **auth** по gRPC за именем владельца.
-5. Ответ идёт обратно тем же путём. Если где-то брошена ошибка, например `ItemNotFoundError`:
-   - `@rpc` превращает её в gRPC `NOT_FOUND` и кладёт `code=ITEM_NOT_FOUND` в metadata;
-   - gateway превращает это в HTTP 404 `{"error": {"code": "ITEM_NOT_FOUND", ...}}`.
+```
+contracts/                        ← .proto — контракты между сервисами (пишем руками)
+  common/v1/common.proto            RequestContext — общий для всех
+  auth/v1/auth_service.proto
+  example/v1/example_service.proto
+packages/platform_contracts/      ← сгенерированный Python из .proto (make proto, руками не трогаем)
+services/
+  gateway/                        ← HTTP + WebSocket, единственный вход снаружи
+  auth_service/                   ← пользователи, пароли, JWT, refresh-сессии
+  example_service/                ← образец: CRUD Item + вызов auth_service
+scripts/
+  generate_proto.py               ← make proto
+  new_service.py                  ← make new-service
+  smoke.py                        ← make smoke
+frontend/                         ← React + Vite + TS; в Docker — nginx, проксирует /api и /ws в gateway
+infra/ansible/                    ← деплой: роли common → docker → sync → env → start
+compose.yaml                      ← всё вместе: frontend, gateway, сервисы и у каждого своя БД
+```
 
-**Ни в роутерах, ни в servicer'ах нет try/except** — ошибки маппятся централизованно.
+## 5. Как устроен сервис
 
-Слои внутри любого сервиса:
+Все сервисы одинаковые, как `identity_service` в Casino Platform:
 
-| Слой | Папка | Что там | Что НЕ должно быть |
-|---|---|---|---|
-| Домен | `domain/` | dataclass-сущности, правила, доменные ошибки | БД, gRPC, HTTP |
-| Приложение | `application/` | команды/запросы + обработчики, порты (`Protocol`) | SQLAlchemy, proto |
-| Инфраструктура | `infra/` | модели SQLAlchemy, репозитории, UoW, клиенты соседних сервисов | бизнес-правила |
-| Транспорт | `transport/` | gRPC servicer, мапперы proto ⇄ DTO, обработчики Kafka | бизнес-правила |
-| Сборка | `container.py` | связывает реализации с портами, регистрирует обработчики | — |
+```
+services/example_service/
+  pyproject.toml  uv.lock  Dockerfile  alembic.ini  .env.example
+  migrations/                         ← alembic (env.py берёт DATABASE_URL из Settings)
+  src/example_service/
+    main.py                           ← точка входа: логи + asyncio.run(serve())
+    dependencies.py                   ← composition root: собирает UoW, клиенты, регистрирует хэндлеры
+    applications/
+      mediator.py                     ← Command / Mediator
+      context.py                      ← RequestContext: кто делает запрос + require_user / require_owner_or_admin
+      exceptions.py                   ← ошибки уровня приложения (NotFound, PermissionDenied...)
+      commands/                       ← что хотим изменить:  CreateItemCommand(ctx, title, ...)
+      queries/                        ← что хотим прочитать: GetItemQuery(ctx, item_id)
+      handlers/                       ← как это сделать:     CreateItemCommandHandler.handle()
+      ports/                          ← интерфейсы (Protocol): репозитории, UnitOfWork, клиенты других сервисов
+      results/                        ← read models — что возвращают хэндлеры
+    domain/
+      entities.py                     ← сущности и их поведение (Item.edit, Item.change_status)
+      value_objects.py                ← ItemTitle с валидацией
+      exceptions.py                   ← доменные ошибки
+    infra/
+      config.py                       ← Settings (pydantic-settings)
+      database/                       ← Base, engine, модели SQLAlchemy
+      repositories/                   ← реализация портов: модель ⇄ сущность
+      uow/                            ← SQLAlchemyUnitOfWork
+      clients/                        ← gRPC-клиенты к другим сервисам
+    transport/grpc/
+      server.py                       ← gRPC-сервер + health + reflection
+      servicer.py                     ← proto → команда → mediator → proto
+      mappers.py                      ← proto ⇄ read model, контекст из proto
+      errors.py                       ← @grpc_errors + таблица ERROR_CODES
+  tests/                              ← хэндлеры на фейках (fakes.py), без БД
+```
 
-## 5. Гайд: от ТЗ до работающей фичи
+Правило слоёв: `domain` ничего не знает про БД и gRPC; `applications` знает только про порты (Protocol);
+реализации — в `infra`; `transport` только переводит proto в команды и обратно; всё связывается в `dependencies.py`.
 
-Сквозной пример: в ТЗ «пользователь бронирует слот, может отменить бронь, нельзя забронировать занятый слот».
+## 6. Как проходит запрос
 
-### Шаг 1. Разбор ТЗ (вся команда, 30–60 минут)
+`GET /api/v1/items/{id}`:
 
-- Выпишите **сценарии** глаголами: «забронировать слот», «отменить бронь», «посмотреть мои брони».
-- Разложите данные по **владельцам**. Один сервис = одна зона ответственности и своя БД. На хакатоне
-  обычно хватает 2–4 сервисов, и auth уже есть.
-- Для каждого сценария решите: **кто вызывает кого** (gRPC, синхронно, нужен ответ) и **что может случиться
-  потом** (событие в Kafka, асинхронно).
-- Договоритесь об **HTTP API для фронта** — по Swagger или прямо в `docs/`. Фронтендер начинает сразу.
+1. **nginx** (`frontend/nginx.conf`) проксирует `/api` в gateway.
+2. **gateway**: middleware ставит `X-Request-ID`; зависимость `AuthCtx` проверяет JWT и собирает
+   `RequestContext{request_id, actor_user_id, actor_role}`; роутер `routers/items.py` вызывает
+   `clients.example.GetItem(pb.GetItemRequest(context=ctx, item_id=...))`.
+3. **example_service**: servicer → `GetItemQuery` → `mediator.send` → `GetItemQueryHandler`: берёт Item через
+   UnitOfWork, проверяет `ctx.require_owner_or_admin`, вызывает auth_service за именем владельца.
+4. Если брошено `ItemNotFoundError`, `@grpc_errors` по таблице `ERROR_CODES` отвечает `NOT_FOUND` и кладёт
+   в trailing metadata `error-code: ITEM_NOT_FOUND`. Gateway (`errors.py`) превращает это в
+   `404 {"error": {"code": "ITEM_NOT_FOUND", ...}}`.
 
-### Шаг 2. Создать сервис (1 минута)
+Ни в роутерах, ни в servicer'ах нет try/except: ошибки обрабатываются в одном месте.
+
+## 7. Гайд: от ТЗ до фичи
+
+Пример ТЗ: «пользователь бронирует слот; занятый слот забронировать нельзя».
+
+### 7.1. Разбор (вся команда, 30–60 минут)
+
+- Сценарии глаголами: «создать слот», «забронировать», «мои брони».
+- Кто владеет какими данными. Один сервис = одна зона ответственности и своя БД. Обычно хватает 2–4 сервисов, auth уже есть.
+- Какие вызовы между сервисами нужны (gRPC, синхронно).
+- HTTP API для фронта — договориться сразу, фронтендер начинает параллельно.
+
+### 7.2. Создать сервис
 
 ```bash
 make new-service name=booking entity=Slot
 ```
 
-Появится:
+Скопирует `example_service` в `services/booking_service`, переименует Item → Slot, выберет свободные порты
+и напечатает, что дописать в compose, gateway и CI (подробно — [раздел 8](#8-новый-сервис)).
 
-```
-contracts/booking/v1/booking.proto                 ← контракт
-services/booking/                                  ← сервис: Create/Get/List уже работают, есть миграция и тест
-services/gateway/src/gateway/routers/booking.py    ← HTTP-ручки /api/v1/booking
-services/gateway/src/gateway/schemas/booking.py    ← Pydantic-схемы
-```
-
-Плюс сервис прописан в `compose.yaml`, в gateway (`config.py`, `clients.py`, `main.py`) и в `mypy_path`.
-Порт берётся следующий свободный (50053, 50054…), можно задать: `port=50060`.
-
-Проверка: `make up` → в Swagger появились `/api/v1/booking`.
-
-### Шаг 3. Контракт (`contracts/booking/v1/booking.proto`)
-
-Описываешь RPC под сценарии. Правила: первое поле запроса — `RequestContext context = 1`; запрос и ответ
-называются `<Rpc>Request` / `<Rpc>Response`; у enum нулевое значение `*_UNSPECIFIED`.
+### 7.3. Контракт — `contracts/booking/v1/booking_service.proto`
 
 ```proto
 service BookingService {
   rpc CreateSlot(CreateSlotRequest) returns (CreateSlotResponse);
-  rpc GetSlot(GetSlotRequest) returns (GetSlotResponse);
-  rpc ListSlots(ListSlotsRequest) returns (ListSlotsResponse);
-  rpc BookSlot(BookSlotRequest) returns (BookSlotResponse);       // новое
+  rpc BookSlot(BookSlotRequest) returns (BookSlotResponse);          // новое
+  ...
 }
 
 message BookSlotRequest {
-  contracts.common.v1.RequestContext context = 1;
+  common.v1.RequestContext context = 1;       // первое поле каждого запроса
   string slot_id = 2;
 }
 message BookSlotResponse { Slot slot = 1; }
 ```
 
 ```bash
-make proto      # генерирует Python в packages/contracts (руками его не трогаем)
+make proto
 ```
 
-### Шаг 4. Домен (`services/booking/src/booking_service/domain/slot.py`)
+Правила: RPC `Foo` → `FooRequest` / `FooResponse`; у enum нулевое значение `*_UNSPECIFIED`;
+«не менять» в update — `optional`; номера полей не переиспользуем.
 
-Правила предметной области и ошибки с публичным кодом. Никакого SQL и gRPC.
+### 7.4. Домен — `domain/entities.py`, `domain/exceptions.py`
 
 ```python
-class SlotAlreadyBookedError(ConflictError):          # → HTTP 409
-    code = "SLOT_ALREADY_BOOKED"
+class SlotAlreadyBookedError(SlotDomainError):
+    pass
 
 
-@dataclass
+@dataclass(slots=True, kw_only=True)
 class Slot:
-    id: UUID
-    owner_id: UUID
-    title: str
-    created_at: datetime
+    ...
     booked_by: UUID | None = None
 
     def book(self, user_id: UUID) -> None:
         if self.booked_by is not None:
-            raise SlotAlreadyBookedError()
+            raise SlotAlreadyBookedError("Slot is already booked")
         self.booked_by = user_id
+        self.updated_at = utc_now()
 ```
 
-Базовые классы ошибок: `ValidationError` 422, `UnauthenticatedError` 401, `PermissionDeniedError` 403,
-`NotFoundError` 404, `AlreadyExistsError` 409, `ConflictError` 409, `RateLimitedError` 429.
+### 7.5. Команда и хэндлер
 
-### Шаг 5. Команда и обработчик (`application/commands.py`)
+`applications/commands/book_slot.py`:
 
 ```python
-@dataclass(frozen=True, slots=True)
-class BookSlot(Command[Slot]):
+@dataclass(frozen=True)
+class BookSlotCommand(Command[SlotReadModel]):
     ctx: RequestContext
     slot_id: UUID
-
-
-class BookSlotHandler:
-    def __init__(self, uow_factory: UnitOfWorkFactory) -> None:
-        self._uow_factory = uow_factory
-
-    async def handle(self, cmd: BookSlot) -> Slot:
-        user_id = cmd.ctx.require_user()                 # 401, если не залогинен
-        async with self._uow_factory() as uow:           # одна транзакция
-            slot = await uow.slots.get(cmd.slot_id)
-            if slot is None:
-                raise SlotNotFoundError()
-            slot.book(user_id)                           # бизнес-правило — в домене
-            await uow.slots.update(slot)
-            await uow.commit()                           # без commit всё откатится
-        return slot
 ```
 
-Если репозиторию нужен новый метод (`update`), добавь его в порт `application/ports.py` и в реализацию
-`infra/db/repositories.py`.
-
-Регистрация — одна строка в `container.py`:
+`applications/handlers/book_slot.py`:
 
 ```python
-mediator.register(BookSlot, BookSlotHandler(uow_factory))
+@dataclass
+class BookSlotCommandHandler:
+    uow_factory: UnitOfWorkFactory
+
+    async def handle(self, cmd: BookSlotCommand) -> SlotReadModel:
+        user_id = cmd.ctx.require_user()
+
+        async with self.uow_factory() as uow:
+            slot = await uow.slots.get_by_id(cmd.slot_id)
+            if slot is None:
+                raise SlotNotFoundError("Slot not found")
+
+            slot.book(user_id)              # правило — в домене
+
+            await uow.slots.save(slot)
+            await uow.commit()              # без commit всё откатится
+
+        return SlotReadModel.from_slot(slot)
 ```
 
-### Шаг 6. Модель и миграция
+Регистрация в `dependencies.py`:
 
-Добавляешь колонку в `infra/db/models.py` (`booked_by: Mapped[uuid.UUID | None]`), мапишь её в
-`repositories.py`, затем:
+```python
+mediator.register(BookSlotCommand, BookSlotCommandHandler(uow_factory=uow_factory))
+```
+
+### 7.6. Модель и миграция
+
+Колонка в `infra/database/models.py` (`booked_by: Mapped[uuid.UUID | None]`), маппинг в
+`infra/repositories/slot_repository.py` (`_to_model`, `_to_domain`, `save`), затем:
 
 ```bash
-make infra                                    # если Postgres ещё не запущен
-make migration s=booking m="slot booked_by"   # autogenerate → src/booking_service/migrations/versions/
+make db
+make migration s=booking_service m="slot booked_by"     # → migrations/versions/
 ```
 
-Посмотри на сгенерированный файл глазами. Применится сам при следующем старте сервиса.
+Проверь файл глазами. Применится при старте сервиса (`alembic upgrade head` в Dockerfile и в `make run`).
 
-### Шаг 7. gRPC servicer (`transport/grpc/servicer.py`)
+### 7.7. Ошибка → код для фронта — `transport/grpc/errors.py`
 
 ```python
-@rpc
-async def BookSlot(self, request: pb.BookSlotRequest, context: ServicerContext) -> pb.BookSlotResponse:
-    slot = await self._m.send(
-        BookSlot(RequestContext.from_proto(request.context), parse_uuid(request.slot_id, "slot_id"))
-    )
-    return pb.BookSlotResponse(slot=slot_to_pb(slot))
+ERROR_CODES = [
+    ...
+    (SlotAlreadyBookedError, grpc.StatusCode.FAILED_PRECONDITION, "SLOT_ALREADY_BOOKED"),  # → HTTP 409
+]
 ```
 
-### Шаг 8. HTTP-ручка в gateway (`services/gateway/src/gateway/routers/booking.py`)
+### 7.8. Servicer — `transport/grpc/servicer.py`
+
+```python
+@grpc_errors
+async def BookSlot(self, request: pb.BookSlotRequest, context: Context) -> pb.BookSlotResponse:
+    slot = await self._mediator.send(
+        BookSlotCommand(ctx=context_from_proto(request.context), slot_id=parse_slot_id(request.slot_id))
+    )
+    return pb.BookSlotResponse(slot=slot_to_proto(slot))
+```
+
+### 7.9. Ручка в gateway — `services/gateway/src/gateway/routers/booking.py`
 
 ```python
 @router.post("/{slot_id}/book")
 async def book_slot(slot_id: UUID, ctx: AuthCtx, clients: Clients) -> SlotOut:
-    resp = await clients.booking.BookSlot(pb.BookSlotRequest(context=ctx, slot_id=str(slot_id)))
-    return SlotOut.from_pb(resp.slot)
+    result = await clients.booking.BookSlot(pb.BookSlotRequest(context=ctx, slot_id=str(slot_id)))
+    return SlotOut.from_proto(result.slot)
 ```
 
-`AuthCtx` — нужен логин, `AnonCtx` — можно без него. Если нужен push в реальном времени:
-`await request.app.state.ws.broadcast("slots", "slot.booked", {...})`.
+`AuthCtx` — нужен логин, `AnonCtx` — можно без него. Схемы `SlotOut` — в `schemas/booking.py` по образцу `schemas/items.py`.
 
-### Шаг 9. Тест
+### 7.10. Тест — `tests/test_slots.py`
 
-`services/booking/tests/test_slot.py` уже содержит фейковые UoW и репозиторий — добавь сценарий:
+Фейковые UoW и репозиторий уже в `tests/fakes.py`:
 
 ```python
-async def test_cannot_book_twice() -> None:
-    ...
-    await mediator.send(BookSlot(ctx(alice), slot.id))
+async def test_cannot_book_twice(mediator: Mediator) -> None:
+    slot = await mediator.send(CreateSlotCommand(ctx(ALICE), "10:00"))
+    await mediator.send(BookSlotCommand(ctx(ALICE), slot.id))
     with pytest.raises(SlotAlreadyBookedError):
-        await mediator.send(BookSlot(ctx(bob), slot.id))
+        await mediator.send(BookSlotCommand(ctx(BOB), slot.id))
 ```
 
 ```bash
-make check      # ruff + mypy --strict + pytest по всем сервисам
+make check       # ruff + mypy --strict + pytest во всех сервисах
 ```
 
-### Шаг 10. Фронт
+### 7.11. Фронт
 
-В `frontend/src/api/index.ts` по образцу `items` добавляешь типы и вызовы:
+`frontend/src/api/index.ts` — по образцу `items`:
 
 ```ts
 export const slots = {
-  list: () => request<Page<Slot>>("GET", "/booking"),
+  list: (offset = 0) => request<Page<Slot>>("GET", `/booking?offset=${offset}`),
   book: (id: string) => request<Slot>("POST", `/booking/${id}/book`),
 };
 ```
 
-`request()` сам подставляет токен, на 401 обновляет его через refresh-cookie и повторяет запрос,
-ошибку отдаёт как `ApiError` с полем `code`. Экран — по образцу `src/pages/ItemsPage.tsx`.
+`request()` сам подставляет токен, на 401 обновляет его через refresh-cookie и повторяет запрос, ошибку
+бросает как `ApiError` с полем `code`. Экран — по образцу `src/pages/ItemsPage.tsx`.
 
-### Шаг 11. Проверка и выкатка
+### 7.12. Выкатить
 
 ```bash
-make up && make smoke                          # локально, всё в Docker
-make deploy HOST=<ip> SSH_USER=<user>          # на сервер (первый раз — make server-setup)
+make up && make smoke                         # локально
+make deploy HOST=<ip> SSH_USER=<user>         # на сервер
 make smoke URL=http://<ip>
 ```
 
-### Если нужен вызов соседнего сервиса
+## 8. Новый сервис
 
-Например, booking проверяет пользователя в auth. Образец — `services/example/src/example_service/infra/auth_client.py`:
-
-1. `config.py` сервиса: `auth_grpc_target: str = "localhost:50051"`; в `compose.yaml` у сервиса: `AUTH_GRPC_TARGET: auth:50051`.
-2. Порт в `application/ports.py` (Protocol) и адаптер в `infra/`, который вызывает stub с `ctx.to_proto()`.
-3. В `container.py`: `create_channel(settings.auth_grpc_target, timeout=settings.grpc_client_timeout)`,
-   канал положить в `Container.channels`.
-4. Ошибку соседа либо пробрасываешь (`raise app_error_from_rpc(exc)` — код сохранится до фронта),
-   либо деградируешь, как example (возвращает item без имени владельца).
-
-Межсервисные вызовы делай **вне** открытой транзакции UoW.
-
-## 6. Работа в команде
-
-| Кто | Где работает | Что ещё |
-|---|---|---|
-| Тимлид / DevOps | `platform_common`, `compose.yaml`, `infra/`, CI, `make new-service` | раздаёт сервисы, мержит контракты |
-| Бэкенд 1, 2 | `services/<свой>/`, свои ручки в `gateway/routers/` | proto — через ревью |
-| Фронтенд | `frontend/` | работает по Swagger поднятого `make up` |
-| Дизайн / презентация | — | демо-стенд: `make up`, затем регистрируетесь во фронте |
-
-Правила, которые экономят время:
-
-- **Контракт — точка синхронизации.** Сначала PR с `.proto` (+ `make proto`), потом реализация. Фронту
-  сразу можно дать HTTP-схему, даже если сервис ещё отвечает заглушкой.
-- `make new-service` запускает один человек и сразу пушит: генератор правит общие файлы (`compose.yaml`,
-  gateway), параллельный запуск даст конфликты.
-- Сгенерированный код (`packages/contracts/src`) коммитится. CI проверит, что он соответствует `.proto`.
-- Перед пушем — `make fmt && make check`.
-- Ветки короткие, мерж часто: на хакатоне долгие ветки — главный источник боли.
-
-## 7. Структура проекта
-
-```
-contracts/<svc>/v1/*.proto        ← контракты внутренних API (пишем руками)
-packages/
-  contracts/                      ← сгенерированный Python из proto (make proto)
-  platform_common/                ← общий фундамент, бизнес-логики нет:
-    errors.py                       иерархия ошибок с публичными кодами
-    context.py                      RequestContext + проверки прав
-    mediator.py                     Command / Query / Mediator
-    pagination.py                   курсорная пагинация
-    grpc/server.py                  запуск сервера: health, reflection, graceful shutdown, фоновые задачи
-    grpc/client.py                  каналы: таймаут, x-request-id
-    grpc/errors.py                  @rpc: AppError → gRPC status; обратный разбор для клиентов
-    db/                             engine, UoW, ensure_database, миграции без alembic.ini
-    kafka/                          Event, outbox writer/relay, idempotent consumer
-    security/jwt.py                 выпуск и проверка access-токенов
-    cli.py                          общий CLI сервиса: run | serve | migrate | makemigrations
-services/
-  gateway/                        ← HTTP + WebSocket, единственный вход снаружи
-    routers/ schemas/ ws/           ручки, Pydantic-схемы, WebSocket
-    clients.py dependencies.py      gRPC-клиенты, AuthCtx/AnonCtx
-    errors.py middleware.py         маппинг ошибок, X-Request-ID
-  auth/                           ← пользователи, argon2, JWT + refresh-сессии с ротацией
-  example/                        ← образец: CRUD Item, вызов auth, consumer события
-templates/service/                ← шаблон для make new-service
-frontend/                         ← React + Vite + TS; в Docker — nginx, проксирующий /api и /ws
-infra/ansible/                    ← деплой на сервер по IP
-Dockerfile                        ← один образ на все Python-сервисы (build-arg PACKAGE)
-scripts/                          ← gen_proto.py, new_service.py, smoke.py
-docs/                             ← рецепты, соглашения, реестр событий
+```bash
+make new-service name=orders                       # копия example_service, сущность остаётся Item
+make new-service name=orders entity=Order          # + Item → Order, items → orders во всём коде
+make new-service name=orders entity=Order port=50060 db_port=5440
 ```
 
-## 8. Все команды
+Скрипт создаёт `contracts/orders/` и `services/orders_service/` (порты и БД уже свои) и **ничего больше не трогает**.
+Остальное дописываешь сам — скрипт печатает готовые куски:
 
-| Команда | Что делает |
+1. `compose.yaml` — блоки `orders_service` и `orders_db`, volume, у gateway — `ORDERS_GRPC_TARGET` и `depends_on`.
+2. gateway: адрес в `config.py`, стаб в `grpc_clients.py`, роутер `routers/orders.py` (копия `items.py`) + `include_router` в `main.py`.
+3. CI: `orders_service` в `matrix.service`; деплой: `ORDERS_DB_PASSWORD` в `infra/ansible/roles/env/templates/env.j2` и `.env.example`.
+4. `make proto && make install && make up`.
+
+Если сервису не нужен auth — удали `infra/clients/auth_client.py`, `applications/ports/user_directory.py`
+и их использование в `dependencies.py` и `handlers/get_*.py`.
+
+## 9. Вызов другого сервиса
+
+Образец — `example_service` ходит в `auth_service` за именем владельца:
+
+| Что | Где |
 |---|---|
-| `make install` | `.env` + `uv sync --all-packages` |
-| `make proto` | Python-код из всех `.proto` |
-| `make new-service name=x [entity=X] [port=N]` | каркас сервиса + регистрация везде |
-| `make up` / `make up-kafka` | всё в Docker (без Kafka / с Kafka и kafka-ui) |
-| `make down` / `make reset` | остановить / остановить и удалить данные |
-| `make ps`, `make logs [s=gateway]` | статус, логи |
-| `make infra` / `make infra-kafka` | только инфраструктура для локальной разработки |
-| `make run s=<svc> [cmd=serve\|migrate]` | запустить сервис локально (по умолчанию migrate + serve) |
-| `make migration s=<svc> m="msg"` | autogenerate миграции |
-| `make front-dev` | фронт с hot reload |
-| `make fmt` | автоформат и автофиксы ruff |
-| `make lint`, `make typecheck`, `make test`, `make check` | проверки (check = всё, как в CI) |
-| `make smoke [URL=...]` | сквозной тест живого стенда |
-| `make server-setup HOST=... SSH_USER=...` | подготовить сервер (один раз) |
-| `make deploy HOST=... SSH_USER=... [KAFKA=true]` | выкатить |
+| Интерфейс | `applications/ports/user_directory.py` — `UserDirectory(Protocol)` |
+| Реализация | `infra/clients/auth_client.py` — `GrpcUserDirectory`: stub + таймаут + тот же RequestContext |
+| Адрес | `infra/config.py` — `auth_grpc_target`; в compose — `AUTH_GRPC_TARGET: auth_service:50051` |
+| Сборка | `dependencies.py` — канал `grpc.aio.insecure_channel(...)`, закрывается в `Container.close()` |
+| Использование | `handlers/get_item.py` — `await self.users.get_name(ctx, owner_id)` |
 
-`make help` — то же самое в терминале.
-
-## 9. Конфигурация (.env)
-
-Один `.env` в корне читают и `docker compose`, и сервисы при локальном запуске. Остальные настройки — в
-`config.py` каждого сервиса: у них дефолты под локальную разработку, в Docker их переопределяет `compose.yaml`.
-
-| Переменная | По умолчанию | Зачем |
-|---|---|---|
-| `POSTGRES_PASSWORD` | `app` | пароль единственного Postgres |
-| `JWT_SECRET` | dev-значение | подпись access-токенов (auth и gateway), ≥ 32 символов |
-| `ADMIN_EMAILS` | `admin@example.com` | кто при регистрации получает роль admin |
-| `KAFKA_ENABLED` | `false` | включить relay и consumer'ов (`make up-kafka` ставит сам) |
-| `LOG_LEVEL` | `INFO` | уровень логов |
-| `COOKIE_SECURE` | `false` | `true` только за HTTPS |
-| `HTTP_PORT`, `GATEWAY_PORT`, `POSTGRES_PORT`, `REDIS_PORT` | 80, 8000, 5432, 6379 | поменяй, если порт занят |
-
-Порты внутри:
-
-| Что | Локально | На сервере |
-|---|---|---|
-| Фронт + прокси API | `:80` | `:80` — единственный открытый |
-| Gateway / Swagger | `:8000` | через nginx: `/docs` |
-| auth / example / новые | `127.0.0.1:50051 / 50052 / 50053…` | только внутри |
-| Postgres / Redis | `127.0.0.1:5432 / 6379` | только внутри |
-| Kafka / kafka-ui | `127.0.0.1:9094 / 8081` | только внутри |
+Ошибка соседа: либо деградируем (как здесь — отдаём item без имени), либо бросаем своё исключение.
+Вызов делаем **вне** открытой транзакции UnitOfWork.
 
 ## 10. Ошибки, права, пагинация
 
-Ответ об ошибке всегда одинаковый, `details` — всегда массив:
+**Ответ об ошибке** всегда одинаковый:
 
 ```json
-{"error": {"code": "SLOT_ALREADY_BOOKED", "message": "...", "request_id": "7f3c…", "details": []}}
-{"error": {"code": "VALIDATION_ERROR", "message": "...", "request_id": "…",
-           "details": [{"field": "title", "reason": "invalid_length"}]}}
+{"error": {"code": "ITEM_NOT_FOUND", "message": "Item not found", "request_id": "7f3c…", "details": []}}
 ```
 
-Фронт принимает решения **только по `code`**. Недоступный сервис — 503 `SERVICE_UNAVAILABLE`, таймаут — 504,
-необработанное исключение — 502 `UPSTREAM_ERROR` (текст исключения наружу не уходит, traceback в логах).
+Фронт решает только по `code`. Откуда берётся:
 
-Права проверяются в обработчиках через контекст:
+| В сервисе (`ERROR_CODES`) | gRPC | HTTP |
+|---|---|---|
+| `INVALID_ARGUMENT` | ошибка валидации | 422 |
+| `UNAUTHENTICATED` | нет логина / плохой пароль | 401 |
+| `PERMISSION_DENIED` | чужой ресурс | 403 |
+| `NOT_FOUND` | не найдено | 404 |
+| `ALREADY_EXISTS` | дубликат | 409 |
+| `FAILED_PRECONDITION` | нельзя в текущем состоянии | 409 |
+| сервис не отвечает | `UNAVAILABLE` / `DEADLINE_EXCEEDED` | 503 / 504 |
+| исключение не из таблицы | `INTERNAL` | 502 `UPSTREAM_ERROR`, текст скрыт, traceback в логах сервиса |
+
+Ошибка прямо из роутера gateway: `raise ApiError(400, "BAD_REQUEST", "...")`.
+
+**Права** — в хэндлерах через контекст:
 
 ```python
-ctx.require_user()                    # 401, если аноним; возвращает user_id
-ctx.require_role("admin")             # 403, если роль не та
-ctx.require_owner_or_admin(owner_id)  # 403, если не владелец и не админ
+user_id = cmd.ctx.require_user()                # 401, если аноним
+cmd.ctx.require_owner_or_admin(item.owner_id)   # 403, если не владелец и не админ
+cmd.ctx.is_admin
 ```
 
-Пагинация: `?limit=20&cursor=…` → `{"items": [...], "next_cursor": "…" | null}`. В обработчике — `Page.from_request(...)`,
-в репозиторий передаётся `limit + 1`, чтобы понять, есть ли следующая страница (см. `ListItemsHandler`).
-
-Полная таблица кодов и маппинга — [docs/conventions.md](docs/conventions.md).
+**Пагинация**: `?limit=20&offset=0` → `{"items": [...], "has_more": true}`. Хэндлер запрашивает `limit + 1`
+строк, чтобы узнать, есть ли следующая страница (`handlers/list_items.py`).
 
 ## 11. WebSocket
 
-Подключение: `ws://<host>/ws/v1?token=<access_token>` (невалидный токен → close 4401).
+`ws://<host>/ws/v1?token=<access_token>` (невалидный токен → close 4401). Сервер шлёт `{"type": ..., "payload": ...}`,
+клиент может прислать `{"type": "ping"}` → `pong`.
 
-```
-→ {"type": "group.join", "request_id": "r1", "payload": {"group": "room:42"}}
-← {"type": "group.join.ok", "request_id": "r1", "payload": {"group": "room:42"}}
-← {"type": "error", "request_id": "r1", "payload": {"code": "...", "message": "...", "details": []}}
-← {"type": "item.created", "request_id": null, "payload": {...}}       # push от сервера
-```
-
-Встроены: `ping`, `group.join`, `group.leave`, `group.say` (рассылка всем в группе), `item.get` (пример gRPC-вызова).
-Своя команда — функция с декоратором `@ws_handler("type")` в `services/gateway/src/gateway/ws/handlers.py`:
-что она вернёт, уйдёт клиенту как `<type>.ok`; ошибки gRPC и доменные превратятся в `error` автоматически.
-
-Push из любой HTTP-ручки: `request.app.state.ws.send_to_user(user_id, type, payload)` или `.broadcast(group, type, payload)`.
-На фронте — `connectWs(getAccessToken, onMessage)` из `frontend/src/api/ws.ts` (переподключается сам).
-Ограничение: одна реплика gateway.
-
-## 12. Kafka и события
-
-По умолчанию Kafka выключена, но события всё равно пишутся в таблицу `outbox` той же транзакцией, что и данные.
-`make up-kafka` поднимает Kafka и kafka-ui (http://localhost:8081), включает relay, и накопленные события уходят.
-
-Опубликовать (в обработчике команды):
+Push из любого роутера gateway:
 
 ```python
-uow.outbox.add("booking.events", "booking.slot_booked.v1", {"slot_id": str(slot.id)}, key=str(slot.id))
-await uow.commit()
+await request.app.state.ws.send_to_user(user_id, "item.created", {...})
+await request.app.state.ws.broadcast("slot.booked", {...})
 ```
 
-Подписаться (в другом сервисе) — по образцу example:
-1. модель `class ProcessedEvent(ProcessedEventMixin, Base)` и миграция (защита от дублей);
-2. `transport/kafka/handlers.py`: `async def on_slot_booked(session, event): ...` и словарь `HANDLERS`;
-3. `KafkaEventConsumer(...)` в `background` в `container.py`.
+На фронте — `connectWs(getAccessToken, onMessage)` из `frontend/src/api/ws.ts` (переподключается сам).
+Код — `services/gateway/src/gateway/ws.py`. Ограничение: одна реплика gateway.
 
-Повторная доставка ничего не задвоит: `event_id` фиксируется в `processed_events` в той же транзакции.
-Добавил событие — допиши строку в [docs/events.md](docs/events.md).
+## 12. Все команды
 
-## 13. Тесты и CI
+| Команда | Что делает |
+|---|---|
+| `make install` | `.env` + `uv sync` в каждом сервисе |
+| `make lock` | `uv lock` в каждом сервисе |
+| `make proto` | Python из `contracts/**/*.proto` |
+| `make new-service name=x [entity=X] [port=N] [db_port=N]` | копия example_service |
+| `make up` / `make down` / `make reset` | поднять / остановить / остановить и удалить данные |
+| `make ps`, `make logs [s=gateway]` | статус, логи |
+| `make db` | только базы — для локального запуска |
+| `make run s=<сервис>` | запустить сервис локально (миграции + сервер) |
+| `make migration s=<сервис> m="msg"` | новая миграция (autogenerate) |
+| `make front-dev` | фронт с hot reload |
+| `make fmt` / `make lint` / `make typecheck` / `make test` / `make check` | качество кода |
+| `make smoke [URL=...]` | сквозной тест живого стенда |
+| `make deploy HOST=... SSH_USER=...` | выкатить на сервер |
 
-- Use case'ы тестируются на фейках (in-memory UoW и репозитории) — быстро и без БД. Образцы: `services/*/tests`.
-- `services/example/tests/test_events_pg.py` — интеграционный с настоящим Postgres. Пропускается сам, если
-  Postgres не запущен (`make infra`).
-- Gateway тестируется с подменёнными gRPC-стабами: `services/gateway/tests`.
-- `make smoke` гоняет сквозной сценарий по живому стенду — локально и после деплоя.
+## 13. Конфигурация и порты
 
-CI (`.github/workflows/ci.yml`) на каждый push: ruff, mypy `--strict`, pytest с Postgres, проверка, что
-сгенерированный proto-код свежий, `docker compose config`, сборка фронта.
+Корневой `.env` читает `docker compose`:
 
-## 14. Деплой на сервер
+| Переменная | Зачем |
+|---|---|
+| `JWT_SECRET` | общий секрет: auth_service подписывает токены, gateway проверяет (≥ 32 символов) |
+| `ADMIN_EMAILS` | кто при регистрации получает роль admin |
+| `AUTH_DB_PASSWORD`, `EXAMPLE_DB_PASSWORD` | пароли баз |
+| `COOKIE_SECURE` | `true` только за HTTPS |
+| `HTTP_PORT` | порт фронта на хосте |
 
-Сервер: Ubuntu 22.04+ / Debian 12+, SSH-доступ пользователем с sudo. Подробно — [infra/ansible/README.md](infra/ansible/README.md).
+Настройки сервиса — `services/<сервис>/src/<сервис>/infra/config.py` (Settings), для локального запуска
+можно переопределить через `services/<сервис>/.env`.
+
+| Что | Порт | Наружу на сервере |
+|---|---|---|
+| frontend (nginx) | 80 | да — единственный |
+| gateway / Swagger | 8000 | через nginx: `/api`, `/ws`, `/docs` |
+| auth_service / example_service / новые | 50051 / 50052 / 50053… | нет (127.0.0.1) |
+| auth_db / example_db / новые | 5433 / 5434 / 5435… | нет (127.0.0.1) |
+
+## 14. Тесты и CI
+
+- Хэндлеры тестируются на фейках (`tests/fakes.py`): in-memory репозитории и UnitOfWork, без БД.
+- Gateway тестируется с подменёнными gRPC-стабами (`services/gateway/tests`).
+- `make smoke` — сквозной сценарий по живому стенду, локально и после деплоя.
+
+CI (`.github/workflows/ci.yml`), на каждый push: для каждого сервиса ruff, mypy `--strict`, pytest; проверка,
+что сгенерированный proto-код свежий; `docker compose config`; сборка фронта.
+
+## 15. Деплой
+
+Сервер: Ubuntu 22.04+ / Debian 12+, SSH пользователем с sudo.
 
 ```bash
-make server-setup HOST=1.2.3.4 SSH_USER=ubuntu    # один раз: Docker, зеркало Docker Hub, firewall (22/80/443)
-make deploy HOST=1.2.3.4 SSH_USER=ubuntu          # каждый раз: rsync → .env → docker compose up --build
+make deploy HOST=1.2.3.4 SSH_USER=ubuntu
 make smoke URL=http://1.2.3.4
 ```
 
-- Уезжает текущая рабочая папка, незакоммиченное тоже; git на сервере не нужен.
-- Секреты (`POSTGRES_PASSWORD`, `JWT_SECRET`) генерируются при первом деплое и хранятся у тебя в
-  `infra/ansible/.secrets/` (в `.gitignore`). Не удаляй их, иначе на сервере поменяется пароль БД.
-- Настройки — `infra/ansible/playbooks/group_vars/all.yml`: порт, Kafka, админы, зеркала.
-- Развернуть на машине, где сидишь (например, ноут на площадке) — в `infra/ansible/inventory.ini`
-  раскомментируй `local ansible_connection=local` и запусти `make deploy`.
-- Логи на сервере: `ssh ubuntu@1.2.3.4 'cd /opt/mp && docker compose logs -f --tail=100 gateway'`.
+Роли по порядку: `common` (пакеты) → `docker` (Docker из репозиториев дистрибутива + зеркало Docker Hub) →
+`sync` (rsync текущей папки в `/opt/mp`, git на сервере не нужен) → `env` (`.env` с паролями, которые
+генерируются один раз и хранятся в `infra/ansible/.secrets/`) → `start` (`docker compose up -d --build`, ждёт `/health/ready`).
 
-## 15. Отладка
+Подробности и настройки — [infra/ansible/README.md](infra/ansible/README.md).
 
-- **Найти запрос во всех логах:** `request_id` есть в заголовке ответа `X-Request-ID` и в `error.request_id`;
-  `make logs | grep <id>` покажет путь через gateway и все сервисы.
-- **Кто лежит:** `curl localhost:8000/health/ready` → `{"auth": "up", "booking": "down", ...}`.
+## 16. Отладка и частые проблемы
+
+- **Найти запрос в логах:** `request_id` есть в заголовке `X-Request-ID` и в `error.request_id`; сервисы пишут его в лог.
+- **Кто лежит:** `curl localhost:8000/health/ready`.
 - **Дёрнуть gRPC напрямую** (reflection включён):
   ```bash
   grpcurl -plaintext localhost:50052 list
   grpcurl -plaintext -d '{"context":{"actor_user_id":"<uuid>","actor_role":"user"},"title":"x"}' \
-    localhost:50052 contracts.example.v1.ExampleService/CreateItem
+    localhost:50052 example.v1.ExampleService/CreateItem
   ```
-- **Посмотреть БД:** `docker compose exec postgres psql -U app -d booking`.
-- **SQL в логах:** `DATABASE_ECHO=true make run s=booking`.
-- Частые проблемы (порт занят, Docker Hub недоступен, миграции, refresh-cookie) — таблица в конце
-  [docs/recipes.md](docs/recipes.md).
+- **Посмотреть БД:** `docker compose exec example_db psql -U example -d example`.
 
-## 16. Как убрать образец example
+| Симптом | Что делать |
+|---|---|
+| `port is already allocated` | занят 80 → `HTTP_PORT=8080` в `.env`; занят порт БД — поменяй в `compose.yaml` и в `infra/config.py` сервиса |
+| `503 SERVICE_UNAVAILABLE` | сервис не запущен: `make ps`, `make logs s=<сервис>` |
+| `502 UPSTREAM_ERROR` | исключение не из `ERROR_CODES` — traceback в логах сервиса |
+| ручка не видит новый RPC | забыл `make proto` (в Docker — ещё `make up`) |
+| таблицы нет | миграцию не создали: `make migration s=... m=...` |
+| Docker Hub не качается | `"registry-mirrors": ["https://mirror.gcr.io"]` в `/etc/docker/daemon.json` (на сервере ставит Ansible) |
+| refresh не работает на сервере | по HTTP должно быть `COOKIE_SECURE=false` |
 
-Когда свои сервисы готовы:
+## 17. Работа в команде
 
-1. Удалить `services/example/`, `contracts/example/`, `gateway/routers/items.py`, `gateway/schemas/items.py`.
-2. Убрать строки про `example` в `gateway/config.py`, `gateway/clients.py`, `gateway/main.py`
-   и обработчик `item.get` в `gateway/ws/handlers.py`.
-3. Убрать блок `example:` и `EXAMPLE_GRPC_TARGET` в `compose.yaml`, строку в `mypy_path` в `pyproject.toml`.
-4. Во фронте — `items` в `src/api/index.ts` и `ItemsPage`.
-5. В `scripts/smoke.py` заменить проверки items на свои.
-6. `make proto && uv sync --all-packages && make check`.
+| Кто | Где |
+|---|---|
+| Тимлид / DevOps | `compose.yaml`, `infra/`, CI, `make new-service`, gateway (`config`, `grpc_clients`, `main`) |
+| Бэкенд | `services/<свой>_service/`, свой роутер в `gateway/routers/` |
+| Фронтенд | `frontend/`, работает по Swagger от `make up` |
 
-## 17. Залить в свой GitHub
+- **Контракт — точка синхронизации:** сначала PR с `.proto` + `make proto`, потом реализация.
+- `make new-service` запускает один человек и сразу пушит — правки compose и gateway общие.
+- `packages/platform_contracts` (сгенерированный код) коммитится, CI проверяет, что он свежий.
+- Перед пушем — `make fmt && make check`.
+
+## 18. Как убрать example_service
+
+1. Удалить `services/example_service/`, `contracts/example/`, `gateway/routers/items.py`, `gateway/schemas/items.py`.
+2. Убрать `example` из `gateway/config.py`, `gateway/grpc_clients.py`, `gateway/main.py`.
+3. Убрать `example_service`, `example_db`, volume и `EXAMPLE_GRPC_TARGET` из `compose.yaml`; `EXAMPLE_DB_PASSWORD`
+   из `.env.example` и `infra/ansible/roles/env/templates/env.j2`; сервис из CI.
+4. Во фронте — `items` в `src/api/index.ts` и `ItemsPage`; в `scripts/smoke.py` — проверки items.
+5. `make proto && make check`.
+
+Сначала сделай свой сервис через `make new-service`: он копирует именно `example_service`.
+
+## 19. Залить в свой GitHub
 
 ```bash
 git init -b main
-make install                      # создаст uv.lock — его тоже коммитим
+make install                     # создаст uv.lock в сервисах — их тоже коммитим
 git add -A
 git commit -m "MP: initial structure"
 git remote add origin git@github.com:<you>/<repo>.git
 git push -u origin main
 ```
 
-`.env`, `.venv`, `node_modules` и секреты деплоя уже в `.gitignore`. После первого пуша CI запустится сам.
+`.env`, `.venv`, `node_modules`, секреты деплоя — в `.gitignore`.

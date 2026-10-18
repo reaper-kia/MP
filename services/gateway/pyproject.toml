@@ -1,26 +1,62 @@
 [project]
 name = "gateway"
 version = "0.1.0"
-description = "HTTP/WebSocket вход: JWT, RequestContext, маппинг ошибок, проксирование в gRPC"
+description = "HTTP/WebSocket вход: JWT → RequestContext, маппинг ошибок, проксирование в gRPC"
+readme = "README.md"
 requires-python = ">=3.13"
 dependencies = [
-    "platform-common",
-    "mp-contracts",
+    "platform-contracts",
     "fastapi>=0.115.0",
+    "grpcio>=1.83.0",
+    "grpcio-health-checking>=1.83.0",
+    "protobuf>=7.35.1",
+    "pydantic-settings>=2.10.0",
+    "pyjwt>=2.10.0",
     "uvicorn[standard]>=0.34.0",
 ]
 
 [project.scripts]
 gateway = "gateway.main:run"
 
-[tool.uv.sources]
-platform-common = { workspace = true }
-mp-contracts = { workspace = true }
-
 [build-system]
-requires = ["uv_build>=0.8.0,<0.12.0"]
+requires = ["uv_build>=0.11.0,<0.12.0"]
 build-backend = "uv_build"
+
+[dependency-groups]
+dev = [
+    "grpcio-tools>=1.83.0",
+    "httpx>=0.28.1",
+    "mypy>=1.15.0",
+    "pytest>=8.3.0",
+    "pytest-asyncio>=0.26.0",
+    "ruff>=0.11.0",
+    "types-grpcio>=1.83.0.20260730",
+    "types-grpcio-health-checking>=1.0.0.20260518",
+]
 
 [tool.pytest.ini_options]
 asyncio_mode = "auto"
 testpaths = ["tests"]
+
+[tool.ruff]
+target-version = "py313"
+line-length = 100
+extend-exclude = ["migrations"]
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B"]
+ignore = ["B008"]
+
+[tool.mypy]
+python_version = "3.13"
+strict = true
+mypy_path = "src"
+untyped_calls_exclude = ["auth", "common", "example"]
+
+[[tool.mypy.overrides]]
+# сгенерированный код из packages/platform_contracts
+module = ["auth.*", "common.*", "example.*"]
+ignore_errors = true
+
+[tool.uv.sources]
+platform-contracts = { path = "../../packages/platform_contracts", editable = true }
