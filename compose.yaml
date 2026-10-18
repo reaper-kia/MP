@@ -1,0 +1,174 @@
+name: mp
+
+# Общие куски для Python-сервисов (один Dockerfile на все, пакет выбирается build-arg'ом)
+x-python-build: &python-build
+  context: .
+  dockerfile: docker/python.Dockerfile
+
+x-service-env: &service-env
+  LOG_LEVEL: ${LOG_LEVEL:-INFO}
+  POSTGRES_HOST: postgres
+  POSTGRES_PORT: "5432"
+  POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-app}
+  REDIS_URL: redis://redis:6379/0
+  KAFKA_ENABLED: ${KAFKA_ENABLED:-false}
+  KAFKA_BOOTSTRAP_SERVERS: kafka:9092
+
+x-service-depends: &service-depends
+  postgres:
+    condition: service_healthy
+  kafka:
+    condition: service_started
+    required: false # Kafka поднимается только с профилем kafka
+
+services:
+  # ───────────────────────── gateway / frontend ─────────────────────────
+  frontend:
+    build: ./frontend
+    restart: unless-stopped
+    ports:
+      - "${HTTP_PORT:-80}:80"
+    depends_on:
+      - gateway
+
+  gateway:
+    build:
+      <<: *python-build
+      args:
+        PACKAGE: gateway
+    command: ["gateway"]
+    restart: unless-stopped
+    environment:
+      LOG_LEVEL: ${LOG_LEVEL:-INFO}
+      JWT_SECRET: ${JWT_SECRET:-dev-secret-change-me-it-must-be-at-least-32-bytes}
+      REDIS_URL: redis://redis:6379/0
+      COOKIE_SECURE: ${COOKIE_SECURE:-false}
+      AUTH_GRPC_TARGET: auth:50051
+      EXAMPLE_GRPC_TARGET: example:50052
+      # >>> gateway grpc targets
+    ports:
+      - "${GATEWAY_PORT:-8000}:8000" # Swagger: http://localhost:8000/docs
+    depends_on:
+      redis:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/health/live', timeout=2)"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+
+  # ───────────────────────── gRPC-сервисы ─────────────────────────
+  auth:
+    build:
+      <<: *python-build
+      args:
+        PACKAGE: auth-service
+    command: ["auth-service", "run"]
+    restart: unless-stopped
+    environment:
+      <<: *service-env
+      JWT_SECRET: ${JWT_SECRET:-dev-secret-change-me-it-must-be-at-least-32-bytes}
+      ADMIN_EMAILS: ${ADMIN_EMAILS:-}
+    ports:
+      - "127.0.0.1:50051:50051" # для grpcurl/Postman с хоста
+    depends_on: *service-depends
+    healthcheck:
+      test: ["CMD", "python", "-m", "platform_common.grpc.healthcheck", "localhost:50051"]
+      interval: 10s
+      timeout: 3s
+      retries: 10
+      start_period: 15s
+
+  example:
+    build:
+      <<: *python-build
+      args:
+        PACKAGE: example-service
+    command: ["example-service", "run"]
+    restart: unless-stopped
+    environment:
+      <<: *service-env
+      AUTH_GRPC_TARGET: auth:50051
+    ports:
+      - "127.0.0.1:50052:50052"
+    depends_on: *service-depends
+    healthcheck:
+      test: ["CMD", "python", "-m", "platform_common.grpc.healthcheck", "localhost:50052"]
+      interval: 10s
+      timeout: 3s
+      retries: 10
+      start_period: 15s
+
+  # >>> services (new_service.py вставляет блоки выше)
+
+  # ───────────────────────── инфраструктура ─────────────────────────
+  postgres:
+    image: postgres:17-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: app
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-app}
+      POSTGRES_DB: app
+    ports:
+      - "127.0.0.1:${POSTGRES_PORT:-5432}:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U app -d app"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+
+  redis:
+    image: redis:7-alpine
+    restart: unless-stopped
+    command: ["redis-server", "--appendonly", "yes"]
+    ports:
+      - "127.0.0.1:${REDIS_PORT:-6379}:6379"
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+
+  kafka:
+    image: apache/kafka:3.9.0
+    profiles: ["kafka"]
+    restart: unless-stopped
+    environment:
+      CLUSTER_ID: MkU3OEVBNTcwNTJENDM2Qk # любой base64-UUID из 22 символов
+      KAFKA_NODE_ID: 1
+      KAFKA_PROCESS_ROLES: broker,controller
+      KAFKA_LISTENERS: PLAINTEXT://:9092,CONTROLLER://:9093,EXTERNAL://:9094
+      KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://kafka:9092,EXTERNAL://localhost:9094
+      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: CONTROLLER:PLAINTEXT,PLAINTEXT:PLAINTEXT,EXTERNAL:PLAINTEXT
+      KAFKA_CONTROLLER_LISTENER_NAMES: CONTROLLER
+      KAFKA_INTER_BROKER_LISTENER_NAME: PLAINTEXT
+      KAFKA_CONTROLLER_QUORUM_VOTERS: 1@kafka:9093
+      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
+      KAFKA_TRANSACTION_STATE_LOG_REPLICATION_FACTOR: 1
+      KAFKA_TRANSACTION_STATE_LOG_MIN_ISR: 1
+      KAFKA_GROUP_INITIAL_REBALANCE_DELAY_MS: 0
+      KAFKA_AUTO_CREATE_TOPICS_ENABLE: "true"
+      KAFKA_NUM_PARTITIONS: 3
+    ports:
+      - "127.0.0.1:9094:9094" # для сервисов, запущенных локально через make run
+    # без volume: данные Kafka эфемерны, источник истины — outbox в Postgres
+
+  kafka-ui:
+    image: provectuslabs/kafka-ui:latest
+    profiles: ["kafka"]
+    restart: unless-stopped
+    environment:
+      KAFKA_CLUSTERS_0_NAME: local
+      KAFKA_CLUSTERS_0_BOOTSTRAPSERVERS: kafka:9092
+    ports:
+      - "127.0.0.1:8081:8080"
+    depends_on:
+      - kafka
+
+volumes:
+  postgres_data:
+  redis_data:

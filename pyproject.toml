@@ -1,0 +1,65 @@
+# Корень uv workspace. Сам по себе не пакет — только объединяет сервисы и общие пакеты.
+# Один `uv sync --all-packages` ставит всё, один uv.lock на весь репозиторий.
+[project]
+name = "mp"
+version = "0.1.0"
+requires-python = ">=3.13"
+
+[tool.uv]
+package = false
+
+[tool.uv.workspace]
+members = ["packages/*", "services/*"]
+
+[dependency-groups]
+dev = [
+    "grpcio-tools>=1.83.0",
+    "httpx>=0.28.1",
+    "mypy>=1.15.0",
+    "pytest>=8.3.0",
+    "pytest-asyncio>=1.0.0",
+    "ruff>=0.15.0",
+    "types-grpcio>=1.83.0.20260730",
+    "types-grpcio-health-checking>=1.0.0.20260518",
+    "types-grpcio-reflection>=1.0.0.20260508",
+    "types-protobuf>=7.34.1.20260518",
+]
+
+[tool.ruff]
+target-version = "py313"
+line-length = 100
+# все пакеты воркспейса — first-party для сортировки импортов
+src = ["packages/*/src", "services/*/src", "services/*"]
+extend-exclude = ["packages/contracts/src", "templates", "frontend", "*.md"]
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B", "ASYNC", "RUF"]
+ignore = ["RUF001", "RUF002", "RUF003", "B008"]
+
+[tool.ruff.lint.per-file-ignores]
+"**/servicer.py" = ["N802"]
+"**/migrations/versions/*.py" = ["E501"]
+
+[tool.mypy]
+python_version = "3.13"
+strict = true
+warn_unused_ignores = false
+untyped_calls_exclude = ["contracts"]
+explicit_package_bases = true
+mypy_path = [
+    "packages/contracts/src",
+    "packages/platform_common/src",
+    "services/auth/src",
+    "services/example/src",
+    "services/gateway/src",
+    # >>> mypy_path (new_service.py вставляет строки выше)
+]
+exclude = ["templates/", "frontend/", "/tests/", "/migrations/"]
+
+[[tool.mypy.overrides]]
+module = ["contracts.*"]
+ignore_errors = true
+
+[[tool.mypy.overrides]]
+module = ["aiokafka.*", "argon2.*", "asyncpg.*"]
+ignore_missing_imports = true

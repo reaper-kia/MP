@@ -1,0 +1,25 @@
+syntax = "proto3";
+
+package contracts.common.v1;
+
+// Контекст запроса. Заполняет ТОЛЬКО Gateway (после проверки JWT) и прокидывает
+// во все внутренние вызовы. Сервисы доверяют этим полям и сами проверяют права.
+message RequestContext {
+  // Для логов и трассировки. Не является ключом идемпотентности.
+  string request_id = 1;
+  // Пусто — анонимный запрос (регистрация, логин).
+  string actor_user_id = 2;
+  // "user" | "admin" — строкой, чтобы роли можно было добавлять без правки proto.
+  string actor_role = 3;
+}
+
+// Курсорная пагинация: cursor непрозрачен для клиента.
+message PageRequest {
+  uint32 limit = 1;
+  string cursor = 2;
+}
+
+message PageInfo {
+  // Пусто — следующей страницы нет.
+  string next_cursor = 1;
+}

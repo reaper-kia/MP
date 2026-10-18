@@ -1,0 +1,15 @@
+version: v2
+modules:
+  - path: .
+    excludes:
+      - frontend
+      - packages
+      - services
+      - templates
+      - infra
+lint:
+  use:
+    - STANDARD
+breaking:
+  use:
+    - FILE

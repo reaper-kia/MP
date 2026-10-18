@@ -1,0 +1,74 @@
+# Выкатывает текущее рабочее дерево (включая незакоммиченное) и поднимает compose.
+#   make deploy                         — по inventory.ini
+#   make deploy HOST=1.2.3.4 SSH_USER=ubuntu
+#   make deploy KAFKA=true
+- name: Deploy
+  hosts: "{{ target | default('app') }}"
+  become: true
+
+  vars:
+    repo_root: "{{ playbook_dir }}/../../.."
+    compose_profiles: "{{ '--profile kafka' if kafka_enabled | bool else '' }}"
+
+  tasks:
+    - name: Ensure app dir
+      ansible.builtin.file:
+        path: "{{ app_dir }}"
+        state: directory
+        mode: "0755"
+
+    - name: Sync project (rsync)
+      ansible.posix.synchronize:
+        src: "{{ repo_root }}/"
+        dest: "{{ app_dir }}/"
+        delete: true
+        rsync_opts:
+          - "--exclude=.git"
+          - "--exclude=.venv"
+          - "--exclude=**/__pycache__"
+          - "--exclude=**/.pytest_cache"
+          - "--exclude=**/.mypy_cache"
+          - "--exclude=**/.ruff_cache"
+          - "--exclude=frontend/node_modules"
+          - "--exclude=frontend/dist"
+          - "--exclude=infra/ansible/.secrets"
+          - "--exclude=.env"
+          - "--exclude=.tmp"
+
+    - name: Ensure local secrets dir
+      ansible.builtin.file:
+        path: "{{ secrets_dir }}"
+        state: directory
+        mode: "0700"
+      delegate_to: localhost
+      become: false
+      run_once: true
+
+    - name: Render .env
+      ansible.builtin.template:
+        src: ../templates/env.j2
+        dest: "{{ app_dir }}/.env"
+        mode: "0600"
+
+    - name: Build and start containers
+      ansible.builtin.command:
+        cmd: "docker compose {{ compose_profiles }} up -d --build --remove-orphans"
+        chdir: "{{ app_dir }}"
+      changed_when: true
+
+    - name: Wait for gateway through nginx
+      ansible.builtin.uri:
+        url: "http://127.0.0.1:{{ http_port }}/health/ready"
+        return_content: true
+      register: ready
+      until: ready.status == 200 and ready.json.status == 'ok'
+      retries: 30
+      delay: 5
+      failed_when: false
+
+    - name: Result
+      ansible.builtin.debug:
+        msg:
+          - "App:     http://{{ ansible_host | default(inventory_hostname) }}:{{ http_port }}"
+          - "Swagger: http://{{ ansible_host | default(inventory_hostname) }}:{{ http_port }}/docs"
+          - "Ready:   {{ ready.json | default('not ready — смотри: docker compose logs') }}"

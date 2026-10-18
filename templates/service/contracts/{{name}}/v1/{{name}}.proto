@@ -1,0 +1,48 @@
+syntax = "proto3";
+
+package contracts.{{name}}.v1;
+
+import "contracts/common/v1/common.proto";
+import "google/protobuf/timestamp.proto";
+
+// TODO: опиши RPC под сценарии из ТЗ. После правки: make proto
+service {{Name}}Service {
+  rpc Create{{Entity}}(Create{{Entity}}Request) returns (Create{{Entity}}Response);
+  rpc Get{{Entity}}(Get{{Entity}}Request) returns (Get{{Entity}}Response);
+  rpc List{{Entities}}(List{{Entities}}Request) returns (List{{Entities}}Response);
+}
+
+message {{Entity}} {
+  string id = 1;
+  string owner_id = 2;
+  string title = 3;
+  google.protobuf.Timestamp created_at = 4;
+}
+
+message Create{{Entity}}Request {
+  contracts.common.v1.RequestContext context = 1;
+  string title = 2;
+}
+
+message Create{{Entity}}Response {
+  {{Entity}} {{entity}} = 1;
+}
+
+message Get{{Entity}}Request {
+  contracts.common.v1.RequestContext context = 1;
+  string {{entity}}_id = 2;
+}
+
+message Get{{Entity}}Response {
+  {{Entity}} {{entity}} = 1;
+}
+
+message List{{Entities}}Request {
+  contracts.common.v1.RequestContext context = 1;
+  contracts.common.v1.PageRequest page = 2;
+}
+
+message List{{Entities}}Response {
+  repeated {{Entity}} {{entities}} = 1;
+  contracts.common.v1.PageInfo page = 2;
+}

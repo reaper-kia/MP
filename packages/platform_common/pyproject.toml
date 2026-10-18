@@ -1,0 +1,31 @@
+[project]
+name = "platform-common"
+version = "0.1.0"
+description = "Общий код сервисов: gRPC-сервер/клиент, ошибки, контекст, БД/UoW, JWT, outbox/Kafka"
+requires-python = ">=3.13"
+dependencies = [
+    "mp-contracts",
+    "grpcio>=1.83.0,<2",
+    "grpcio-health-checking>=1.83.0",
+    "grpcio-reflection>=1.83.0",
+    "protobuf>=7.35.1,<8",
+    "pydantic-settings>=2.10.0",
+    "sqlalchemy[asyncio]>=2.0.40,<2.1",
+    "asyncpg>=0.30.0",
+    "alembic>=1.16.0",
+    "pyjwt>=2.10.0",
+    "redis>=6.0.0",
+    # Импортируется лениво: пока KAFKA_ENABLED=false, Kafka не нужна вообще.
+    "aiokafka>=0.12.0",
+]
+
+[tool.uv.sources]
+mp-contracts = { workspace = true }
+
+[build-system]
+requires = ["uv_build>=0.8.0,<0.12.0"]
+build-backend = "uv_build"
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+testpaths = ["tests"]
