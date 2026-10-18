@@ -5,7 +5,7 @@ import warnings
 
 from auth.v1 import auth_service_pb2 as auth_dot_v1_dot_auth__service__pb2
 
-GRPC_GENERATED_VERSION = '1.83.0'
+GRPC_GENERATED_VERSION = '1.84.0'
 GRPC_VERSION = grpc.__version__
 _version_not_supported = False
 
