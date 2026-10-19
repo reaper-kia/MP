@@ -1,67 +1,30 @@
 [project]
 name = "search-service"
 version = "0.1.0"
-description = "Ядро: источники, поиски, подборка, экспорт. БД search_db."
-readme = "README.md"
-requires-python = ">=3.13"
+[tool.hatch.build.targets.wheel]
+# Явно указываем имена папок-пакетов, которые лежат в корне platform_contracts
+packages = ["collector", "ml", "search", "common"]
+requires-python = ">=3.12"
 dependencies = [
-    "alembic>=1.16.0",
-    "asyncpg>=0.30.0",
-    "platform-contracts",
-    "grpcio>=1.83.0",
-    "grpcio-health-checking>=1.83.0",
-    "grpcio-reflection>=1.83.0",
-    "openpyxl>=3.1.5",
-    "protobuf>=7.35.1",
-    "pydantic-settings>=2.10.0",
-    "sqlalchemy[asyncio]>=2.0.0,<2.1",
+    "fastapi>=0.115",
+    "uvicorn[standard]>=0.32",
+    "pydantic>=2.9",
+    "pydantic-settings>=2.6",
+    "sqlalchemy[asyncio]>=2.0",
+    "asyncpg>=0.30",
+    "alembic>=1.13",
+    "grpcio>=1.67",
+    "grpcio-tools>=1.67",
+    "protobuf>=5.28",
+    "openpyxl>=3.1",
+    "python-docx>=1.1",
+    "structlog>=24.4",
+    "tenacity>=9.0",
 ]
 
-[project.scripts]
-search-service = "search_service.main:main"
-
-[build-system]
-requires = ["uv_build>=0.11.0,<0.12.0"]
-build-backend = "uv_build"
-
-[dependency-groups]
-dev = [
-    "grpcio-tools>=1.83.0",
-    "mypy>=1.15.0",
-    "pytest>=8.3.0",
-    "pytest-asyncio>=0.26.0",
-    "ruff>=0.11.0",
-    "types-grpcio>=1.83.0.20260730",
-    "types-grpcio-health-checking>=1.0.0.20260518",
-    "types-grpcio-reflection>=1.0.0.20260508",
-]
+[project.optional-dependencies]
+dev = ["pytest>=8.3", "pytest-asyncio>=0.24", "pytest-cov>=5.0", "fakeredis>=2.26"]
 
 [tool.pytest.ini_options]
 asyncio_mode = "auto"
 testpaths = ["tests"]
-
-[tool.ruff]
-target-version = "py313"
-line-length = 100
-extend-exclude = ["migrations"]
-
-[tool.ruff.lint]
-select = ["E", "F", "I", "UP", "B"]
-
-[tool.mypy]
-python_version = "3.13"
-strict = true
-mypy_path = "src"
-untyped_calls_exclude = ["common", "collector", "ml", "search"]
-
-[[tool.mypy.overrides]]
-module = ["asyncpg.*", "openpyxl.*"]
-ignore_missing_imports = true
-
-[[tool.mypy.overrides]]
-# сгенерированный код из packages/platform_contracts
-module = ["common.*", "collector.*", "ml.*", "search.*"]
-ignore_errors = true
-
-[tool.uv.sources]
-platform-contracts = { path = "../../packages/platform_contracts", editable = true }

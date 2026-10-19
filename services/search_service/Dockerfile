@@ -1,23 +1,20 @@
-FROM python:3.13-slim-trixie
+FROM python:3.12-slim AS base
 
-COPY --from=ghcr.io/astral-sh/uv:0.11.29 /uv /uvx /bin/
+ENV PYTHONDONTWRITEBYTECODE=1 PYTHONUNBUFFERED=1
 
-WORKDIR /app/services/search_service
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    gcc libpq-dev && rm -rf /var/lib/apt/lists/*
 
-COPY packages/platform_contracts /app/packages/platform_contracts
-COPY services/search_service/pyproject.toml services/search_service/uv.lock* services/search_service/README.md ./
+WORKDIR /app
 
-RUN uv sync --no-dev --no-install-project
+COPY services/search_service/pyproject.toml services/search_service/uv.lock ./
 
-COPY services/search_service/src ./src
-COPY services/search_service/alembic.ini ./
-COPY services/search_service/migrations ./migrations
+RUN pip install --no-cache-dir --upgrade pip && pip install --no-cache-dir .
 
-RUN uv sync --no-dev
+COPY . .
 
-ENV PATH="/app/services/search_service/.venv/bin:$PATH"
+RUN useradd --uid 10001 --create-home --shell /usr/sbin/nologin search \
+    && chown -R search:search /app
+USER search
 
-EXPOSE 50053
-
-# сначала миграции, потом сервер
-CMD ["sh", "-c", "alembic upgrade head && search-service"]
+CMD ["uvicorn", "search_service.main:app", "--host", "0.0.0.0", "--port", "8100"]

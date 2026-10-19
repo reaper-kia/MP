@@ -1,0 +1,89 @@
+from __future__ import annotations
+import uuid
+from dataclasses import dataclass
+
+from search_service.domain.entities import Publication, SearchResult, Search, SearchTarget
+from search_service.domain.enums import DateStatus
+from search_service.domain.value_objects import PostKey
+from search_service.applications.ports.uow import UnitOfWork
+from search_service.applications.ports.collector_client import RawPost
+
+
+def make_title(post: RawPost) -> tuple[str, str]:
+    if post.title:
+        return post.title, "title"
+    text = post.text.strip()
+    if len(text) <= 120:
+        return text, "post_start"
+    # граница слова
+    cut = text[:120]
+    last_space = cut.rfind(" ")
+    if last_space > 60:
+        cut = cut[:last_space]
+    return cut + "…", "post_start"
+
+
+class SaveHandler:
+    def __init__(self, uow: UnitOfWork):
+        self.uow = uow
+
+    async def save_posts(self, search: Search, target: SearchTarget,
+                         posts: list[RawPost]) -> list[SearchResult]:
+        """Upsert publications + insert results (без дублирования)."""
+        async with self.uow:
+            # кэш источников для region_by_source
+            source_cache: dict[tuple[str, str], object] = {}
+
+            results: list[SearchResult] = []
+            for post in posts:
+                key = PostKey(post.platform, post.source_external_id, post.post_external_id)
+
+                pub = Publication(
+                    platform=post.platform,
+                    source_external_id=post.source_external_id,
+                    post_external_id=post.post_external_id,
+                    url=post.url,
+                    source_name=post.source_name,
+                    source_url=post.source_url,
+                    text=post.text,
+                    title=post.title,
+                    published_at=post.published_at,
+                    metrics=post.metrics,
+                    is_repost=post.is_repost,
+                    repost_of_url=post.repost_of_url,
+                )
+                pub = await self.uow.publications.upsert(pub)
+
+                # дедуп: тот же пост в том же поиске = пропуск
+                exists = await self.uow.results.exists_in_search(search.id, pub.id)
+                if exists:
+                    continue
+
+                # дата
+                if post.published_at is None:
+                    date_status = DateStatus.UNKNOWN
+                elif search.period.contains(post.published_at):
+                    date_status = DateStatus.IN_PERIOD
+                else:
+                    # вне периода — пропускаем
+                    continue
+
+                # region_by_source
+                src_key = (post.platform, post.source_external_id)
+                if src_key not in source_cache:
+                    source_cache[src_key] = await self.uow.sources.get_by_key(*src_key)
+                source = source_cache[src_key]
+                region_by_source = bool(source and source.is_regional)
+
+                result = SearchResult(
+                    search_id=search.id,
+                    publication_id=pub.id,
+                    target_id=target.id,
+                    date_status=date_status,
+                    region_by_source=region_by_source,
+                )
+                await self.uow.results.add(result)
+                results.append(result)
+
+            await self.uow.commit()
+            return results
