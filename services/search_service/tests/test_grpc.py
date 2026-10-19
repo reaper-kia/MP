@@ -156,6 +156,11 @@ async def test_full_chain(stand: Stand) -> None:
     )
     assert exported.content[:2] == b"PK" and exported.filename.endswith(".xlsx")
 
+    docx = await stub.ExportSearch(
+        pb.ExportSearchRequest(context=CTX, search_id=search.id, format=pb.EXPORT_FORMAT_DOCX)
+    )
+    assert docx.content[:2] == b"PK" and docx.filename.endswith(".docx")
+
     searches = await stub.ListSearches(pb.ListSearchesRequest(context=CTX))
     assert [s.id for s in searches.searches] == [search.id]
     assert not searches.searches[0].targets
@@ -245,8 +250,8 @@ async def test_errors_have_public_codes(stand: Stand) -> None:
         ),
         (
             stub.ImportSources(pb.ImportSourcesRequest(context=CTX, xlsx=b"")),
-            grpc.StatusCode.UNIMPLEMENTED,
-            "NOT_IMPLEMENTED",
+            grpc.StatusCode.INVALID_ARGUMENT,
+            "SEARCH_INVALID_PARAMS",
         ),
     ]
     for call, status, code in cases:
@@ -259,6 +264,32 @@ async def test_errors_have_public_codes(stand: Stand) -> None:
     with pytest.raises(grpc.aio.AioRpcError) as info:
         await stub.CreateSource(pb.CreateSourceRequest(context=CTX, url=URL))
     assert error_code(info.value) == "SOURCE_ALREADY_EXISTS"
+
+
+async def test_import_sources_from_xlsx(stand: Stand) -> None:
+    """B2-10 через gRPC: строка из файла создаёт источник, повторная загрузка — «дубль»."""
+    import io
+
+    from openpyxl import Workbook
+
+    wb = Workbook()
+    ws = wb.active
+    assert ws is not None
+    ws.append(["Ссылка", "Название", "Региональный"])
+    ws.append([URL, "Главное в Красноярске", "да"])
+    ws.append(["https://vk.com/unknown_group", None, None])
+    buf = io.BytesIO()
+    wb.save(buf)
+    request = pb.ImportSourcesRequest(context=CTX, xlsx=buf.getvalue())
+
+    first = await stand.stub.ImportSources(request)
+    assert (first.created, first.duplicates) == (1, 0)
+    assert [(f.row, f.error.code) for f in first.failed] == [(3, "SOURCE_NOT_FOUND")]
+
+    second = await stand.stub.ImportSources(request)
+    assert (second.created, second.duplicates) == (0, 1)
+    listed = await stand.stub.ListSources(pb.ListSourcesRequest(context=CTX))
+    assert [s.name for s in listed.sources] == ["Главное в Красноярске"]
 
 
 async def test_start_search_details_field() -> None:

@@ -3,26 +3,38 @@ from __future__ import annotations
 import uuid
 from dataclasses import dataclass
 
+import structlog
+
 from search_service.applications.commands.sources import (
     CreateSourceCommand,
     DeleteSourceCommand,
     ImportSourcesCommand,
     UpdateSourceCommand,
 )
-from search_service.applications.exceptions import NotImplementedYetError, UpstreamError
+from search_service.applications.exceptions import UpstreamError
 from search_service.applications.handlers.errors import SOURCE_PRIVATE_MESSAGE, domain_errors
+from search_service.applications.handlers.source_import import parse_sources_xlsx
 from search_service.applications.handlers.views import preview_view, source_view
 from search_service.applications.ports.collector_client import CollectorClient, SourceInfo
 from search_service.applications.ports.uow import UnitOfWork
 from search_service.applications.queries.sources import ListSourcesQuery, ResolveSourceQuery
 from search_service.applications.results.read_models import (
+    ErrorInfoView,
     ImportReport,
+    ImportRowErrorView,
     SourcePage,
     SourcePreviewView,
     SourceView,
 )
 from search_service.domain.entities import Source
-from search_service.domain.errors import DomainError, NotFoundError, SourceAlreadyExists
+from search_service.domain.errors import (
+    CollectorError,
+    DomainError,
+    NotFoundError,
+    SourceAlreadyExists,
+)
+
+log = structlog.get_logger()
 
 
 @dataclass
@@ -222,11 +234,46 @@ class DeleteSourceCommandHandler:
             )
 
 
+def row_error(error: Exception) -> ErrorInfoView:
+    """Почему строка не создалась: публичный код и русский текст, как у одиночного CreateSource."""
+    if isinstance(error, UpstreamError):
+        return ErrorInfoView(error.code, error.message)
+    if isinstance(error, CollectorError):
+        return ErrorInfoView(error.code, str(error))
+    if isinstance(error, DomainError) and str(error) == "SOURCE_PRIVATE":
+        return ErrorInfoView("SOURCE_PRIVATE", SOURCE_PRIVATE_MESSAGE)
+    return ErrorInfoView("INTERNAL", "Не удалось обработать строку")
+
+
 @dataclass
 class ImportSourcesCommandHandler:
     uow: UnitOfWork
     collector: CollectorClient
 
     async def handle(self, cmd: ImportSourcesCommand) -> ImportReport:
-        """openpyxl: A — ссылка, B — название, C — региональный (да/нет); по строке — как Create."""
-        raise NotImplementedYetError("ImportSources: B2-10")
+        """openpyxl: A — ссылка, B — название, C — региональный (да/нет); по строке — как Create.
+
+        Строки идут по очереди (не параллельно): дубли внутри одного файла честно находятся
+        как «уже есть», а площадки не получают пачку запросов разом."""
+        with domain_errors():
+            rows, bad = parse_sources_xlsx(cmd.xlsx)
+        handler = SourceHandler(self.uow, self.collector)
+        created = duplicates = 0
+        failed = [
+            ImportRowErrorView(b.row, b.value, ErrorInfoView("VALIDATION_ERROR", b.message))
+            for b in bad
+        ]
+        for row in rows:
+            try:
+                await handler.create(
+                    CreateRequest(url=row.url, name=row.name, is_regional=row.is_regional)
+                )
+                created += 1
+            except SourceAlreadyExists:
+                duplicates += 1
+            except Exception as e:
+                if not isinstance(e, DomainError | UpstreamError):
+                    log.exception("import row failed", row=row.row)
+                failed.append(ImportRowErrorView(row.row, row.url, row_error(e)))
+        failed.sort(key=lambda f: f.row)
+        return ImportReport(created=created, duplicates=duplicates, failed=failed)

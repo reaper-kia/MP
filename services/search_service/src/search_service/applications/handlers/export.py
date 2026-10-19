@@ -6,7 +6,7 @@ from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import UTC, datetime
 
-from search_service.applications.exceptions import NotImplementedYetError
+from search_service.applications.handlers.docx_writer import DocxBuilder, run
 from search_service.applications.handlers.errors import domain_errors
 from search_service.applications.handlers.results import (
     ResultFilter,
@@ -284,6 +284,32 @@ class ExportHandler:
         wb.save(buf)
         return buf.getvalue(), self.filename(search, "xlsx"), XLSX_MIME
 
+    async def to_docx(
+        self, search_id: uuid.UUID, f: ResultFilter, sort: str = "relevance"
+    ) -> tuple[bytes, str, str]:
+        """Шапка как в XLSX + список публикаций: заголовок-ссылка, источник, дата, выдержка."""
+        data = await self.load(search_id, f, sort)
+        doc = DocxBuilder()
+        doc.title("Подборка публикаций")
+        for label, value in data.header_lines():
+            doc.paragraph(run(f"{label}: ", bold=True), value)
+        doc.heading("Публикации")
+        if not data.rows:
+            doc.paragraph("Подходящих публикаций не найдено.")
+        for r in data.rows:
+            doc.paragraph(
+                run(f"{r.number}. ", bold=True),
+                run(r.title, bold=True, link=r.publication.url),
+            )
+            details = [platform_ru(r.publication.platform), r.source_name, r.published]
+            if r.relevance:
+                details.append(f"связь с запросом: {r.relevance.lower()}")
+            doc.paragraph(run(" · ".join(details), italic=True))
+            doc.paragraph(r.excerpt)
+            if r.result.explanation:
+                doc.paragraph(run("Почему: ", bold=True), r.result.explanation)
+        return doc.build(), self.filename(data.search, "docx"), DOCX_MIME
+
 
 # ---------------------------------------------------------------------------
 # Хэндлер медиатора для gRPC-транспорта (регистрируется в dependencies.build_mediator).
@@ -297,10 +323,10 @@ class ExportSearchQueryHandler:
     async def handle(self, query: ExportSearchQuery) -> ExportFile:
         """Строки — тем же запросом, что ListResults (без limit), тот же filter и sort →
         файл совпадает с экраном. Формат листов — B2-08."""
-        if query.format is not ExportFormat.XLSX:
-            raise NotImplementedYetError("ExportSearch DOCX: B2-10")
+        handler = ExportHandler(self.uow)
+        render = handler.to_docx if query.format is ExportFormat.DOCX else handler.to_xlsx
         with domain_errors():
-            content, filename, mime = await ExportHandler(self.uow).to_xlsx(
+            content, filename, mime = await render(
                 query.search_id, filter_from_query(query.filter), sort=query.sort.value
             )
         return ExportFile(content=content, filename=filename, mime_type=mime)

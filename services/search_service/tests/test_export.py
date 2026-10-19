@@ -104,3 +104,31 @@ async def test_xlsx_publication_date_is_local_time(stand):
 
     assert dates[0] == "19.10.2026 23:30"
     assert dates[1] == "недоступна"
+
+
+async def test_docx_is_valid_and_lists_publications_with_links(stand):
+    """DOCX (B2-10): шапка как в XLSX + публикации; ссылки — настоящие гиперссылки."""
+    import zipfile
+    from xml.etree import ElementTree
+
+    uow, search, _ = stand
+    content, filename, mime = await ExportHandler(uow, now=lambda: NOW).to_docx(
+        search.id, ResultFilter()
+    )
+
+    assert filename.endswith(".docx") and filename.isascii() and "wordprocessingml" in mime
+    with zipfile.ZipFile(io.BytesIO(content)) as z:
+        parts = {name: z.read(name) for name in z.namelist()}
+    for xml in parts.values():
+        ElementTree.fromstring(xml)  # каждая часть — well-formed XML
+    ns = {"w": "http://schemas.openxmlformats.org/wordprocessingml/2006/main"}
+    body = ElementTree.fromstring(parts["word/document.xml"])
+    text = "\n".join(
+        "".join(t.text or "" for t in p.iter(f"{{{ns['w']}}}t"))
+        for p in body.iter(f"{{{ns['w']}}}p")
+    )
+    assert "Сформировано: 19.10.2026 21:00 (время Красноярска)" in text
+    assert "ВКонтакте" in text and "Прямая".lower() in text.lower()
+    rels = ElementTree.fromstring(parts["word/_rels/document.xml.rels"])
+    targets = [r.get("Target") for r in rels if r.get("Type", "").endswith("/hyperlink")]
+    assert targets == [f"https://vk.com/wallgood_{n}" for n in (1, 2, 3)]

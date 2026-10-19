@@ -56,5 +56,12 @@ make run s=search_service       # alembic upgrade head && search-service
 Миграции: `migrations/versions/`; новая — `make migration s=search_service m="..."`.
 В Docker (`services/search_service/Dockerfile`) — тоже сначала `alembic upgrade head`, потом сервер.
 
-Не сделано: импорт источников из XLSX (ImportSources, B2-10) и выгрузка DOCX (B2-08) —
-отвечают UNIMPLEMENTED (gateway: 501 NOT_IMPLEMENTED).
+Импорт источников из XLSX (`ImportSources`, колонки A — ссылка, B — название, C — «региональный»)
+и выгрузка DOCX (`ExportSearch format=DOCX`) работают. DOCX собирается без python-docx
+(`applications/handlers/docx_writer.py`), чтобы не менять зависимости и `uv.lock`.
+
+Логи: `request_id` из gateway добавляется ко всем строкам лога запроса и уходит в collector и ml
+(в том числе из фонового пайплайна). Длительность стадий поиска — строки `search stage finished`
+(`stage` = `analyzing_query | collecting | scoring | grouping | total`, а также `target_collect` и
+`target_scoring` по каждой цели; сбор и оценка цели идут конвейером, поэтому `collecting` включает
+оценку).
