@@ -4,6 +4,9 @@
 - период: посты с датой вне периода отбрасываются, без даты — остаются (их пометит search);
 - дубли по (platform, source_external_id, post_external_id) внутри ответа схлопываются;
 - max_posts: лишнее обрезается, truncated=True.
+
+PostAccumulator применяет их по мере прихода страниц (сбор идёт потоком и может остановиться
+по лимиту или по времени), finalize_result — то же для готового списка.
 """
 
 from dataclasses import dataclass
@@ -22,32 +25,63 @@ class FinalizeStats:
     outside_period: int
 
 
+class PostAccumulator:
+    def __init__(self, period: Period, limit: int) -> None:
+        self._period = period
+        self._limit = limit
+        self._seen: set[tuple[Platform, str, str]] = set()
+        self._posts: list[RawPost] = []
+        self._warnings: list[str] = []
+        self._received = self._empty = self._outside = 0
+        self.truncated = False
+
+    @property
+    def kept(self) -> int:
+        return len(self._posts)
+
+    def add(self, posts: list[RawPost]) -> None:
+        for post in posts:
+            self._received += 1
+            if not post.text.strip():
+                self._empty += 1
+                continue
+            if post.published_at is not None and not self._period.contains(post.published_at):
+                self._outside += 1
+                continue
+            if post.key in self._seen:
+                continue
+            if len(self._posts) >= self._limit:
+                self.truncated = True
+                continue
+            self._seen.add(post.key)
+            self._posts.append(post)
+
+    def warn(self, warning: str) -> None:
+        if warning not in self._warnings:
+            self._warnings.append(warning)
+
+    def result(self) -> tuple[CollectResult, FinalizeStats]:
+        warnings = list(self._warnings)
+        if self._empty:
+            warnings.append(f"Пропущено постов без текста: {self._empty}")
+        stats = FinalizeStats(
+            received=self._received,
+            kept=len(self._posts),
+            empty_text=self._empty,
+            outside_period=self._outside,
+        )
+        return (
+            CollectResult(posts=list(self._posts), truncated=self.truncated, warnings=warnings),
+            stats,
+        )
+
+
 def finalize_result(
     result: CollectResult, period: Period, limit: int
 ) -> tuple[CollectResult, FinalizeStats]:
-    seen: set[tuple[Platform, str, str]] = set()
-    posts: list[RawPost] = []
-    empty = outside = 0
-    for post in result.posts:
-        if not post.text.strip():
-            empty += 1
-            continue
-        if post.published_at is not None and not period.contains(post.published_at):
-            outside += 1
-            continue
-        if post.key in seen:
-            continue
-        seen.add(post.key)
-        posts.append(post)
-
-    warnings = list(result.warnings)
-    if empty:
-        warnings.append(f"Пропущено постов без текста: {empty}")
-    truncated = result.truncated or len(posts) > limit
-    stats = FinalizeStats(
-        received=len(result.posts),
-        kept=min(len(posts), limit),
-        empty_text=empty,
-        outside_period=outside,
-    )
-    return CollectResult(posts=posts[:limit], truncated=truncated, warnings=warnings), stats
+    acc = PostAccumulator(period, limit)
+    acc.add(result.posts)
+    for warning in result.warnings:
+        acc.warn(warning)
+    acc.truncated |= result.truncated
+    return acc.result()

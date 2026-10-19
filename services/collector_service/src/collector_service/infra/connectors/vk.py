@@ -14,7 +14,7 @@ search   → newsfeed.search(q, start_time, end_time, count=200, start_from) п�
 
 import logging
 import time
-from collections.abc import Callable, Iterable, Mapping, Sequence
+from collections.abc import AsyncIterator, Callable, Iterable, Mapping, Sequence
 from typing import Any
 
 from collector_service.domain.enums import Health, Platform
@@ -24,12 +24,13 @@ from collector_service.domain.exceptions import (
     SourceNotFoundError,
 )
 from collector_service.domain.value_objects import (
-    CollectResult,
+    Page,
     Period,
     PlatformInfo,
     RawPost,
     SourceInfo,
 )
+from collector_service.infra.cache import HealthCache
 from collector_service.infra.vk_api.client import VkApiClient
 from collector_service.infra.vk_api.mapping import (
     SourceCard,
@@ -51,8 +52,6 @@ WALL_MAX_PAGES = 50  # страховка: не листаем стену глу
 SEARCH_PAGE = 200  # максимум newsfeed.search
 SEARCH_MAX_PAGES = 5  # VK отдаёт не больше ~1000 результатов на запрос
 CARDS_BATCH = 500  # groups.getById / users.get принимают до 500 / 1000 id
-HEALTH_OK_TTL = 300.0  # кэш «здорова» — 5 минут (B1-07)
-HEALTH_FAIL_TTL = 60.0  # проблему перепроверяем чаще: она может пройти сама
 
 GROUP_FIELDS = "city,members_count,is_closed"
 
@@ -64,19 +63,12 @@ class VkConnector:
 
     def __init__(self, api: VkApiClient, *, clock: Callable[[], float] = time.monotonic) -> None:
         self._api = api
-        self._clock = clock
-        self._health: tuple[float, PlatformInfo] | None = None
+        self._health = HealthCache(clock)
 
     # ---------- health (B1-07) ----------
 
     async def health(self) -> PlatformInfo:
-        now = self._clock()
-        if self._health is not None and now < self._health[0]:
-            return self._health[1]
-        info = await self._check_health()
-        ttl = HEALTH_OK_TTL if info.health is Health.OK else HEALTH_FAIL_TTL
-        self._health = (now + ttl, info)
-        return info
+        return await self._health.get(self._check_health)
 
     async def _check_health(self) -> PlatformInfo:
         if not self._api.configured:
@@ -119,15 +111,16 @@ class VkConnector:
         source_external_id: str,
         period: Period,
         keywords: Sequence[str],
-        max_posts: int,
-    ) -> CollectResult:
+    ) -> AsyncIterator[Page]:
+        """Страница wall.get за страницей, пока посты не станут старше начала периода.
+
+        Период, пустые тексты и лимит применяет потребитель; здесь — только где остановиться.
+        """
         owner_id = owner_id_from_external(source_external_id)
         card = (await self._cards([owner_id])).get(owner_id)
         if card is None:
             raise SourceNotFoundError("Источник не найден на ВКонтакте")
         start_ts = int(period.start.timestamp())
-        result = CollectResult()
-        skipped_empty = 0
         offset = 0
 
         for _ in range(WALL_MAX_PAGES):
@@ -136,31 +129,29 @@ class VkConnector:
             )
             items = _items(response)
             if not items:
-                return _done(result, skipped_empty)
+                return
+            posts: list[RawPost] = []
+            reached_old = False
             for item in items:
                 date = item.get("date")
                 if isinstance(date, int) and date < start_ts and not item.get("is_pinned"):
-                    return _done(result, skipped_empty)  # дальше только старее
+                    reached_old = True  # дальше только старее
+                    break
                 post = post_from_item(item, card)
-                if post is None or not _in_period(post, period):
-                    continue
-                if not post.text:
-                    skipped_empty += 1
-                    continue
-                if len(result.posts) >= max_posts:
-                    result.truncated = True
-                    return _done(result, skipped_empty)
-                result.posts.append(post)
+                if post is not None:
+                    posts.append(post)
+            yield Page(posts=posts)
+            if reached_old:
+                return
             offset += len(items)
             total = response.get("count") if isinstance(response, Mapping) else None
             if isinstance(total, int) and offset >= total:
-                return _done(result, skipped_empty)
+                return
 
-        result.truncated = True
-        result.warnings.append(
-            "Достигнут предел глубины просмотра стены — старые посты не проверены"
+        yield Page(
+            truncated=True,
+            warnings=["Достигнут предел глубины просмотра стены — старые посты не проверены"],
         )
-        return _done(result, skipped_empty)
 
     # ---------- search ----------
 
@@ -169,72 +160,65 @@ class VkConnector:
         queries: Sequence[str],
         period: Period,
         region_terms: Sequence[str],
-        max_posts: int,
-    ) -> CollectResult:
-        found: dict[tuple[int, int], Mapping[str, Any]] = {}  # дубли между фразами → один пост
-        truncated = False
-        warnings: list[str] = []
+    ) -> AsyncIterator[Page]:
+        """По странице на фразу: найденное + названия источников (пачкой на фразу).
+
+        Упавшая фраза не роняет поиск: её ошибка уходит в warnings следующей страницы.
+        Упали все — ошибка первой фразы наверх.
+        """
+        cards: dict[int, SourceCard] = {}
+        asked: set[int] = set()  # у кого уже спрашивали название (даже если VK не вернул)
+        pending: list[str] = []
         first_error: CollectorError | None = None
         succeeded = 0
 
         for query in queries:
             try:
-                truncated |= await self._search_phrase(query, period, max_posts, found)
+                items = await self._search_phrase(query, period)
             except CollectorError as exc:
                 first_error = first_error or exc
-                warnings.append(f"Фраза «{query}» не обработана: {exc}")
+                pending.append(f"Фраза «{query}» не обработана: {exc}")
                 continue
             succeeded += 1
-            if truncated:
-                break
+            warnings, pending = pending, []
+            owners = {int(item["owner_id"]) for item in items} - asked
+            asked |= owners
+            cards.update(await self._cards_or_empty(owners, warnings))
+            posts: list[RawPost] = []
+            for item in items:
+                owner_id = int(item["owner_id"])
+                post = post_from_item(item, cards.get(owner_id) or fallback_card(owner_id))
+                if post is not None:
+                    posts.append(post)
+            yield Page(posts=posts, warnings=warnings)
+
         if succeeded == 0 and first_error is not None:
             raise first_error
+        if pending:
+            yield Page(warnings=pending)
 
-        owners = {int(item["owner_id"]) for item in found.values()}
-        cards = await self._cards_or_empty(owners, warnings)
-        result = CollectResult(truncated=truncated, warnings=warnings)
-        skipped_empty = 0
-        for item in found.values():
-            owner_id = int(item["owner_id"])
-            post = post_from_item(item, cards.get(owner_id) or fallback_card(owner_id))
-            if post is None:
-                continue
-            if not post.text:
-                skipped_empty += 1
-                continue
-            result.posts.append(post)
-        return _done(result, skipped_empty)
-
-    async def _search_phrase(
-        self,
-        query: str,
-        period: Period,
-        max_posts: int,
-        found: dict[tuple[int, int], Mapping[str, Any]],
-    ) -> bool:
-        """Добавляет найденное в `found`. True — упёрлись в max_posts."""
+    async def _search_phrase(self, query: str, period: Period) -> list[Mapping[str, Any]]:
+        """Все страницы newsfeed.search по одной фразе (VK отдаёт не больше ~1000)."""
         params: dict[str, str | int] = {
             "q": query,
             "start_time": int(period.start.timestamp()),
             "end_time": int(period.end.timestamp()),
             "count": SEARCH_PAGE,
         }
+        found: list[Mapping[str, Any]] = []
         for _ in range(SEARCH_MAX_PAGES):
             response = await self._api.call("newsfeed.search", **params)
             items = _items(response)
-            for item in items:
-                owner_id, post_id = item.get("owner_id"), item.get("id")
-                if not isinstance(owner_id, int) or not isinstance(post_id, int):
-                    continue
-                key = (owner_id, post_id)
-                if key not in found and len(found) >= max_posts:
-                    return True
-                found.setdefault(key, item)
+            found.extend(
+                item
+                for item in items
+                if isinstance(item.get("owner_id"), int) and isinstance(item.get("id"), int)
+            )
             next_from = response.get("next_from") if isinstance(response, Mapping) else None
             if not items or not next_from:
                 break
             params["start_from"] = str(next_from)
-        return False
+        return found
 
     # ---------- названия источников ----------
 
@@ -259,6 +243,8 @@ class VkConnector:
         self, owner_ids: set[int], warnings: list[str]
     ) -> dict[int, SourceCard]:
         """Для поиска: сбой на названиях не должен терять найденные посты."""
+        if not owner_ids:
+            return {}
         try:
             cards = await self._cards(owner_ids)
         except CollectorError as exc:
@@ -272,16 +258,6 @@ class VkConnector:
 def _items(response: Any) -> list[Mapping[str, Any]]:
     raw = response.get("items") if isinstance(response, Mapping) else None
     return [item for item in raw if isinstance(item, Mapping)] if isinstance(raw, list) else []
-
-
-def _in_period(post: RawPost, period: Period) -> bool:
-    return post.published_at is None or period.contains(post.published_at)
-
-
-def _done(result: CollectResult, skipped_empty: int) -> CollectResult:
-    if skipped_empty:
-        result.warnings.append(f"Пропущено постов без текста: {skipped_empty}")
-    return result
 
 
 def _batches(values: list[str], size: int) -> list[list[str]]:

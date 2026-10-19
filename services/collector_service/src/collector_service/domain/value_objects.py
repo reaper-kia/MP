@@ -80,3 +80,16 @@ class CollectResult:
     posts: list[RawPost] = field(default_factory=list)
     truncated: bool = False
     warnings: list[str] = field(default_factory=list)
+
+
+@dataclass(frozen=True, slots=True)
+class Page:
+    """Порция постов от коннектора. Сбор идёт потоком страниц: потребитель может остановиться
+    в любой момент (лимит постов, бюджет времени), и площадку больше не дёргаем.
+
+    truncated — площадка сама перестала отдавать (предел глубины), хотя посты за период ещё есть.
+    """
+
+    posts: list[RawPost] = field(default_factory=list)
+    warnings: list[str] = field(default_factory=list)
+    truncated: bool = False

@@ -2,18 +2,18 @@ from collections.abc import Sequence
 from dataclasses import dataclass, field
 
 from collector_service.applications.context import RequestContext
-from collector_service.applications.mediator import Command
+from collector_service.applications.mediator import Query
 from collector_service.domain.enums import Platform
 from collector_service.domain.value_objects import CollectResult, Period, PlatformInfo
 
 
 @dataclass(frozen=True)
-class GetPlatformsQuery(Command[list[PlatformInfo]]):
+class GetPlatformsQuery(Query[list[PlatformInfo]]):
     ctx: RequestContext
 
 
 @dataclass(frozen=True)
-class SearchPlatformQuery(Command[CollectResult]):
+class SearchPlatformQuery(Query[CollectResult]):
     """Режим «без ограничения списком»: поиск по всей площадке."""
 
     ctx: RequestContext

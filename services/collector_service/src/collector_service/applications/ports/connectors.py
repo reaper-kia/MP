@@ -1,13 +1,19 @@
-"""Порты к площадкам. Реализации — infra/connectors/ (фейк для разработки — fake.py)."""
+"""Порты к площадкам. Реализации — infra/connectors/ (фейк для разработки — fake.py).
 
-from collections.abc import Sequence
+Сбор и поиск — потоки страниц (AsyncIterator[Page]): коннектор не знает про лимит постов и
+бюджет времени, он просто отдаёт страницу за страницей. Останавливает его потребитель
+(applications/collecting.py) — тогда следующая страница с площадки не запрашивается.
+"""
+
+from collections.abc import AsyncIterator, Sequence
 from typing import Protocol
 
 from collector_service.domain.enums import Platform
 from collector_service.domain.value_objects import (
-    CollectResult,
+    Page,
     Period,
     PlatformInfo,
+    RawPost,
     SourceInfo,
 )
 
@@ -26,24 +32,40 @@ class PlatformConnector(Protocol):
         """Ссылка (уже нормализованная) → карточка источника. UnsupportedUrl / SourceNotFound."""
         ...
 
-    async def collect(
+    def collect(
         self,
         source_external_id: str,
         period: Period,
         keywords: Sequence[str],
-        max_posts: int,
-    ) -> CollectResult:
+    ) -> AsyncIterator[Page]:
         """Посты одного источника за период (режим «по выбранным источникам»)."""
         ...
 
-    async def search(
+    def search(
         self,
         queries: Sequence[str],
         period: Period,
         region_terms: Sequence[str],
-        max_posts: int,
-    ) -> CollectResult:
+    ) -> AsyncIterator[Page]:
         """Поиск по всей площадке (режим «везде»)."""
+        ...
+
+
+class PostReader(Protocol):
+    """Открыть один пост по ссылке и достать текст и дату со страницы площадки.
+
+    Нужен глобальному поиску через поисковик: ссылка из выдачи сама по себе ничего не
+    подтверждает — пост попадает в ответ, только если его удалось открыть (B1-06).
+    """
+
+    platform: Platform
+
+    def accepts(self, url: str) -> bool:
+        """Похоже ли на ссылку на пост этой площадки (а не на группу или профиль)."""
+        ...
+
+    async def read_post(self, url: str) -> RawPost | None:
+        """None — страница открылась, но поста на ней нет (удалён, это не пост)."""
         ...
 
 

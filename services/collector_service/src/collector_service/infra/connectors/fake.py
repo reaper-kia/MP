@@ -12,7 +12,7 @@
 
 import asyncio
 import hashlib
-from collections.abc import Sequence
+from collections.abc import AsyncIterator, Sequence
 from datetime import datetime, timedelta
 
 from collector_service.domain.enums import Health, Platform
@@ -23,7 +23,7 @@ from collector_service.domain.exceptions import (
 )
 from collector_service.domain.urls import path_parts
 from collector_service.domain.value_objects import (
-    CollectResult,
+    Page,
     Period,
     PlatformInfo,
     PostMetrics,
@@ -91,31 +91,27 @@ class FakeConnector:
         source_external_id: str,
         period: Period,
         keywords: Sequence[str],
-        max_posts: int,
-    ) -> CollectResult:
+    ) -> AsyncIterator[Page]:
         await asyncio.sleep(self._delay)
         if source_external_id == "fail":
             raise PlatformUnavailableError(f"{self.title}: тестовая ошибка источника")
         if source_external_id == "closed":
             raise SourcePrivateError("Группа закрыта")
         if source_external_id == "empty":
-            return CollectResult()
-        # обрезку до max_posts и truncated делает finalize_result (domain/services.py):
+            return
+        # период, обрезку до max_posts и truncated делает потребитель (applications/collecting.py):
         # коннектор отдаёт всё
-        return CollectResult(posts=self._posts(source_external_id, period))
+        yield Page(posts=self._posts(source_external_id, period))
 
     async def search(
         self,
         queries: Sequence[str],
         period: Period,
         region_terms: Sequence[str],
-        max_posts: int,
-    ) -> CollectResult:
+    ) -> AsyncIterator[Page]:
         await asyncio.sleep(self._delay)
-        posts: list[RawPost] = []
         for owner in ("fake_city_news", "fake_region_today"):
-            posts.extend(self._posts(owner, period))
-        return CollectResult(posts=posts, warnings=["Тестовые данные"])
+            yield Page(posts=self._posts(owner, period), warnings=["Тестовые данные"])
 
     def _posts(self, owner: str, period: Period) -> list[RawPost]:
         """Посты источника: первый — ровно на начале периода (проверка «включительно»),
