@@ -90,7 +90,7 @@ export function ExportBar({ search, filters: f, grouped }: Props) {
     try {
       await download(exportUrl(search.id, format, f, grouped), `podborka.${format}`);
     } catch (err) {
-      notifications.show({ color: "red", title: "Не удалось скачать файл", message: errorText(err) });
+      notifications.show({ color: "red", title: "Не удалось скачать файл", message: errorText(err, "export") });
     } finally {
       setBusy(null);
     }
