@@ -12,7 +12,7 @@ from search_service.applications.ports.collector_client import CollectorClient, 
 from search_service.applications.ports.ml_client import MlClient, QueryAnalysis
 from search_service.applications.ports.uow import UnitOfWork
 from search_service.domain.entities import Search, SearchTarget
-from search_service.domain.enums import DateStatus, Platform, QueryType, SearchStage, SearchStatus
+from search_service.domain.enums import Platform, QueryType, SearchStage, SearchStatus
 from search_service.domain.errors import CollectorError, NotFoundError
 
 log = structlog.get_logger()
@@ -210,10 +210,8 @@ class Pipeline:
             else:
                 async with self.uow:
                     target = (await self.uow.targets.get_by_ids([target.id]))[0]
-                    in_period = sum(
-                        1 for r in saved_results if r.date_status == DateStatus.IN_PERIOD
-                    )
-                    target.mark_done(fetched=len(posts), matched=in_period)
+                    # «в подборке» считается после оценки (recount_matched в ScoringHandler)
+                    target.mark_done(fetched=len(posts), matched=0)
                     await self.uow.targets.save(target)
                     await self.uow.commit()
 

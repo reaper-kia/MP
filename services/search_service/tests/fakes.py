@@ -86,6 +86,9 @@ class InMemoryTargets:
     async def get_by_ids(self, ids):
         return [self.store[i] for i in ids if i in self.store]
 
+    async def set_matched(self, target_id, matched):
+        self.store[target_id].matched = matched
+
 
 class InMemoryPublications:
     def __init__(self):
@@ -240,7 +243,10 @@ class FakeMl:
 
     def __init__(self) -> None:
         self.relevance_by_text: dict[str, Relevance] = {}
+        self.region_texts: set[str] = set()  # подстрока текста → region.by_content = True
+        self.excerpt_span: tuple[int, int] | None = None  # None — «весь текст до 300»
         self.unavailable = False
+        self.group_calls: list[int] = []  # размеры вызовов GroupPosts
 
     async def analyze_query(self, query: str) -> tuple[QueryAnalysis, bool]:
         if self.unavailable:
@@ -264,13 +270,15 @@ class FakeMl:
                     relevance=relevance.value,
                     score=0.9,
                     explanation="тест",
-                    excerpt_span=(0, min(len(p.text), 300)),
+                    region_by_content=any(needle in p.text for needle in self.region_texts),
+                    excerpt_span=self.excerpt_span or (0, min(len(p.text), 300)),
                     highlight_spans=[(0, 5)],
                 )
             )
         return scores, False
 
     async def group_posts(self, posts: list[dict[str, Any]]) -> list[PostGroup]:
+        self.group_calls.append(len(posts))
         return [PostGroup(f"g{i}", [p["id"]], p["id"]) for i, p in enumerate(posts, start=1)]
 
 

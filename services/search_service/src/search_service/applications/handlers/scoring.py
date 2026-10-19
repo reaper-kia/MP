@@ -3,18 +3,32 @@ from __future__ import annotations
 import asyncio
 import uuid
 from collections.abc import Iterable, Iterator
+from datetime import UTC, datetime
 from itertools import islice
 from typing import Any
 
 import structlog
 
-from search_service.applications.ports.ml_client import MlClient, PostForScoring, QueryAnalysis
+from search_service.applications.handlers.matched import recount_matched
+from search_service.applications.ports.ml_client import (
+    MlClient,
+    PostForScoring,
+    PostGroup,
+    QueryAnalysis,
+)
 from search_service.applications.ports.uow import UnitOfWork
 from search_service.domain.entities import Publication, Search, SearchResult
-from search_service.domain.enums import QueryType, Relevance
+from search_service.domain.enums import QueryType, Relevance, SearchMode
 from search_service.domain.errors import NotFoundError
 
 log = structlog.get_logger()
+
+# контракт ml.v1 GroupPosts: до 500 постов за вызов
+GROUP_POSTS_LIMIT = 500
+
+NO_REGION_EXPLANATION = (
+    "Нет связи с Красноярским краем: источник не региональный и в тексте край не упоминается"
+)
 
 
 def analysis_to_dict(analysis: QueryAnalysis) -> dict[str, Any]:
@@ -74,7 +88,10 @@ class ScoringHandler:
             async with sem:
                 await self._score_batch(search, analysis, batch, pubs_by_id)
 
-        await asyncio.gather(*(process_batch(b) for b in batches))
+        try:
+            await asyncio.gather(*(process_batch(b) for b in batches))
+        finally:
+            await recount_matched(self.uow, search_id, {r.target_id for r in pending})
 
     async def score_results(self, search_id: uuid.UUID, result_ids: list[uuid.UUID]) -> None:
         async with self.uow:
@@ -101,7 +118,10 @@ class ScoringHandler:
             async with sem:
                 await self._score_batch(search, analysis, batch, pubs_by_id)
 
-        await asyncio.gather(*(process_batch(b) for b in batches))
+        try:
+            await asyncio.gather(*(process_batch(b) for b in batches))
+        finally:
+            await recount_matched(self.uow, search_id, {r.target_id for r in results})
 
     async def _score_batch(
         self,
@@ -179,10 +199,21 @@ class ScoringHandler:
                 except ValueError:
                     rel = Relevance.DISPUTED
 
+                explanation = s.explanation
+                if (
+                    search.mode is SearchMode.GLOBAL
+                    and rel is not Relevance.IRRELEVANT
+                    and not r.region_by_source
+                    and not s.region_by_content
+                ):
+                    # «везде»: без привязки к краю по источнику и по тексту — отсеиваем
+                    rel = Relevance.IRRELEVANT
+                    explanation = NO_REGION_EXPLANATION
+
                 r.set_score(
                     relevance=rel,
                     score=s.score,
-                    explanation=s.explanation,
+                    explanation=explanation,
                     region_by_content=s.region_by_content,
                     region_evidence=s.region_evidence,
                     sentiment=s.sentiment,
@@ -208,26 +239,40 @@ class ScoringHandler:
         if not passed:
             return
 
-        posts_for_group: list[dict[str, Any]] = [
-            {
-                "id": str(r.id),
-                "title": pubs_by_id[r.publication_id].title,
-                "text": pubs_by_id[r.publication_id].text,
-            }
-            for r in passed
-        ]
-        try:
-            groups = await self.ml.group_posts(posts_for_group)
-        except Exception as e:
-            log.warning("group_posts failed", error=str(e))
-            # без групп — не критично
-            return
+        # рядом по времени — вероятнее копии одного сюжета: при нарезке чаще окажутся в одном куске
+        passed.sort(
+            key=lambda r: (
+                pubs_by_id[r.publication_id].published_at is None,
+                pubs_by_id[r.publication_id].published_at or datetime.min.replace(tzinfo=UTC),
+            )
+        )
+        prefix = str(search_id)[:8]
+        for idx, chunk in enumerate(self._chunks(passed, GROUP_POSTS_LIMIT)):
+            posts_for_group: list[dict[str, Any]] = [
+                {
+                    "id": str(r.id),
+                    "title": pubs_by_id[r.publication_id].title,
+                    "text": pubs_by_id[r.publication_id].text,
+                }
+                for r in chunk
+            ]
+            try:
+                groups = await self.ml.group_posts(posts_for_group)
+            except Exception as e:
+                log.warning("group_posts failed", chunk=idx, error=str(e))
+                # без групп — не критично; остальные куски группируем
+                continue
+            # group_id у ML уникален в пределах вызова → у каждого следующего куска свой префикс
+            chunk_prefix = prefix if idx == 0 else f"{prefix}-{idx}"
+            await self._save_groups(search_id, chunk_prefix, groups)
 
+    async def _save_groups(
+        self, search_id: uuid.UUID, prefix: str, groups: list[PostGroup]
+    ) -> None:
         async with self.uow:
             # пересчитываем results, чтобы они были актуальны
             fresh_results = await self.uow.results.get_by_search(search_id)
             by_id = {str(r.id): r for r in fresh_results}
-            prefix = str(search_id)[:8]
             for g in groups:
                 full_group_id = f"{prefix}-{g.group_id}"
                 for pid in g.post_ids:
