@@ -13,6 +13,7 @@ import {
   Tabs,
   Text,
 } from "@mantine/core";
+import { useQueryClient } from "@tanstack/react-query";
 import { useEffect, useState } from "react";
 
 import type { S } from "../../api/client";
@@ -42,6 +43,13 @@ export function ResultsView({ search }: { search: S["Search"] }) {
   const groups = useGroupList(search.id, f, running, grouped);
   const active = grouped ? groups : list;
   useConnectionNotice(active);
+
+  // Поиск завершился (или повтор добавил публикации) — перечитать списки один раз: опрос раз в 3 с
+  // останавливается на финальном статусе, и последний ответ мог прийти раньше, чем бэкенд дописал подборку.
+  const queryClient = useQueryClient();
+  useEffect(() => {
+    queryClient.invalidateQueries({ queryKey: ["results", search.id] });
+  }, [queryClient, search.id, search.status, c.total, c.rejected]);
 
   const exclusion = useExclusion(search.id);
   const [selected, setSelected] = useState<Set<string>>(new Set());
