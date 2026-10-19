@@ -1,9 +1,17 @@
-"""Composition root: настройки → коннекторы → реестр → хэндлеры в Mediator."""
+"""Composition root: настройки → клиенты площадок → коннекторы → реестр → Mediator.
+
+Здесь и только здесь выбирается, как получаем публикации с каждой площадки:
+  VK    — VK API (сервисный ключ);
+  OK    — публичные страницы ok.ru; «везде» — Yandex Search API + открыть каждую ссылку;
+  MAX   — Bot API (каналы, где бот — администратор); «везде» нет: веб без входа пуст;
+  NEWS  — RSS-ленты сайтов из перечня (NEWS_SITES).
+"""
 
 from dataclasses import dataclass
 
 import httpx
 
+from collector_service.applications.behaviors import CachingBehavior, LoggingBehavior
 from collector_service.applications.handlers.platforms import (
     GetPlatformsQueryHandler,
     SearchPlatformQueryHandler,
@@ -14,6 +22,7 @@ from collector_service.applications.handlers.sources import (
 )
 from collector_service.applications.limits import CollectLimits
 from collector_service.applications.mediator import Mediator
+from collector_service.applications.ports.cache import Cache
 from collector_service.applications.ports.connectors import ConnectorRegistry, PlatformConnector
 from collector_service.applications.queries.platforms import GetPlatformsQuery, SearchPlatformQuery
 from collector_service.applications.queries.sources import (
@@ -21,16 +30,24 @@ from collector_service.applications.queries.sources import (
     ResolveSourceQuery,
 )
 from collector_service.domain.enums import Platform
+from collector_service.infra.cache import TtlCache
 from collector_service.infra.config import Settings
 from collector_service.infra.connectors.fake import FakeConnector
 from collector_service.infra.connectors.max import MaxConnector
 from collector_service.infra.connectors.news import NewsConnector
 from collector_service.infra.connectors.ok import OkConnector
 from collector_service.infra.connectors.registry import InMemoryConnectorRegistry
+from collector_service.infra.connectors.site_search import SiteSearch, WithSiteSearch
 from collector_service.infra.connectors.vk import VkConnector
-from collector_service.infra.http import HttpxFormPoster, create_http_client
+from collector_service.infra.http import HttpxFormPoster, HttpxJsonPoster, create_http_client
+from collector_service.infra.max_api.client import MaxApiClient
+from collector_service.infra.news.sites import parse_sites
 from collector_service.infra.vk_api.client import VkApiClient
 from collector_service.infra.vk_api.limiter import RateLimiter
+from collector_service.infra.web.fetcher import HostLimiters, HttpxWebFetcher, WebFetcher
+from collector_service.infra.yandex_search.client import YandexSearchClient
+
+RESOLVE_CACHE_TTL = 600.0
 
 
 @dataclass(frozen=True)
@@ -52,19 +69,63 @@ def build_vk(settings: Settings, http: httpx.AsyncClient) -> VkConnector:
     return VkConnector(client)
 
 
+def build_web_fetcher(settings: Settings, http: httpx.AsyncClient) -> WebFetcher:
+    limiters = HostLimiters(
+        settings.web_requests_per_second,
+        {"ok.ru": settings.ok_requests_per_second},
+    )
+    headers = {
+        "User-Agent": settings.web_user_agent,
+        "Accept-Language": "ru-RU,ru;q=0.9",
+        "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+    }
+    return HttpxWebFetcher(http, limiters, default_headers=headers)
+
+
+def build_yandex(settings: Settings, http: httpx.AsyncClient) -> YandexSearchClient:
+    return YandexSearchClient(
+        HttpxJsonPoster(http),
+        folder_id=settings.yc_folder_id,
+        api_key=settings.yc_search_api_key,
+        region=settings.yandex_search_region,
+    )
+
+
 def build_connectors(settings: Settings, http: httpx.AsyncClient) -> list[PlatformConnector]:
     if settings.collector_fake:
         return [FakeConnector(p) for p in Platform]
+    web = build_web_fetcher(settings, http)
+    yandex = build_yandex(settings, http)
+    ok = OkConnector(web, health_url=settings.ok_health_url)
+    max_api = MaxApiClient(
+        http,
+        token=settings.max_bot_token,
+        base_url=settings.max_api_url,
+        limiter=RateLimiter(settings.max_requests_per_second),
+    )
     return [
         build_vk(settings, http),
-        OkConnector(settings, http),
-        MaxConnector(settings, http),
-        NewsConnector(settings, http),
+        WithSiteSearch(ok, SiteSearch(yandex, "ok.ru", ok)),
+        MaxConnector(max_api),
+        NewsConnector(
+            parse_sites(settings.news_sites), web, open_articles=settings.news_open_articles
+        ),
     ]
 
 
-def build_mediator(registry: ConnectorRegistry, limits: CollectLimits) -> Mediator:
-    mediator = Mediator()
+def build_mediator(
+    registry: ConnectorRegistry,
+    limits: CollectLimits,
+    cache: Cache | None = None,
+    resolve_cache_ttl: float = RESOLVE_CACHE_TTL,
+) -> Mediator:
+    # снаружи внутрь: лог видит и попадания в кэш, и время реального запроса к площадке
+    mediator = Mediator(
+        behaviors=[
+            LoggingBehavior(),
+            CachingBehavior(cache if cache is not None else TtlCache(), resolve_cache_ttl),
+        ]
+    )
     mediator.register(GetPlatformsQuery, GetPlatformsQueryHandler(registry))
     mediator.register(ResolveSourceQuery, ResolveSourceQueryHandler(registry))
     mediator.register(CollectFromSourceQuery, CollectFromSourceQueryHandler(registry, limits))
@@ -78,5 +139,9 @@ def build_container(settings: Settings) -> Container:
     limits = CollectLimits(
         per_source=settings.default_max_posts_source,
         per_search=settings.default_max_posts_search,
+        budget_seconds=settings.collect_budget_seconds,
     )
-    return Container(http=http, mediator=build_mediator(registry, limits))
+    mediator = build_mediator(
+        registry, limits, TtlCache(), resolve_cache_ttl=settings.resolve_cache_ttl_seconds
+    )
+    return Container(http=http, mediator=mediator)

@@ -38,8 +38,11 @@ def to_timestamp(value: datetime) -> Timestamp:
     return timestamp
 
 
-def context_from_proto(ctx: common_pb2.RequestContext) -> RequestContext:
-    return RequestContext(request_id=ctx.request_id)
+def context_from_proto(
+    ctx: common_pb2.RequestContext, time_remaining: float | None = None
+) -> RequestContext:
+    """time_remaining — из gRPC deadline вызывающего (context.time_remaining())."""
+    return RequestContext(request_id=ctx.request_id, time_remaining=time_remaining)
 
 
 def platform_from_proto(value: int) -> Platform:

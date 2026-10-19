@@ -31,6 +31,7 @@ from collector_service.infra.connectors.registry import InMemoryConnectorRegistr
 from collector_service.infra.connectors.vk import VkConnector
 from collector_service.infra.vk_api.client import VkApiClient
 from collector_service.infra.vk_api.limiter import RateLimiter
+from tests.streams import gather
 from tests.vk_support import ScriptedVk, fixture, network_down, ok, vk_error
 
 PERIOD = Period(
@@ -95,7 +96,7 @@ async def test_resolve_garbage_is_unsupported_and_makes_no_request() -> None:
 
 async def test_collect_takes_period_posts_and_stops_at_first_old_post() -> None:
     vk = wall_vk()
-    result = await connector(vk).collect(OWNER, PERIOD, [], 300)
+    result = await gather(connector(vk).collect(OWNER, PERIOD, []), PERIOD, 300)
 
     # пропущены: закреплённый старый, «после периода», пост без текста; старее периода — стоп
     assert [p.post_external_id for p in result.posts] == ["9008", "9007", "9004"]
@@ -105,7 +106,7 @@ async def test_collect_takes_period_posts_and_stops_at_first_old_post() -> None:
 
 
 async def test_collect_post_fields() -> None:
-    result = await connector(wall_vk()).collect(OWNER, PERIOD, [], 300)
+    result = await gather(connector(wall_vk()).collect(OWNER, PERIOD, []), PERIOD, 300)
     plain, repost, bare = result.posts
 
     assert plain.url == "https://vk.com/wall-100001_9008"
@@ -129,7 +130,7 @@ async def test_collect_post_fields() -> None:
 
 async def test_collect_pinned_old_post_does_not_stop_the_walk() -> None:
     # закреплённый пост — первый в ответе и старый; посты после него всё равно собраны
-    result = await connector(wall_vk()).collect(OWNER, PERIOD, [], 300)
+    result = await gather(connector(wall_vk()).collect(OWNER, PERIOD, []), PERIOD, 300)
     assert "9001" not in [p.post_external_id for p in result.posts] and len(result.posts) == 3
 
 
@@ -149,7 +150,7 @@ async def test_collect_pages_until_old_posts_and_passes_offsets() -> None:
         groups_getById=fixture("groups_cards.json"),
         wall_get=[page(1, 100, 1792000000), page(101, 100, 1792000000), page(201, 50, 1792000000)],
     )
-    result = await connector(vk).collect(OWNER, PERIOD, [], 1000)
+    result = await gather(connector(vk).collect(OWNER, PERIOD, []), PERIOD, 1000)
     assert len(result.posts) == 250 and not result.truncated
     assert [f["offset"] for f in vk.params("wall.get")] == ["0", "100", "200"]  # count=250 → стоп
     assert {f["count"] for f in vk.params("wall.get")} == {"100"}
@@ -157,18 +158,20 @@ async def test_collect_pages_until_old_posts_and_passes_offsets() -> None:
 
 
 async def test_collect_truncates_at_max_posts() -> None:
-    result = await connector(wall_vk()).collect(OWNER, PERIOD, [], 2)
+    result = await gather(connector(wall_vk()).collect(OWNER, PERIOD, []), PERIOD, 2)
     assert [p.post_external_id for p in result.posts] == ["9008", "9007"]
     assert result.truncated
 
 
 async def test_collect_exactly_max_posts_is_not_truncated() -> None:
-    result = await connector(wall_vk()).collect(OWNER, PERIOD, [], 3)
+    result = await gather(connector(wall_vk()).collect(OWNER, PERIOD, []), PERIOD, 3)
     assert len(result.posts) == 3 and not result.truncated
 
 
 async def test_collect_ignores_keywords_and_returns_everything_in_period() -> None:
-    result = await connector(wall_vk()).collect(OWNER, PERIOD, ["совсем не то"], 300)
+    result = await gather(
+        connector(wall_vk()).collect(OWNER, PERIOD, ["совсем не то"]), PERIOD, 300
+    )
     assert len(result.posts) == 3
 
 
@@ -180,7 +183,7 @@ async def test_collect_gives_up_on_endless_wall_with_truncated_warning() -> None
         }
     )
     vk = ScriptedVk(groups_getById=fixture("groups_cards.json"), wall_get=endless)
-    result = await connector(vk).collect(OWNER, PERIOD, [], 300)
+    result = await gather(connector(vk).collect(OWNER, PERIOD, []), PERIOD, 300)
     assert result.truncated and "предел глубины" in result.warnings[0]
     assert len(vk.params("wall.get")) == 50
 
@@ -189,20 +192,20 @@ async def test_collect_empty_wall() -> None:
     vk = ScriptedVk(
         groups_getById=fixture("groups_cards.json"), wall_get=ok({"count": 0, "items": []})
     )
-    result = await connector(vk).collect(OWNER, PERIOD, [], 300)
+    result = await gather(connector(vk).collect(OWNER, PERIOD, []), PERIOD, 300)
     assert result.posts == [] and result.warnings == [] and not result.truncated
 
 
 async def test_collect_closed_group_is_private() -> None:
     vk = ScriptedVk(groups_getById=fixture("groups_cards.json"), wall_get=vk_error(15))
     with pytest.raises(SourcePrivateError):
-        await connector(vk).collect(OWNER, PERIOD, [], 300)
+        await gather(connector(vk).collect(OWNER, PERIOD, []), PERIOD, 300)
 
 
 async def test_collect_unknown_group_is_not_found() -> None:
     vk = ScriptedVk(groups_getById=ok({"groups": []}), wall_get=ok({"count": 0, "items": []}))
     with pytest.raises(SourceNotFoundError):
-        await connector(vk).collect(OWNER, PERIOD, [], 300)
+        await gather(connector(vk).collect(OWNER, PERIOD, []), PERIOD, 300)
     assert "wall.get" not in vk.methods()
 
 
@@ -211,7 +214,7 @@ async def test_collect_user_wall_uses_users_get_for_the_name() -> None:
         {"count": 1, "items": [{"id": 31, "owner_id": 555, "date": 1792100000, "text": "Привет"}]}
     )
     vk = ScriptedVk(users_get=fixture("users_get.json"), wall_get=wall)
-    result = await connector(vk).collect("555", PERIOD, [], 300)
+    result = await gather(connector(vk).collect("555", PERIOD, []), PERIOD, 300)
     [post] = result.posts
     assert post.source_name == "Ольга Тестова" and post.url == "https://vk.com/wall555_31"
     assert "groups.getById" not in vk.methods()
@@ -219,7 +222,7 @@ async def test_collect_user_wall_uses_users_get_for_the_name() -> None:
 
 async def test_collect_rejects_garbage_source_id() -> None:
     with pytest.raises(UnsupportedUrlError):
-        await connector(ScriptedVk()).collect("not-a-number", PERIOD, [], 300)
+        await gather(connector(ScriptedVk()).collect("not-a-number", PERIOD, []), PERIOD, 300)
 
 
 # ---------- search ----------
@@ -239,7 +242,9 @@ def search_vk(**extra: Any) -> ScriptedVk:
 
 async def test_search_pages_with_cursor_dedupes_and_names_sources() -> None:
     vk = search_vk()
-    result = await connector(vk).search(["ДТП Красноярск"], PERIOD, ["Красноярск"], 500)
+    result = await gather(
+        connector(vk).search(["ДТП Красноярск"], PERIOD, ["Красноярск"]), PERIOD, 500
+    )
 
     keys = [(p.source_external_id, p.post_external_id) for p in result.posts]
     assert keys == [("-100001", "9008"), ("-100002", "5001"), ("555", "31"), ("-100003", "7001")]
@@ -259,7 +264,11 @@ async def test_search_pages_with_cursor_dedupes_and_names_sources() -> None:
 
 async def test_search_request_parameters() -> None:
     vk = search_vk()
-    await connector(vk).search(["ДТП Красноярск"], PERIOD, ["Красноярск", "Красноярский край"], 500)
+    await gather(
+        connector(vk).search(["ДТП Красноярск"], PERIOD, ["Красноярск", "Красноярский край"]),
+        PERIOD,
+        500,
+    )
     first, second = vk.params("newsfeed.search")
     assert first["q"] == "ДТП Красноярск"
     assert (first["start_time"], first["end_time"]) == ("1791158400", "1792454399")
@@ -272,7 +281,7 @@ async def test_search_request_parameters() -> None:
 
 
 async def test_search_without_region_terms_works_the_same() -> None:
-    result = await connector(search_vk()).search(["ДТП"], PERIOD, [], 500)
+    result = await gather(connector(search_vk()).search(["ДТП"], PERIOD, []), PERIOD, 500)
     assert len(result.posts) == 4
 
 
@@ -281,13 +290,15 @@ async def test_search_merges_phrases_without_duplicates() -> None:
     vk = ScriptedVk(
         newsfeed_search=page, groups_getById=fixture("groups_cards.json"), users_get=ok([])
     )
-    result = await connector(vk).search(["фраза один", "фраза два"], PERIOD, [], 500)
+    result = await gather(
+        connector(vk).search(["фраза один", "фраза два"], PERIOD, []), PERIOD, 500
+    )
     assert [q["q"] for q in vk.params("newsfeed.search")] == ["фраза один", "фраза два"]
     assert [p.post_external_id for p in result.posts] == ["9008", "7001"]  # дубль схлопнут
 
 
 async def test_search_truncates_at_max_posts() -> None:
-    result = await connector(search_vk()).search(["ДТП"], PERIOD, [], 2)
+    result = await gather(connector(search_vk()).search(["ДТП"], PERIOD, []), PERIOD, 2)
     assert len(result.posts) == 2 and result.truncated
 
 
@@ -298,7 +309,7 @@ async def test_search_one_failed_phrase_keeps_results_of_the_others() -> None:
         groups_getById=fixture("groups_cards.json"),
         users_get=ok([]),
     )
-    result = await connector(vk).search(["плохая", "хорошая"], PERIOD, [], 500)
+    result = await gather(connector(vk).search(["плохая", "хорошая"], PERIOD, []), PERIOD, 500)
     assert len(result.posts) == 2
     assert any("Фраза «плохая» не обработана" in w for w in result.warnings)
 
@@ -306,7 +317,7 @@ async def test_search_one_failed_phrase_keeps_results_of_the_others() -> None:
 async def test_search_all_phrases_failed_raises() -> None:
     vk = ScriptedVk(newsfeed_search=vk_error(6))
     with pytest.raises(RateLimitedError):
-        await connector(vk).search(["а", "б"], PERIOD, [], 500)
+        await gather(connector(vk).search(["а", "б"], PERIOD, []), PERIOD, 500)
 
 
 async def test_search_keeps_posts_when_source_names_cannot_be_fetched() -> None:
@@ -314,7 +325,7 @@ async def test_search_keeps_posts_when_source_names_cannot_be_fetched() -> None:
         newsfeed_search=fixture("newsfeed_search_page2.json"),
         groups_getById=network_down(),
     )
-    result = await connector(vk).search(["ДТП"], PERIOD, [], 500)
+    result = await gather(connector(vk).search(["ДТП"], PERIOD, []), PERIOD, 500)
     assert [p.source_name for p in result.posts] == [
         "club100001",
         "club100003",
@@ -329,14 +340,14 @@ async def test_search_keeps_posts_when_source_names_cannot_be_fetched() -> None:
 async def test_search_missing_source_card_is_counted_in_warnings() -> None:
     only_one = ok({"groups": [fixture("groups_cards.json")["response"]["groups"][0]]})
     vk = ScriptedVk(newsfeed_search=fixture("newsfeed_search_page2.json"), groups_getById=only_one)
-    result = await connector(vk).search(["ДТП"], PERIOD, [], 500)
+    result = await gather(connector(vk).search(["ДТП"], PERIOD, []), PERIOD, 500)
     assert [p.source_name for p in result.posts] == ["Новости Красноярска", "club100003"]
     assert "Не удалось получить названия источников: 1" in result.warnings
 
 
 async def test_search_nothing_found() -> None:
     vk = ScriptedVk(newsfeed_search=ok({"count": 0, "total_count": 0, "items": []}))
-    result = await connector(vk).search(["ничего"], PERIOD, [], 500)
+    result = await gather(connector(vk).search(["ничего"], PERIOD, []), PERIOD, 500)
     assert result.posts == [] and not result.truncated
     assert vk.methods() == ["newsfeed.search"]  # без постов названия не запрашиваем
 

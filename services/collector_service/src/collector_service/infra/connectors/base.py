@@ -1,9 +1,9 @@
-from collections.abc import Sequence
+from collections.abc import AsyncIterator, Sequence
 
 from collector_service.applications.exceptions import NotImplementedYetError
 from collector_service.domain.enums import Health, Platform
 from collector_service.domain.value_objects import (
-    CollectResult,
+    Page,
     Period,
     PlatformInfo,
     SourceInfo,
@@ -36,15 +36,15 @@ class NotImplementedConnector:
         source_external_id: str,
         period: Period,
         keywords: Sequence[str],
-        max_posts: int,
-    ) -> CollectResult:
+    ) -> AsyncIterator[Page]:
         raise NotImplementedYetError(f"{self.title}: collect не реализован ({self.task})")
+        yield Page()  # pragma: no cover — делает метод асинхронным генератором
 
     async def search(
         self,
         queries: Sequence[str],
         period: Period,
         region_terms: Sequence[str],
-        max_posts: int,
-    ) -> CollectResult:
+    ) -> AsyncIterator[Page]:
         raise NotImplementedYetError(f"{self.title}: search не реализован ({self.task})")
+        yield Page()  # pragma: no cover

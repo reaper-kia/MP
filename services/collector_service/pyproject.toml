@@ -12,6 +12,9 @@ dependencies = [
     "httpx>=0.28.1",
     "protobuf>=7.35.1",
     "pydantic-settings>=2.10.0",
+    "selectolax>=1.0.1",
+    "defusedxml>=0.7.1",
+    "certifi>=2026.10.18",
 ]
 
 [project.scripts]
@@ -28,6 +31,7 @@ dev = [
     "pytest>=8.3.0",
     "pytest-asyncio>=0.26.0",
     "ruff>=0.11.0",
+    "types-defusedxml>=0.7.0.20260504",
     "types-grpcio>=1.83.0.20260730",
     "types-grpcio-health-checking>=1.0.0.20260518",
     "types-grpcio-reflection>=1.0.0.20260508",

@@ -1,0 +1,23 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- СИНТЕТИЧЕСКИЙ ответ: формат XML-выдачи Яндекса по документации, не настоящий ответ API -->
+<yandexsearch version="1.0">
+  <response date="20261019T120000">
+    <results>
+      <grouping>
+        <group><doc>
+          <url>https://ok.ru/group/70000001/topic/155000000001</url>
+          <title>Новости <hlword>Красноярск</hlword></title>
+          <passages><passage>На трассе <hlword>ДТП</hlword></passage></passages>
+        </doc></group>
+        <group><doc>
+          <url>https://ok.ru/group/70000001</url>
+          <title>Группа целиком — не пост</title>
+        </doc></group>
+        <group><doc>
+          <url>https://ok.ru/group/70000002/topic/155000000002</url>
+          <title>Второй пост</title>
+        </doc></group>
+      </grouping>
+    </results>
+  </response>
+</yandexsearch>

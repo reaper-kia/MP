@@ -29,7 +29,7 @@ class CollectorServicer(pb_grpc.CollectorServiceServicer):
         self, request: pb.GetPlatformsRequest, context: Context
     ) -> pb.GetPlatformsResponse:
         platforms = await self._mediator.send(
-            GetPlatformsQuery(ctx=context_from_proto(request.context))
+            GetPlatformsQuery(ctx=context_from_proto(request.context, context.time_remaining()))
         )
         return pb.GetPlatformsResponse(platforms=[platform_info_to_proto(p) for p in platforms])
 
@@ -38,7 +38,9 @@ class CollectorServicer(pb_grpc.CollectorServiceServicer):
         self, request: pb.ResolveSourceRequest, context: Context
     ) -> pb.ResolveSourceResponse:
         source = await self._mediator.send(
-            ResolveSourceQuery(ctx=context_from_proto(request.context), url=request.url)
+            ResolveSourceQuery(
+                ctx=context_from_proto(request.context, context.time_remaining()), url=request.url
+            )
         )
         return pb.ResolveSourceResponse(source=source_to_proto(source))
 
@@ -48,7 +50,7 @@ class CollectorServicer(pb_grpc.CollectorServiceServicer):
     ) -> pb.CollectFromSourceResponse:
         result = await self._mediator.send(
             CollectFromSourceQuery(
-                ctx=context_from_proto(request.context),
+                ctx=context_from_proto(request.context, context.time_remaining()),
                 platform=platform_from_proto(request.platform),
                 source_external_id=request.source_external_id,
                 period=period_from_proto(request.period, request.HasField("period")),
@@ -65,7 +67,7 @@ class CollectorServicer(pb_grpc.CollectorServiceServicer):
     ) -> pb.SearchPlatformResponse:
         result = await self._mediator.send(
             SearchPlatformQuery(
-                ctx=context_from_proto(request.context),
+                ctx=context_from_proto(request.context, context.time_remaining()),
                 platform=platform_from_proto(request.platform),
                 queries=list(request.queries),
                 period=period_from_proto(request.period, request.HasField("period")),
