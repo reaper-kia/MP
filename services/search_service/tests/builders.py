@@ -53,7 +53,12 @@ async def add_search(
     mode: SearchMode = SearchMode.SELECTED,
 ) -> Search:
     """Поиск с одной целью-источником на каждый источник; всё уже лежит в in-memory БД."""
-    search = Search(query="безопасность дорожного движения", period=period(), mode=mode)
+    search = Search(
+        query="безопасность дорожного движения",
+        period=period(),
+        mode=mode,
+        platforms=list(dict.fromkeys(s.platform for s in sources)),
+    )
     search.targets = [
         SearchTarget(
             kind=TargetKind.SOURCE,
