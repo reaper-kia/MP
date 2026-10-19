@@ -32,6 +32,12 @@ function getSearch(id: string) {
 
 const notFound = () => apiError(404, "SEARCH_NOT_FOUND", "Поиск не найден");
 
+/** Сценарий «сбой»: с 4-й по 12-ю секунду поиска сервер «пропадает» — проверка «Нет связи с сервером». */
+function connectionLost(rec: db.SearchRecord) {
+  const t = Date.now() - rec.createdAt;
+  return rec.params.query.toLowerCase().includes("сбой") && t > 4000 && t < 12000;
+}
+
 const REL_ORDER: Record<S["Relevance"], number> = { direct: 0, indirect: 1, disputed: 2, rejected: 3 };
 
 function filterResults(list: S["Result"][], url: URL, opts: { target?: boolean; dateStatus?: boolean } = {}) {
@@ -185,6 +191,7 @@ export const handlers = [
   http.get(`${API}/searches/:searchId`, async ({ params }) => {
     await delay(120);
     const rec = getSearch(params.searchId as string);
+    if (rec && connectionLost(rec)) return HttpResponse.error();
     return rec ? HttpResponse.json(db.snapshot(rec).search) : notFound();
   }),
 
@@ -211,6 +218,7 @@ export const handlers = [
     await delay(250);
     const rec = getSearch(params.searchId as string);
     if (!rec) return notFound();
+    if (connectionLost(rec)) return HttpResponse.error();
     const url = new URL(request.url);
     const list = sortResults(filterResults(db.snapshot(rec).visible, url, { target: true, dateStatus: true }), url.searchParams.get("sort"));
     return HttpResponse.json(page(list, url));

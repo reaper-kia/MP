@@ -5,9 +5,9 @@ import {
   Center,
   Chip,
   Group,
-  Loader,
   Paper,
   Select,
+  Skeleton,
   Stack,
   Switch,
   Tabs,
@@ -18,6 +18,7 @@ import { useEffect, useState } from "react";
 import type { S } from "../../api/client";
 import { PLATFORM_TITLE } from "../../lib/platforms";
 import { fmtNumber, publications } from "../../lib/format";
+import { useConnectionNotice } from "../../lib/useConnectionNotice";
 import { isFinal } from "../search/status";
 import { useResultFilters, type Sort, type Tab } from "./filters";
 import { GroupCard } from "./GroupCard";
@@ -39,6 +40,7 @@ export function ResultsView({ search }: { search: S["Search"] }) {
   const list = useResultList(search.id, f, running, !grouped);
   const groups = useGroupList(search.id, f, running, grouped);
   const active = grouped ? groups : list;
+  useConnectionNotice(active);
 
   const exclusion = useExclusion(search.id);
   const [selected, setSelected] = useState<Set<string>>(new Set());
@@ -180,16 +182,13 @@ export function ResultsView({ search }: { search: S["Search"] }) {
       )}
 
       {/* список */}
-      {active.isPending && (
-        <Center py="xl">
-          <Loader />
-        </Center>
-      )}
       {active.isSuccess && total === 0 && (
-        <Text c="dimmed" py="md">
+        <Text c="dimmed" py="xs">
           {running ? "Публикации появятся по мере обработки источников…" : "Под эти фильтры ничего не подходит."}
         </Text>
       )}
+      {/* скелетон, пока список грузится или поиск идёт, а публикаций ещё нет */}
+      {(active.isPending || (running && active.isSuccess && total === 0)) && <ListSkeleton />}
       {grouped
         ? (groups.data?.pages ?? []).flatMap((p) =>
             p.items.map((g) => (
@@ -220,6 +219,21 @@ export function ResultsView({ search }: { search: S["Search"] }) {
           {grouped ? `Сюжетов и одиночных публикаций: ${fmtNumber(total)}` : `Показано ${publications(pages.reduce((n, p) => n + p.items.length, 0))} из ${fmtNumber(total)}`}
         </Text>
       )}
+    </Stack>
+  );
+}
+
+function ListSkeleton() {
+  return (
+    <Stack gap="sm" aria-busy="true" aria-label="Загрузка подборки">
+      {[0, 1, 2].map((i) => (
+        <Paper key={i} withBorder radius="md" p="md">
+          <Skeleton height={12} width="30%" mb="sm" />
+          <Skeleton height={10} mb={6} />
+          <Skeleton height={10} width="85%" mb={6} />
+          <Skeleton height={10} width="60%" />
+        </Paper>
+      ))}
     </Stack>
   );
 }

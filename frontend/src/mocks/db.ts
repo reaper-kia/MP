@@ -26,7 +26,7 @@ const T_DONE = 10000;
 const RETRY_RUNNING = 1000;
 const RETRY_DONE = 3000;
 
-interface SearchRecord {
+export interface SearchRecord {
   id: string;
   seed: number;
   createdAt: number;

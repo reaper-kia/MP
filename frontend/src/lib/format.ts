@@ -13,3 +13,5 @@ export function plural(n: number, forms: [string, string, string]): string {
 }
 
 export const publications = (n: number) => `${fmtNumber(n)} ${plural(n, ["публикация", "публикации", "публикаций"])}`;
+
+export const sourcesCount = (n: number) => `${fmtNumber(n)} ${plural(n, ["источник", "источника", "источников"])}`;
