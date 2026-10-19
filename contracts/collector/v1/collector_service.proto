@@ -133,7 +133,9 @@ message SearchPlatformRequest {
   // Поисковые фразы от ML (AnalyzeQuery.search_queries). Каждая ищется отдельно, результаты объединяются.
   repeated string queries = 3;
   common.v1.Period period = 4;
-  // Термины региона для сужения: «Красноярск», «Красноярский край», «Норильск», ...
+  // Подсказка: термины региона («Красноярск», «Красноярский край», «Норильск», ...).
+  // Как keywords, коннектор может её игнорировать и искать по фразам queries как есть:
+  // привязку к региону и отбор по смыслу делают ml_service и search_service.
   repeated string region_terms = 5;
   // 0 = по умолчанию (500)
   uint32 max_posts = 6;

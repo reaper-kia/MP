@@ -1,17 +1,17 @@
-"""proto ⇄ models. Единственное место, где коннекторы/сервис встречаются с proto."""
+"""proto ⇄ domain/applications. Единственное место, где сервис встречается с proto."""
 
 from datetime import UTC, datetime
 
 from collector.v1 import collector_service_pb2 as pb
-from common.v1 import platform_pb2
+from common.v1 import common_pb2, platform_pb2
 from google.protobuf.timestamp_pb2 import Timestamp
 
-from collector_service.errors import InvalidRequestError
-from collector_service.models import (
+from collector_service.applications.context import RequestContext
+from collector_service.applications.exceptions import InvalidRequestError
+from collector_service.domain.enums import Health, Platform
+from collector_service.domain.value_objects import (
     CollectResult,
-    Health,
     Period,
-    Platform,
     PlatformInfo,
     RawPost,
     SourceInfo,
@@ -36,6 +36,10 @@ def to_timestamp(value: datetime) -> Timestamp:
     timestamp = Timestamp()
     timestamp.FromDatetime(value)
     return timestamp
+
+
+def context_from_proto(ctx: common_pb2.RequestContext) -> RequestContext:
+    return RequestContext(request_id=ctx.request_id)
 
 
 def platform_from_proto(value: int) -> Platform:

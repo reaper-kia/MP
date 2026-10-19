@@ -134,6 +134,10 @@ class FakeSearch:
     async def ListSources(self, req: Any, **_: Any) -> pb.ListSourcesResponse:
         raise grpc_error(grpc.StatusCode.UNIMPLEMENTED, "ListSources: B2-02", "NOT_IMPLEMENTED")
 
+    async def ListGroups(self, req: Any, **_: Any) -> pb.ListGroupsResponse:
+        self.last = req
+        return pb.ListGroupsResponse()
+
     async def ExportSearch(self, req: Any, **_: Any) -> pb.ExportSearchResponse:
         self.last = req
         return pb.ExportSearchResponse(
@@ -180,6 +184,19 @@ async def test_analyze_query(client: Any) -> None:
     r = await c.post("/api/v1/query/analyze", json={"query": "ДТП Красноярск"})
     assert r.status_code == 200
     assert r.json()["query_type"] == "topic" and r.json()["clarification_hint"] is None
+
+
+async def test_analyze_query_unknown_type_is_null_not_invented(client: Any) -> None:
+    c, fakes = client
+
+    async def unknown(req: Any, **_: Any) -> ml_pb.AnalyzeQueryResponse:
+        return ml_pb.AnalyzeQueryResponse(
+            analysis=ml_pb.QueryAnalysis(summary="Не удалось определить"), degraded=True
+        )
+
+    fakes.ml.AnalyzeQuery = unknown
+    r = await c.post("/api/v1/query/analyze", json={"query": "ДТП Красноярск"})
+    assert r.status_code == 200 and r.json()["query_type"] is None
 
 
 async def test_start_search_202_and_mapping(client: Any) -> None:
@@ -254,6 +271,20 @@ async def test_results_filter_and_nulls(client: Any) -> None:
     sent = fakes.search.last
     assert list(sent.filter.relevance) == [pb.RELEVANCE_IRRELEVANT]
     assert sent.sort == pb.RESULT_SORT_DATE_DESC
+
+
+async def test_groups_and_export_pass_target_and_date_filters(client: Any) -> None:
+    c, fakes = client
+    query = "target_id=t-1&target_id=t-2&date_status=unknown"
+    r = await c.get(f"/api/v1/searches/{SEARCH_ID}/groups?{query}")
+    assert r.status_code == 200
+    assert list(fakes.search.last.filter.target_ids) == ["t-1", "t-2"]
+    assert list(fakes.search.last.filter.date_status) == [pb.DATE_STATUS_UNKNOWN]
+
+    r = await c.get(f"/api/v1/searches/{SEARCH_ID}/export?format=xlsx&{query}")
+    assert r.status_code == 200
+    assert list(fakes.search.last.filter.target_ids) == ["t-1", "t-2"]
+    assert list(fakes.search.last.filter.date_status) == [pb.DATE_STATUS_UNKNOWN]
 
 
 async def test_export_headers(client: Any) -> None:

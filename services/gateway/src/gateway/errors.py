@@ -68,6 +68,18 @@ def from_grpc_error(e: grpc.aio.AioRpcError) -> ApiError:
     return ApiError(http_status, code, message, details)
 
 
+def _error_field(loc: tuple[int | str, ...]) -> str:
+    """('body', 'query') → 'query'; ('query', 'limit') → 'limit'.
+
+    Отбрасываем только первый элемент — откуда пришло значение. Поле тела с именем `query`
+    (запрос пользователя) нельзя путать с «query string».
+    """
+    parts = list(loc)
+    if parts and parts[0] in ("body", "query", "path", "header", "cookie"):
+        parts = parts[1:]
+    return ".".join(str(p) for p in parts)
+
+
 def field_details(message: str) -> list[dict[str, str]]:
     """'period_from: не позже period_to' → [{'field': 'period_from', 'message': ...}]."""
     field, sep, text = message.partition(":")
@@ -111,7 +123,7 @@ def register_error_handlers(app: FastAPI) -> None:
     async def on_validation(request: Request, exc: RequestValidationError) -> JSONResponse:
         details = [
             {
-                "field": ".".join(str(p) for p in e["loc"] if p not in ("body", "query", "path")),
+                "field": _error_field(e["loc"]),
                 "message": str(e["msg"]),
                 "reason": str(e["type"]),
             }

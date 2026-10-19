@@ -34,6 +34,8 @@ service SearchService {
   rpc ListSearches(ListSearchesRequest) returns (ListSearchesResponse);
   // Повторить упавшие цели (или указанные). Уже найденное сохраняется.
   rpc RetrySearch(RetrySearchRequest) returns (RetrySearchResponse);
+  // Для уже завершённого поиска (completed/partial/failed/cancelled) ничего не меняет:
+  // отвечает текущим состоянием, без ошибки.
   rpc CancelSearch(CancelSearchRequest) returns (CancelSearchResponse);
 
   // ── подборка ──
@@ -290,6 +292,7 @@ message StartSearchRequest {
   string period_from = 3;
   string period_to = 4;
   SearchMode mode = 5;
+  // GLOBAL — площадки, по которым ищем. SELECTED — игнорируется: площадки берутся из source_ids.
   repeated common.v1.Platform platforms = 6;
   repeated string source_ids = 7;
 }

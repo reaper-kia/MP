@@ -11,7 +11,10 @@
 - Время (`*_at`) — ISO 8601 в UTC; показывать в Asia/Krasnoyarsk.
 - Поле `null` = «недоступно». Фронт показывает «нет данных», а не пустоту и не 0.
 - Ошибка всегда `{"error": {"code", "message", "request_id", "details"}}`; фронт решает по `code`.
-- Пагинация: `limit` + `offset` → `{items, total, has_more}`.
+- Пагинация: `limit` + `offset` → `{items, total, has_more}`. Исключение — история поисков
+  `GET /searches`: `{items, has_more}` без `total`.
+- Любая ручка может ответить `429 RATE_LIMITED` (площадка ограничила частоту запросов — повторить позже)
+  и `501 NOT_IMPLEMENTED` (возможность ещё не включена, например DOCX). Показывать `message` как есть.
 
 TypeScript-типы всех схем — [`api-types.ts`](api-types.ts) (для фронта предпочтительно генерировать `openapi-typescript`, этот файл — для чтения).
 
@@ -110,6 +113,7 @@ TypeScript-типы всех схем — [`api-types.ts`](api-types.ts) (для
 | 201 | [`Source`](#source) |
 | 409 | [`ErrorResponse`](#errorresponse) (Конфликт (SOURCE_ALREADY_EXISTS, SEARCH_NOT_FINISHED)) |
 | 422 | [`ErrorResponse`](#errorresponse) (Неверные данные (SEARCH_INVALID_PARAMS, UNSUPPORTED_URL, VALIDATION_ERROR)) |
+| 429 | [`ErrorResponse`](#errorresponse) (Площадка ограничила частоту запросов (RATE_LIMITED) — повторить позже) |
 | 503 | [`ErrorResponse`](#errorresponse) (Площадка или сервис недоступны (PLATFORM_UNAVAILABLE, SERVICE_UNAVAILABLE)) |
 
 ## resolveSource
@@ -133,6 +137,7 @@ TypeScript-типы всех схем — [`api-types.ts`](api-types.ts) (для
 | 200 | [`SourcePreview`](#sourcepreview) |
 | 404 | [`ErrorResponse`](#errorresponse) (Не найдено (SEARCH_NOT_FOUND, SOURCE_NOT_FOUND, RESULT_NOT_FOUND)) |
 | 422 | [`ErrorResponse`](#errorresponse) (Неверные данные (SEARCH_INVALID_PARAMS, UNSUPPORTED_URL, VALIDATION_ERROR)) |
+| 429 | [`ErrorResponse`](#errorresponse) (Площадка ограничила частоту запросов (RATE_LIMITED) — повторить позже) |
 | 503 | [`ErrorResponse`](#errorresponse) (Площадка или сервис недоступны (PLATFORM_UNAVAILABLE, SERVICE_UNAVAILABLE)) |
 
 ## importSources
@@ -219,6 +224,10 @@ TypeScript-типы всех схем — [`api-types.ts`](api-types.ts) (для
 каждые 1.5 с, пока `status` не станет одним из `completed | partial | failed | cancelled`.
 id текущего поиска держать в URL (`/search/<id>`) — так подборка всегда привязана к своим параметрам.
 
+`mode=selected`: ищем только по `source_ids`, площадки берутся из самих источников, а `platforms`
+игнорируется (передавайте площадки этих источников). `mode=global`: `source_ids` пустой, ищем по
+всей площадке из `platforms` и по активным источникам каталога.
+
 Тело (`application/json`): [`SearchCreateIn`](#searchcreatein)
 
 ```json
@@ -293,6 +302,8 @@ id текущего поиска держать в URL (`/search/<id>`) — та
 
 **`POST /api/v1/searches/{search_id}/cancel`** — Остановить поиск (незавершённые источники → skipped)
 
+Если поиск уже завершён (`completed | partial | failed | cancelled`) — ничего не меняет, отвечает 200 с текущим состоянием, не ошибкой.
+
 Параметры:
 
 | Имя | Где | Тип | Обяз. | Описание |
@@ -346,6 +357,8 @@ id текущего поиска держать в URL (`/search/<id>`) — та
 | `search_id` | path | string (uuid) | да |  |
 | `relevance` | query | [`Relevance`](#relevance)[] | нет | По умолчанию direct+indirect+disputed. `rejected` — вкладка «Отсеяно системой».; повторять: `?relevance=a&relevance=b` |
 | `platform` | query | [`Platform`](#platform)[] | нет | повторять: `?platform=a&platform=b` |
+| `target_id` | query | string[] | нет | Показать найденное в конкретном источнике (клик по строке в «Охвате»); повторять: `?target_id=a&target_id=b` |
+| `date_status` | query | [`DateStatus`](#datestatus)[] | нет | повторять: `?date_status=a&date_status=b` |
 | `include_excluded` | query | boolean | нет | по умолчанию `false` |
 | `limit` | query | integer | нет | по умолчанию `50`; мин. 1; макс. 200 |
 | `offset` | query | integer | нет | по умолчанию `0`; мин. 0 |
@@ -399,6 +412,8 @@ id текущего поиска держать в URL (`/search/<id>`) — та
 | `format` | query | `xlsx` \| `docx` | да |  |
 | `relevance` | query | [`Relevance`](#relevance)[] | нет | По умолчанию direct+indirect+disputed. `rejected` — вкладка «Отсеяно системой».; повторять: `?relevance=a&relevance=b` |
 | `platform` | query | [`Platform`](#platform)[] | нет | повторять: `?platform=a&platform=b` |
+| `target_id` | query | string[] | нет | Показать найденное в конкретном источнике (клик по строке в «Охвате»); повторять: `?target_id=a&target_id=b` |
+| `date_status` | query | [`DateStatus`](#datestatus)[] | нет | повторять: `?date_status=a&date_status=b` |
 | `sort` | query | `relevance` \| `date_desc` \| `date_asc` | нет | по умолчанию `"relevance"` |
 
 Ответы:
@@ -407,6 +422,7 @@ id текущего поиска держать в URL (`/search/<id>`) — та
 |---|---|
 | 200 | файл: `application/vnd.openxmlformats-officedocument.spreadsheetml.sheet`, `application/vnd.openxmlformats-officedocument.wordprocessingml.document` |
 | 404 | [`ErrorResponse`](#errorresponse) (Не найдено (SEARCH_NOT_FOUND, SOURCE_NOT_FOUND, RESULT_NOT_FOUND)) |
+| 501 | [`ErrorResponse`](#errorresponse) (Возможность ещё не включена (NOT_IMPLEMENTED), например выгрузка в DOCX) |
 
 # Схемы
 
@@ -464,7 +480,7 @@ direct — прямо по запросу; indirect — косвенно; disput
 
 | Поле | Тип | Обяз. | Описание |
 |---|---|---|---|
-| `query_type` | [`QueryType`](#querytype) | да |  |
+| `query_type` | [`QueryType`](#querytype) \| null | да | null — тип не определён (ML в упрощённом режиме): показать «тип запроса не определён» |
 | `summary` | string | да |  |
 | `search_queries` | string[] | да |  |
 | `needs_clarification` | boolean | да |  |

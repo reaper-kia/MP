@@ -6,16 +6,60 @@ make smoke URL=http://1.2.3.4      # сервер после деплоя (че�
 Пока сценарий не реализован, ручка отвечает 501 NOT_IMPLEMENTED — smoke так и напишет.
 """
 
+import io
+import re
 import sys
 import time
 import uuid
+import zipfile
 from datetime import date, timedelta
+from xml.etree import ElementTree as ET
 
 import httpx
 
 BASE = (sys.argv[1] if len(sys.argv) > 1 else "http://localhost:8000").rstrip("/")
 FINAL = {"completed", "partial", "failed", "cancelled"}
 SEARCH_TIMEOUT_SECONDS = 180
+
+
+_NS = {"m": "http://schemas.openxmlformats.org/spreadsheetml/2006/main"}
+
+
+def xlsx_publication_rows(content: bytes) -> list[int]:
+    """По каждому листу XLSX: сколько строк с прямой ссылкой (http…) на публикацию.
+
+    Только stdlib (в gateway нет openpyxl). Ссылкой считаем текст ячейки, начинающийся с http,
+    либо гиперссылку листа — строка с заголовком таблицы не считается.
+    """
+    counts: list[int] = []
+    with zipfile.ZipFile(io.BytesIO(content)) as z:
+        shared: list[str] = []
+        if "xl/sharedStrings.xml" in z.namelist():
+            root = ET.fromstring(z.read("xl/sharedStrings.xml"))
+            for si in root.findall("m:si", _NS):
+                shared.append("".join(t.text or "" for t in si.iter(f"{{{_NS['m']}}}t")))
+        sheets = sorted(n for n in z.namelist() if re.fullmatch(r"xl/worksheets/sheet\d+\.xml", n))
+        for name in sheets:
+            root = ET.fromstring(z.read(name))
+            rows_with_url = 0
+            for row in root.iter(f"{{{_NS['m']}}}row"):
+                has_url = False
+                for c in row.findall("m:c", _NS):
+                    v = c.find("m:v", _NS)
+                    is_ = c.find("m:is", _NS)
+                    if c.get("t") == "s" and v is not None and v.text:
+                        text = shared[int(v.text)]
+                    elif is_ is not None:
+                        text = "".join(t.text or "" for t in is_.iter(f"{{{_NS['m']}}}t"))
+                    else:
+                        text = (v.text or "") if v is not None else ""
+                    if text.startswith(("http://", "https://")):
+                        has_url = True
+                        break
+                rows_with_url += has_url
+            links = len(list(root.iter(f"{{{_NS['m']}}}hyperlink")))
+            counts.append(max(rows_with_url, links))
+    return counts
 
 
 def check(cond: bool, what: str, r: httpx.Response | None = None) -> None:
@@ -104,6 +148,15 @@ def main() -> None:
 
         r = c.get(f"/api/v1/searches/{search_id}/export?format=xlsx")
         check(r.status_code == 200 and r.content[:2] == b"PK", "выгрузка XLSX", r)
+        try:
+            per_sheet = xlsx_publication_rows(r.content)
+        except (zipfile.BadZipFile, ET.ParseError, KeyError, IndexError) as exc:
+            check(False, f"XLSX открывается как книга Excel ({exc})")
+        check(bool(per_sheet), "в XLSX есть листы")
+        check(
+            total in per_sheet,
+            f"в XLSX {total} строк с ссылками = counts.total (по листам: {per_sheet})",
+        )
 
         r = c.get(f"/api/v1/searches/{uuid.uuid4()}")
         check(

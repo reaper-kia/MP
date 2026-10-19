@@ -1,0 +1,26 @@
+{
+  "_synthetic": "СИНТЕТИКА: составлено вручную по документации VK API, это НЕ записанный ответ площадки. Настоящие ответы кладутся в tests/fixtures/vk/real/ скриптом scripts/record_vk_fixtures.py.",
+  "response": {
+    "groups": [
+      {
+        "id": 100001,
+        "name": "Новости Красноярска",
+        "screen_name": "krsk_news_test",
+        "is_closed": 0
+      },
+      {
+        "id": 100002,
+        "name": "Норильск Сегодня",
+        "screen_name": "norilsk_today_test",
+        "is_closed": 0
+      },
+      {
+        "id": 100003,
+        "name": "Канск Online",
+        "screen_name": "kansk_online_test",
+        "is_closed": 0
+      }
+    ],
+    "profiles": []
+  }
+}
