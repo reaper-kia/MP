@@ -237,7 +237,7 @@ class ExportSearchQueryHandler:
         """Строки — тем же запросом, что ListResults (без limit), тот же filter и sort →
         файл совпадает с экраном. Формат листов — B2-08."""
         if query.format is not ExportFormat.XLSX:
-            raise NotImplementedYetError("ExportSearch DOCX: B2-08")
+            raise NotImplementedYetError("ExportSearch DOCX: B2-10")
         with domain_errors():
             content, filename, mime = await ExportHandler(self.uow).to_xlsx(
                 query.search_id, filter_from_query(query.filter), sort=query.sort.value

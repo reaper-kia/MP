@@ -198,8 +198,8 @@ XLSX → открыть файл. Отдельно: сценарий 2 (текс
 ### [ ] TL-13 · P1 · по ходу · мелочи CI и Makefile, найденные при сборке
 1. Job `frontend` делает только `npm run build` (это `vite build`, типы не проверяет) — добавить
    `npm run typecheck`.
-2. `make front-dev`: подпись «проксирует /api на localhost:8000» неверна — по умолчанию прокси идёт в
-   Prism (127.0.0.1:4010). Поправить подпись или передавать `VITE_API_TARGET=http://127.0.0.1:8000`.
+2. ~~`make front-dev` проксировал в Prism вопреки подписи~~ — исправлено при сборке main: теперь
+   передаёт `VITE_API_TARGET=http://127.0.0.1:8000`.
 3. `make install` не создаёт `services/<сервис>/.env`, а без него `make run s=collector_service`
    стартует с `COLLECTOR_FAKE=false` (по умолчанию в коде). Решить: копировать `.env.example` в `make env`
    или оставить шаг в README.

@@ -68,8 +68,8 @@ migration: ## новая миграция: make migration s=search_service m="in
 	@test -n "$(s)" -a -n "$(m)" || (echo 'usage: make migration s=<service> m="message"'; exit 1)
 	cd services/$(s) && uv run alembic revision --autogenerate -m "$(m)"
 
-front-dev: ## фронт с hot reload на :5173 (проксирует /api на localhost:8000)
-	cd frontend && (test -d node_modules || npm install) && npm run dev
+front-dev: ## фронт с hot reload на :5173 (проксирует /api на gateway 127.0.0.1:8000)
+	cd frontend && (test -d node_modules || npm install) && VITE_API_TARGET=http://127.0.0.1:8000 npm run dev
 
 # ───────── проверки ─────────
 fmt: ## автоформат

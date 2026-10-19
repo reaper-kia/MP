@@ -166,9 +166,8 @@ make run s=gateway               # терминал 4 → http://127.0.0.1:8000/
 | Живой gateway (стенд из шага 3) | `VITE_API_TARGET=http://127.0.0.1:8000 npm run dev` | настоящие сервисы |
 
 PowerShell: `$env:VITE_API_TARGET="http://127.0.0.1:8000"; npm run dev`. Открывать
-http://127.0.0.1:5173. `make front-dev` = `npm run dev`, то есть **по умолчанию проксирует в Prism
-(127.0.0.1:4010)**, а не в gateway (подпись в `make help` устарела); на gateway —
-`VITE_API_TARGET=http://127.0.0.1:8000 make front-dev`.
+http://127.0.0.1:5173. `make front-dev` запускает фронт сразу против gateway (127.0.0.1:8000);
+голый `npm run dev` без `VITE_API_TARGET` проксирует в Prism (127.0.0.1:4010).
 
 ### 5. Smoke
 
@@ -217,7 +216,7 @@ HTTP **501 `NOT_IMPLEMENTED`** с номером задачи в сообщен�
 | `make mock` | Prism-мок HTTP API на :4010 |
 | `make up` / `down` / `reset` / `ps` / `logs [s=...]` | Docker |
 | `make db` / `make run s=<сервис>` | локальная разработка (Postgres в Docker / сервис из своей папки) |
-| `make front-dev` | `npm run dev` на :5173 (прокси `/api` → Prism, если не задан `VITE_API_TARGET`) |
+| `make front-dev` | фронт на :5173, прокси `/api` → gateway 127.0.0.1:8000 |
 | `make migration s=search_service m="msg"` | миграция alembic (autogenerate) |
 | `make fmt` / `lint` / `typecheck` / `test` / `check` | ruff, mypy --strict, pytest (как в CI) |
 | `make smoke [URL=...]` | сквозной тест живого стенда |

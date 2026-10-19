@@ -168,7 +168,7 @@ collector / ml по логам не связать (общий DoD п. 5). Сд�
 
 ### [ ] B2-10 · P2 · к H+32 · импорт XLSX и DOCX
 Сейчас оба отвечают `UNIMPLEMENTED` (gateway → 501): `ImportSourcesCommandHandler` и `ExportSearchQueryHandler`
-для `format=DOCX` (в сообщении стоит «B2-08» — поправь на B2-10, номер задачи видит фронт в 501).
+для `format=DOCX` (в сообщении 501 указан номер задачи B2-10).
 **Контракт:** `ImportSourcesRequest {context, xlsx: bytes}` → `ImportSourcesResponse {created: uint32,
 duplicates: uint32, failed: [{row: uint32 (номер строки Excel, с 1), value: str, error: {code, message}}]}`.
 `ImportSources`: строки → `SourceHandler` создания по одной, отчёт created/duplicates/failed с номером строки.
