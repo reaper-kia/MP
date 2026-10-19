@@ -19,7 +19,7 @@ const queryClient = new QueryClient({
 });
 
 async function enableMocks() {
-  // VITE_MOCKS=1 (npm run dev:mocks) — все /api/v1 отвечает MSW из src/mocks, бэкенд не нужен
+  // VITE_MOCKS=1 (npm run dev:mocks или VITE_MOCKS=1 в окружении) — все /api/v1 отвечает MSW из src/mocks, бэкенд не нужен
   if (import.meta.env.VITE_MOCKS !== "1") return;
   const { worker } = await import("./mocks/browser");
   await worker.start({ onUnhandledFrame: "bypass", quiet: true });
