@@ -1,18 +1,16 @@
 import react from "@vitejs/plugin-react";
 import { defineConfig } from "vite";
 
-// В dev-режиме (npm run dev) Vite проксирует API и WebSocket в локальный gateway,
-// поэтому фронт и бэк живут на одном origin и refresh-cookie работает без CORS-плясок.
-const GATEWAY = process.env.GATEWAY_URL ?? "http://localhost:8000";
+// В dev-режиме Vite проксирует /api: по умолчанию в Prism-мок (npm run mock, порт 4010),
+// на gateway — VITE_API_TARGET=http://localhost:8000 npm run dev.
+const API_TARGET = process.env.VITE_API_TARGET ?? "http://localhost:4010";
 
 export default defineConfig({
   plugins: [react()],
   server: {
     port: 5173,
     proxy: {
-      "/api": GATEWAY,
-      "/health": GATEWAY,
-      "/ws": { target: GATEWAY.replace(/^http/, "ws"), ws: true },
+      "/api": { target: API_TARGET, changeOrigin: true },
     },
   },
 });

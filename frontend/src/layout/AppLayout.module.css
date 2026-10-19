@@ -1,0 +1,16 @@
+.link {
+  padding: 6px 12px;
+  border-radius: var(--mantine-radius-sm);
+  font-size: var(--mantine-font-size-sm);
+  color: var(--mantine-color-text);
+}
+
+.link:hover {
+  background: var(--mantine-color-default-hover);
+}
+
+.active {
+  background: var(--mantine-primary-color-light);
+  color: var(--mantine-primary-color-light-color);
+  font-weight: 500;
+}
