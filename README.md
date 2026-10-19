@@ -60,7 +60,7 @@ Docker-демона (задача TL-11).
 
 ```bash
 git pull
-make install                       # .env из .env.example + uv sync в каждом сервисе
+make install                       # .env и services/*/.env из .env.example + uv sync в каждом сервисе
 cd frontend && npm install && cd ..
 ```
 
@@ -81,7 +81,7 @@ cd frontend; npm install; cd ..
 make check                         # ruff + ruff format --check + mypy --strict + pytest во всех 4 сервисах
 make proto && git diff --stat -- packages/platform_contracts docs/API.md docs/GRPC.md docs/api-types.ts
                                    # пусто = контракты и справочники свежие (job «contracts»)
-cd frontend && npm run typecheck && npm run build   # job «frontend» (в CI пока только build)
+cd frontend && npm run typecheck && npm run build   # job «frontend»
 ```
 
 Один сервис: `cd services/<сервис> && uv run ruff check . && uv run ruff format --check . && uv run mypy src && uv run pytest -q`.
@@ -143,11 +143,11 @@ uv run uvicorn gateway.main:app --host 127.0.0.1 --port 8000
 ```
 
 Через `make run` (Linux / macOS / WSL) — те же программы, только настройки берутся из
-`services/<сервис>/.env` (каждый сервис читает `.env` в своей папке; `make install` их **не** создаёт).
+`services/<сервис>/.env` (каждый сервис читает `.env` в своей папке; `make install` / `make env`
+создают их из `.env.example`, существующие не трогают; в collector там `COLLECTOR_FAKE=true`).
 Этот путь в сборке `main` отдельно не прогоняли — проверяли переменные окружения выше:
 
 ```bash
-for s in services/*; do cp -n $s/.env.example $s/.env; done   # в collector .env уже COLLECTOR_FAKE=true
 make db                          # или свой Postgres на 5435
 make run s=collector_service     # терминал 1
 make run s=ml_service            # терминал 2
@@ -203,14 +203,14 @@ XLSX, где строк со ссылками = `counts.total` → 404) и пе�
 6. `make fmt && make check`.
 
 Пока сценарий не написан, хэндлер бросает `NotImplementedYetError` → gRPC `UNIMPLEMENTED` →
-HTTP **501 `NOT_IMPLEMENTED`** с номером задачи в сообщении. Сейчас так отвечают: импорт источников
-из XLSX и выгрузка DOCX (B2-10), коннекторы OK / MAX / сайты (B1-04…B1-08).
+HTTP **501 `NOT_IMPLEMENTED`** с номером задачи в сообщении. Сейчас так отвечают: коннекторы
+OK / MAX / сайты (B1-04…B1-08).
 
 ## Команды
 
 | Команда | Что делает |
 |---|---|
-| `make install` / `make lock` | `.env` + `uv sync` / `uv lock` в каждом сервисе |
+| `make install` / `make lock` | `.env` (корень и `services/*`) + `uv sync` / `uv lock` в каждом сервисе |
 | `make proto` | Python из `contracts/**/*.proto` + `make docs` |
 | `make docs` | `docs/API.md`, `docs/api-types.ts`, `docs/GRPC.md` из контрактов |
 | `make mock` | Prism-мок HTTP API на :4010 |
@@ -220,6 +220,7 @@ HTTP **501 `NOT_IMPLEMENTED`** с номером задачи в сообщен�
 | `make migration s=search_service m="msg"` | миграция alembic (autogenerate) |
 | `make fmt` / `lint` / `typecheck` / `test` / `check` | ruff, mypy --strict, pytest (как в CI) |
 | `make smoke [URL=...]` | сквозной тест живого стенда |
+| `make seed [URL=...]` | каталог источников из `seed/sources.xlsx` через `POST /api/v1/sources` |
 | `make deploy HOST=... SSH_USER=...` | деплой (ключи API — из окружения, см. `infra/ansible/README.md`) |
 | `bash scripts/diagnose.sh [--mock] [--docker]` | диагностика окружения одним запуском, логи в `.diagnose/` |
 
@@ -239,7 +240,7 @@ HTTP **501 `NOT_IMPLEMENTED`** с номером задачи в сообщен�
 ## Отладка
 
 - `request_id` — в заголовке `X-Request-ID` и в `error.request_id`; gateway и сервисы пишут его в лог
-  (search_service соседям его пока не передаёт — B2-12).
+  (search_service передаёт его collector и ml, в том числе из фонового пайплайна).
 - `curl http://127.0.0.1:8000/health/ready` — кто жив.
 - gRPC напрямую (reflection включён): `grpcurl -plaintext 127.0.0.1:50054 list`,
   `grpcurl -plaintext -d '{"url":"vk.com/krsk_news"}' 127.0.0.1:50054 collector.v1.CollectorService/ResolveSource`.

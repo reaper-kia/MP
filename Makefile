@@ -10,14 +10,15 @@ comma := ,
 ANSIBLE_ARGS := $(if $(HOST),-i "$(HOST)$(comma)" -e target=all) $(if $(SSH_USER),-e ansible_user=$(SSH_USER))
 
 .PHONY: help env install lock proto docs mock up down reset ps logs db run migration \
-        lint fmt typecheck test check smoke front-dev deploy
+        lint fmt typecheck test check smoke seed front-dev deploy
 
 help: ## список команд
 	@grep -E '^[a-zA-Z_-]+:.*?## ' $(MAKEFILE_LIST) | awk 'BEGIN{FS=":.*?## "}{printf "  \033[36m%-12s\033[0m %s\n", $$1, $$2}'
 
 # ───────── установка и кодогенерация ─────────
-env: ## создать .env из .env.example
+env: ## создать .env (compose) и services/<сервис>/.env (локальный запуск) из .env.example
 	@test -f .env || (cp .env.example .env && echo "created .env")
+	@for s in $(SERVICES); do test -f services/$$s/.env || (cp services/$$s/.env.example services/$$s/.env && echo "created services/$$s/.env"); done
 
 install: env ## uv sync в каждом сервисе
 	@for s in $(SERVICES); do echo "── $$s"; (cd services/$$s && uv sync) || exit 1; done
@@ -88,6 +89,9 @@ check: lint typecheck test ## всё сразу (как в CI)
 
 smoke: ## сквозная проверка живого стенда: make smoke [URL=http://1.2.3.4]
 	uv run --project services/gateway python scripts/smoke.py $(or $(URL),http://localhost:8000)
+
+seed: ## каталог источников из seed/sources.xlsx: make seed [URL=http://1.2.3.4]
+	python3 scripts/seed_sources.py $(or $(URL),http://localhost:8000)
 
 # ───────── деплой ─────────
 deploy: ## выкатить на сервер: make deploy HOST=1.2.3.4 SSH_USER=ubuntu
