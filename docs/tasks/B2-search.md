@@ -84,18 +84,15 @@ grpcurl -plaintext 127.0.0.1:50053 list          # search.v1.SearchService + hea
 > `test_out_of_period_post_not_saved`, `test_make_title_*`. Остальные тесты из DoD — B2-13.
 
 ### [ ] B2-06 · P0 · к H+12 (стаб ML) — сделано, к H+22 (боевой) · интеграция ML
+> 2026-10-19: регион в `global` (нет `region_by_source` и `region.by_content` → `IRRELEVANT` с нашим объяснением; при сбое ML — `DISPUTED`) и нарезка
+> GroupPosts по 500 (`GROUP_POSTS_LIMIT`) сделаны; тесты `tests/test_scoring.py`. Не прогнано: `make check` целиком и поиск «везде» на данных.
 > Сделано на стабе ML: AnalyzeQuery → `query_type` и полный разбор в `searches.query_analysis`, фразы →
 > `SearchPlatform.queries`, ML недоступен → фразы `[query]` и warning, `degraded` → warning «ML работал в
 > упрощённом режиме»; ScorePosts батчами по 30, ≤ 3 параллельно, 60 с, упавший батч → `DISPUTED` «Не удалось
 > проверить автоматически — проверьте вручную»; GroupPosts по прошедшим отбор, `group_id` с префиксом поиска.
 
 **Осталось.**
-1. **Регион в `global`** не реализован: результат без `region_by_source` и без `region.by_content` должен
-   стать `IRRELEVANT` с нашим объяснением («Нет связи с Красноярским краем: источник не региональный и в
-   тексте край не упоминается»). Место — `ScoringHandler._score_batch`, только при `mode=global`.
-2. **GroupPosts > 500 постов**: сейчас отправляются все прошедшие отбор одним вызовом, а контракт ML — до
-   500. Либо резать (и группы между кусками не склеятся), либо договориться с ML о лимите.
-3. **Боевой прогон**, когда ML-03…ML-05 отдадут `degraded=false`: warning пропал, объяснения осмысленные,
+1. **Боевой прогон**, когда ML-03…ML-05 отдадут `degraded=false`: warning пропал, объяснения осмысленные,
    спорных не 100 %, время ScorePosts укладывается в 60 с на батч 30 постов (если нет — уменьшить батч).
 
 **Контракт** ([ml.v1](../GRPC.md#mlv1mlservice)) — для справки:
@@ -108,31 +105,26 @@ ml.GroupPosts({context, posts: [{id, optional title, text}]}) -> {groups: [{grou
 ```
 
 ### [ ] B2-07 · P0 · к H+10 · выдача
+> 2026-10-19: `matched` считается после оценки и после `SetExcluded` (исключённые не считаются — решение владельца): `recount_matched`,
+> `TargetRepo.set_matched`. Тесты `test_matched_*` (в т.ч. «3 поста, один IRRELEVANT → 2»).
 > Сделано: ListResults (фильтры relevance / platforms / target_ids / date_status / include_excluded,
 > сортировки, `total`, `has_more`), ListGroups с полным списком размещений, `SearchCounts`. Проверено через
 > gateway: вкладки, группы, исключение пересчитывает счётчики.
 
-**Осталось.** `SearchTarget.matched` по контракту — «сколько её постов **в подборке**» (`direct|indirect|
-disputed`, не исключённых). Сейчас `pipeline.py` пишет туда число постов в периоде **до** оценки ML
-(`mark_done(fetched=…, matched=in_period)`), то есть отсеянные тоже считаются. Пересчитать `matched` после
-скоринга (и после `SetExcluded`, если решим, что исключённые не считаются — договориться с FE, это строка
-«в подборке N» в блоке «Где искали»).
+**Осталось.** Посмотреть «в подборке N» на Postgres через gateway (`make smoke` + блок «Где искали»).
 
 **DoD.** Тест: цель с 3 постами, один `IRRELEVANT` → `matched == 2`.
 
 ### [ ] B2-08 · P0 · к H+12 · экспорт XLSX
+> 2026-10-19: п. 1–3 сделаны — слова вместо кодов («ВКонтакте», «Готово», «позитивная»), «Сформировано» и даты публикаций по Красноярску,
+> тест `tests/test_export.py` (число строк и порядок ссылок = ListResults); сюжеты нумеруются 1…N.
 > Сделано: `applications/handlers/export.py` — строки тем же запросом, что ListResults (без лимита), лист
 > «Подборка» с шапкой (запрос, как понят, период, режим, площадки, сформировано, «Публикаций в подборке: N
 > (из них без даты: K; исключено вручную: M)»), таблица из 13 колонок, ссылка на публикацию — гиперссылкой,
 > автофильтр, закреплённая шапка, ширины; лист «Охват». Smoke проверяет: строк со ссылками = `counts.total`.
 
 **Осталось.**
-1. Тест в сервисе: экспорт → openpyxl → число строк = `counts.total`, ссылки = `results[].url` в том же
-   порядке (сейчас тест только проверяет, что это zip).
-2. В файле — коды вместо слов: статус цели на листе «Охват» (`done`, `failed` → «Готово», «Не удалось» —
-   словарь UI), тональность (`positive` → «позитивная»), площадка (`VK` → «ВКонтакте»).
-3. «Сформировано» — сейчас время сервера (`datetime.now()`), нужно время Красноярска с подписью.
-4. Внешний вид — согласовать с дизайнером (UI-07).
+1. Внешний вид — согласовать с дизайнером (UI-07).
 
 Имя файла ASCII: `podborka_<period_to>_<id8>.xlsx`. DOCX — в B2-10.
 
@@ -143,6 +135,8 @@ disputed`, не исключённых). Сейчас `pipeline.py` пишет �
 > `test_cancel_running_search`; проверено через gateway.
 
 ### [ ] B2-13 · P0 · к H+20 · тесты из DoD, которых нет
+> 2026-10-19: тесты написаны — `tests/test_rules.py` (названия по ТЗ, PARTIAL / `total=0` / FAILED на фейках), `test_export.py`, `test_scoring.py`.
+> Осталось: `uv run pytest -q` целиком и зелёный CI (в этой среде `tests/test_grpc.py` не запускался).
 Названия — по ТЗ, чтобы на защите показать «вот проверка правила»:
 1. `test_same_text_in_three_groups_is_three_records` — одинаковый текст в трёх группах = три публикации.
 2. `test_excerpt_is_substring_of_original` — `excerpt` всегда подстрока `publications.text`.
@@ -154,11 +148,16 @@ disputed`, не исключённых). Сейчас `pipeline.py` пишет �
 **DoD.** Все в `uv run pytest -q`, CI зелёный.
 
 ### [ ] B2-14 · P0 · вместе с TL-11 · сервис в Docker
+> 2026-10-19: образ собирается, `docker compose up` поднимает стенд, миграции при старте проходят, `make smoke` → All good
+> (`COLLECTOR_FAKE=true`). Осталось: прогон на сервере (TL-11) и с реальными ключами.
 Dockerfile не собирали. Вместе с TL: `make reset && make up`, в `make logs s=search_service` —
 `alembic upgrade head` прошёл на пустой `search_db`, сервер слушает 50053; `make smoke` → `All good`.
 Если миграция падает на старте контейнера — поиск по `DATABASE_URL` в compose (`search_db:5432`).
 
 ### [ ] B2-12 · P1 · к H+24 · `request_id` до соседей и в логах
+> 2026-10-19: сделано — `request_id` входящего запроса хранится в ContextVar (`applications/request_context.py`), попадает в логи и в
+> `context_to_proto()`; фоновый пайплайн наследует его от `StartSearch` / `RetrySearch`. Тест `test_request_id.py`. Осталось: проверить
+> по логам трёх сервисов на живом стенде.
 Сейчас `infra/clients/*` вызывают `context_to_proto()` без `request_id`, поэтому цепочку gateway → search →
 collector / ml по логам не связать (общий DoD п. 5). Сделать: брать `request_id` из входящего
 `RequestContext`; для пайплайна (фоновая задача) — запомнить `request_id` запроса `StartSearch` /
@@ -167,6 +166,9 @@ collector / ml по логам не связать (общий DoD п. 5). Сд�
 **DoD.** Один поиск в логах трёх сервисов находится по одному `request_id`.
 
 ### [ ] B2-10 · P2 · к H+32 · импорт XLSX и DOCX
+> 2026-10-19: сделано — `ImportSources` (`source_import.py`, отчёт created / duplicates / failed с номером строки; строки по очереди, до 500) и
+> `ExportSearch(DOCX)` (`docx_writer.py` без python-docx: зависимости и `uv.lock` не менялись). Тесты `test_import.py`, `test_export.py`,
+> `test_grpc.py`. Осталось: прогнать через gateway, проверить внешний вид DOCX с дизайнером.
 Сейчас оба отвечают `UNIMPLEMENTED` (gateway → 501): `ImportSourcesCommandHandler` и `ExportSearchQueryHandler`
 для `format=DOCX` (в сообщении 501 указан номер задачи B2-10).
 **Контракт:** `ImportSourcesRequest {context, xlsx: bytes}` → `ImportSourcesResponse {created: uint32,
@@ -176,6 +178,8 @@ duplicates: uint32, failed: [{row: uint32 (номер строки Excel, с 1),
 источник, дата, выдержка). Gateway уже передаёт файл и отдаёт ответ — менять его не нужно.
 
 ### [ ] B2-11 · P1 · к H+36 · метрики для презентации
+> 2026-10-19: длительность стадий (`analyzing_query`, `collecting`, `scoring`, `grouping`, `total`) и каждой цели (`target_collect`, `target_scoring`)
+> пишется в лог строкой `search stage finished`. Осталось: цифры на 30 источниках **реального VK** (после B1-03).
 Логировать длительность каждой стадии (`analyzing_query`, `collecting`, `scoring`, `grouping`) и всего
 поиска с `search_id` (отдельное поле в контракте не нужно — есть `started_at` / `finished_at`). Дать TL
 цифры: среднее время поиска на 30 источниках — **на реальном VK** (после B1-03), на тестовых данных цифра

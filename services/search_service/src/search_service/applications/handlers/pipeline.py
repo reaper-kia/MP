@@ -1,7 +1,10 @@
 from __future__ import annotations
 
 import asyncio
+import time
 import uuid
+from collections.abc import Iterator
+from contextlib import contextmanager
 from dataclasses import dataclass
 
 import structlog
@@ -12,7 +15,7 @@ from search_service.applications.ports.collector_client import CollectorClient, 
 from search_service.applications.ports.ml_client import MlClient, QueryAnalysis
 from search_service.applications.ports.uow import UnitOfWork
 from search_service.domain.entities import Search, SearchTarget
-from search_service.domain.enums import DateStatus, Platform, QueryType, SearchStage, SearchStatus
+from search_service.domain.enums import Platform, QueryType, SearchStage, SearchStatus
 from search_service.domain.errors import CollectorError, NotFoundError
 
 log = structlog.get_logger()
@@ -25,6 +28,25 @@ ERROR_MESSAGES = {
     "SOURCE_PRIVATE": "Группа закрыта",
     "RATE_LIMITED": "Превышен лимит запросов к площадке",
 }
+
+
+@contextmanager
+def timed_stage(search_id: uuid.UUID, stage: str, **fields: str) -> Iterator[None]:
+    """Длительность стадии в лог (B2-11): по этим строкам считаем среднее время поиска.
+
+    Цели собираются и сразу оцениваются (конвейер), поэтому стадия collecting включает оценку, а
+    «чистое» время сбора и оценки по цели — строки target_collect / target_scoring."""
+    started = time.perf_counter()
+    try:
+        yield
+    finally:
+        log.info(
+            "search stage finished",
+            search_id=str(search_id),
+            stage=stage,
+            seconds=round(time.perf_counter() - started, 2),
+            **fields,
+        )
 
 
 @dataclass
@@ -67,7 +89,8 @@ class Pipeline:
 
     async def run(self, search_id: uuid.UUID) -> None:
         try:
-            await self._run_inner(search_id)
+            with timed_stage(search_id, "total"):
+                await self._run_inner(search_id)
         except Exception as e:
             log.exception("pipeline crashed", search_id=str(search_id), error=str(e))
             await self._force_fail(search_id, f"Непредвиденная ошибка: {e}")
@@ -89,7 +112,8 @@ class Pipeline:
             await self.uow.commit()
 
         # 2. analyze query
-        analysis, ml_warning = await self._analyze(search)
+        with timed_stage(search_id, SearchStage.ANALYZING_QUERY.value):
+            analysis, ml_warning = await self._analyze(search)
         async with self.uow:
             search = _require(await self.uow.searches.get_with_targets(search_id), search_id)
             search.query_type = analysis.query_type
@@ -107,7 +131,8 @@ class Pipeline:
             await self.uow.searches.save(search)
             await self.uow.commit()
 
-        await self._collect(search_id, analysis)
+        with timed_stage(search_id, SearchStage.COLLECTING.value):
+            await self._collect(search_id, analysis)
 
         # 4. scoring (по уже сохранённым постам)
         async with self.uow:
@@ -116,7 +141,8 @@ class Pipeline:
             await self.uow.searches.save(search)
             await self.uow.commit()
 
-        await self.scorer.score_search(search_id, analysis)
+        with timed_stage(search_id, SearchStage.SCORING.value):
+            await self.scorer.score_search(search_id, analysis)
 
         # 5. grouping
         async with self.uow:
@@ -125,7 +151,8 @@ class Pipeline:
             await self.uow.searches.save(search)
             await self.uow.commit()
 
-        await self.scorer.group_search(search_id)
+        with timed_stage(search_id, SearchStage.GROUPING.value):
+            await self.scorer.group_search(search_id)
 
         # 6. finish
         async with self.uow:
@@ -176,10 +203,11 @@ class Pipeline:
                 await self.uow.commit()
 
             try:
-                posts = await asyncio.wait_for(
-                    self._call_collector(search_id, target, analysis),
-                    timeout=self.target_timeout,
-                )
+                with timed_stage(search_id, "target_collect", target_id=str(target.id)):
+                    posts = await asyncio.wait_for(
+                        self._call_collector(search_id, target, analysis),
+                        timeout=self.target_timeout,
+                    )
             except TimeoutError:
                 await self._fail_target(
                     target.id, "TIMEOUT", ERROR_MESSAGES["TIMEOUT"].format(platform=platform)
@@ -210,15 +238,14 @@ class Pipeline:
             else:
                 async with self.uow:
                     target = (await self.uow.targets.get_by_ids([target.id]))[0]
-                    in_period = sum(
-                        1 for r in saved_results if r.date_status == DateStatus.IN_PERIOD
-                    )
-                    target.mark_done(fetched=len(posts), matched=in_period)
+                    # «в подборке» считается после оценки (recount_matched в ScoringHandler)
+                    target.mark_done(fetched=len(posts), matched=0)
                     await self.uow.targets.save(target)
                     await self.uow.commit()
 
                 # сразу скорим новые посты этой цели (конвейер)
-                await self.scorer.score_results(search_id, [r.id for r in saved_results])
+                with timed_stage(search_id, "target_scoring", target_id=str(target.id)):
+                    await self.scorer.score_results(search_id, [r.id for r in saved_results])
 
             return TargetJob(target=target, posts=posts)
 

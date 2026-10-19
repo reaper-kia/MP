@@ -333,6 +333,13 @@ class TargetRepo:
             )
         )
 
+    async def set_matched(self, target_id: uuid.UUID, matched: int) -> None:
+        await self.s.execute(
+            update(SearchTargetModel)
+            .where(SearchTargetModel.id == target_id)
+            .values(matched=matched)
+        )
+
     async def get_by_ids(self, ids: Iterable[uuid.UUID]) -> list[SearchTarget]:
         if not ids:
             return []

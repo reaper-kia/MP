@@ -7,6 +7,7 @@ from common.v1 import common_pb2, platform_pb2
 from google.protobuf.timestamp_pb2 import Timestamp
 
 from search_service.applications.exceptions import UpstreamError
+from search_service.applications.request_context import current_request_id
 from search_service.domain.enums import Platform
 from search_service.domain.value_objects import UtcPeriod
 
@@ -20,8 +21,9 @@ PLATFORM_FROM_PROTO: dict[int, Platform] = {v: k for k, v in PLATFORM_TO_PROTO.i
 
 
 def context_to_proto(request_id: str = "") -> common_pb2.RequestContext:
-    # порты B2 не принимают контекст запроса: фоновый пайплайн живёт дольше запроса gateway
-    return common_pb2.RequestContext(request_id=request_id)
+    """Контекст для вызова соседа. Порты B2 не принимают контекст аргументом: request_id берётся
+    из запроса, который запустил поиск (ContextVar наследует и фоновый пайплайн) — B2-12."""
+    return common_pb2.RequestContext(request_id=request_id or current_request_id())
 
 
 def to_timestamp(value: datetime) -> Timestamp:
