@@ -1,0 +1,59 @@
+[project]
+name = "ml-service"
+version = "0.1.0"
+description = "Анализ текста: разбор запроса, отбор постов, группировка. Без БД."
+readme = "README.md"
+requires-python = ">=3.13"
+dependencies = [
+    "platform-contracts",
+    "grpcio>=1.83.0",
+    "grpcio-health-checking>=1.83.0",
+    "grpcio-reflection>=1.83.0",
+    "httpx>=0.28.1",
+    "protobuf>=7.35.1",
+    "pydantic-settings>=2.10.0",
+]
+
+[project.scripts]
+ml-service = "ml_service.main:main"
+
+[build-system]
+requires = ["uv_build>=0.11.0,<0.12.0"]
+build-backend = "uv_build"
+
+[dependency-groups]
+dev = [
+    "grpcio-tools>=1.83.0",
+    "mypy>=1.15.0",
+    "pytest>=8.3.0",
+    "pytest-asyncio>=0.26.0",
+    "ruff>=0.11.0",
+    "types-grpcio>=1.83.0.20260730",
+    "types-grpcio-health-checking>=1.0.0.20260518",
+    "types-grpcio-reflection>=1.0.0.20260508",
+]
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+testpaths = ["tests"]
+
+[tool.ruff]
+target-version = "py313"
+line-length = 100
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B"]
+
+[tool.mypy]
+python_version = "3.13"
+strict = true
+mypy_path = "src"
+untyped_calls_exclude = ["common", "ml"]
+
+[[tool.mypy.overrides]]
+# сгенерированный код из packages/platform_contracts
+module = ["common.*", "ml.*"]
+ignore_errors = true
+
+[tool.uv.sources]
+platform-contracts = { path = "../../packages/platform_contracts", editable = true }

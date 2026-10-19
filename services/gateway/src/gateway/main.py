@@ -9,9 +9,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from gateway.config import Settings, get_settings
 from gateway.errors import register_error_handlers
 from gateway.grpc_clients import GrpcClients
-from gateway.routers import auth, health, items, users
-from gateway.ws import ConnectionManager
-from gateway.ws import router as ws_router
+from gateway.routers import health, meta, results, searches, sources
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s")
 
@@ -28,16 +26,21 @@ def create_app(settings: Settings | None = None, clients: GrpcClients | None = N
             if clients is None:
                 await app.state.clients.close()
 
-    app = FastAPI(title="MP Gateway", version="0.1.0", lifespan=lifespan)
-    app.state.ws = ConnectionManager()
+    app = FastAPI(
+        title="MP Медиамониторинг — Gateway",
+        version="1.0.0",
+        description="HTTP API для фронта. Контракт — contracts/http/openapi.yaml (docs/API.md).",
+        lifespan=lifespan,
+    )
 
     app.add_middleware(
         CORSMiddleware,
         allow_origins=[o.strip() for o in settings.cors_origins.split(",") if o.strip()],
-        allow_credentials=True,
+        allow_origin_regex=settings.cors_origin_regex or None,
+        allow_credentials=False,
         allow_methods=["*"],
         allow_headers=["*"],
-        expose_headers=["X-Request-ID"],
+        expose_headers=["X-Request-ID", "Content-Disposition"],
     )
 
     @app.middleware("http")
@@ -54,10 +57,10 @@ def create_app(settings: Settings | None = None, clients: GrpcClients | None = N
     register_error_handlers(app)
 
     app.include_router(health.router)
-    app.include_router(auth.router)
-    app.include_router(users.router)
-    app.include_router(items.router)
-    app.include_router(ws_router)
+    app.include_router(meta.router)
+    app.include_router(sources.router)
+    app.include_router(searches.router)
+    app.include_router(results.router)
     return app
 
 

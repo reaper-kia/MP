@@ -1,7 +1,7 @@
 [project]
 name = "gateway"
 version = "0.1.0"
-description = "HTTP/WebSocket вход: JWT → RequestContext, маппинг ошибок, проксирование в gRPC"
+description = "HTTP-вход для фронта: схемы openapi.yaml, маппинг ошибок, проксирование в gRPC"
 readme = "README.md"
 requires-python = ">=3.13"
 dependencies = [
@@ -11,7 +11,7 @@ dependencies = [
     "grpcio-health-checking>=1.83.0",
     "protobuf>=7.35.1",
     "pydantic-settings>=2.10.0",
-    "pyjwt>=2.10.0",
+    "python-multipart>=0.0.20",
     "uvicorn[standard]>=0.34.0",
 ]
 
@@ -51,11 +51,11 @@ ignore = ["B008"]
 python_version = "3.13"
 strict = true
 mypy_path = "src"
-untyped_calls_exclude = ["auth", "common", "example"]
+untyped_calls_exclude = ["common", "collector", "ml", "search"]
 
 [[tool.mypy.overrides]]
 # сгенерированный код из packages/platform_contracts
-module = ["auth.*", "common.*", "example.*"]
+module = ["common.*", "collector.*", "ml.*", "search.*"]
 ignore_errors = true
 
 [tool.uv.sources]

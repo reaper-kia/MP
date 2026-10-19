@@ -159,6 +159,7 @@ paths:
     patch:
       tags: [sources]
       operationId: updateSource
+      summary: Изменить источник (название, флаги, заметка)
       requestBody:
         required: true
         content:
@@ -175,6 +176,7 @@ paths:
     delete:
       tags: [sources]
       operationId: deleteSource
+      summary: Удалить источник (мягко — история поисков сохраняет снимок)
       responses:
         "204": { description: Удалён }
         "404": { $ref: "#/components/responses/NotFound" }
@@ -303,6 +305,7 @@ paths:
     post:
       tags: [searches]
       operationId: cancelSearch
+      summary: Остановить поиск (незавершённые источники → skipped)
       responses:
         "200":
           description: OK

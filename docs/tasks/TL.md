@@ -6,12 +6,14 @@
 
 ---
 
-### [ ] TL-01 · P0 · к H+1 · каркас сервисов
+### [x] TL-01 · P0 · к H+1 · каркас сервисов
+> Сделано: auth и example удалены; search / collector / ml созданы по шаблону, проведены в compose, CI,
+> gateway, env, ansible. Осталось у тебя: `make proto && make install && make check && make up`.
 **Цель.** Три новых сервиса существуют, поднимаются в compose и видны в `/health/ready`.
 
 **Сделать.**
-1. `make new-service name=search entity=Source port=50053 db_port=5435`
-2. `make new-service name=collector port=50054`, `make new-service name=ml port=50055`; у обоих убрать БД:
+1. ~~`make new-service`~~ — сервисы созданы вручную по шаблону, скрипт удалён вместе с example_service.
+2. У collector и ml нет БД:
    `migrations/`, `alembic.ini`, `infra/database`, `infra/repositories`, `infra/uow`, alembic из Dockerfile
    и из `make run` (в Makefile: запускать `alembic upgrade head`, только если есть `alembic.ini`).
 3. Убрать `auth_client` из collector/ml (README §8, последний абзац).
@@ -32,7 +34,9 @@
 **Сделать.**
 1. 30 минут с командой пройти `contracts/http/openapi.yaml` (с FE), `search_service.proto` (с B2),
    `collector_service.proto` (с B1), `ml_service.proto` (с ML). Правки — сразу.
-2. `make proto`, коммит сгенерированного кода.
+2. `make proto`, коммит сгенерированного кода. Перегенерировать справочники:
+   `make docs` (входит в `make proto`) → `docs/API.md`, `docs/api-types.ts`,
+   `docs/GRPC.md` (делать после **каждой** правки контракта; можно добавить в `make proto`).
 3. Поднять у себя Prism (`npx @stoplight/prism-cli@5 mock contracts/http/openapi.yaml -p 4010`) — проверить,
    что FE реально может на нём работать.
 4. Объявить «контракт v1 заморожен». Дальше правки только через тебя: правка → `make proto` → сообщение
@@ -40,7 +44,9 @@
 
 **DoD.** Сгенерированный код в `packages/platform_contracts` свежий (CI проверяет); FE получил ответы от Prism.
 
-### [ ] TL-03 · P0 · к H+6 · роутеры gateway
+### [x] TL-03 · P0 · к H+6 · роутеры gateway
+> Сделано: все 17 ручек, схемы 1:1 с openapi (сверено скриптом), enum'ы — `schemas/enums.py`,
+> `UNIMPLEMENTED` → 501, `details` для `SEARCH_INVALID_PARAMS`, тесты на фейковых стабах.
 **Цель.** Каждая ручка из `openapi.yaml` существует и проксирует в search_service (а `/platforms` — в collector
 через search или напрямую — реши; проще напрямую в collector, `/query/analyze` — напрямую в ml).
 
@@ -51,11 +57,42 @@
    **один к одному с openapi.yaml** (имена полей, enum'ы, `null`).
 3. Маппинг enum proto ⇄ HTTP в одном месте (`schemas/enums.py`), в т.ч. `RELEVANCE_IRRELEVANT` ⇄ `"rejected"`,
    `optional` поля proto → `null`.
-4. Ручки анонимные (`AnonCtx`). CORS: `http://localhost:5173` + `chrome-extension://*` (для FE-10).
+4. Ручки анонимные (`Ctx` — только request_id). CORS: `http://localhost:5173` + `chrome-extension://*` (для FE-10).
 5. Экспорт: `StreamingResponse`/`Response` с `Content-Disposition: attachment; filename*=UTF-8''…`.
 6. Импорт: `UploadFile` → `bytes` → `ImportSources`.
-7. Ошибки новых кодов — в таблицу маппинга gateway (`RESOURCE_EXHAUSTED` → 429).
+7. Ошибки новых кодов — в таблицу маппинга gateway (`RESOURCE_EXHAUSTED` → 429). Для
+   `SEARCH_INVALID_PARAMS` сообщение вида `"period_from: …"` разложить в `details: [{field, message}]`.
 8. Тесты gateway с подменёнными стабами (как в шаблоне) — хотя бы по одному на роутер.
+
+**Контракт: HTTP → gRPC** (поля HTTP — [`docs/API.md`](../API.md), поля gRPC — [`docs/GRPC.md`](../GRPC.md)).
+
+| HTTP (operationId) | gRPC | Маппинг, на что смотреть |
+|---|---|---|
+| `GET /platforms` (listPlatforms) | `collector.v1.CollectorService/GetPlatforms` | `PlatformInfo`: `code`←`platform`, `source_mode`←`source_mode_supported`, `global_mode`←`global_mode_supported`, `status`←`health`, `note` пусто → `null` |
+| `POST /query/analyze` (analyzeQuery) | `ml.v1.MlService/AnalyzeQuery` | отдаём подмножество `QueryAnalysis`: `query_type, summary, search_queries, needs_clarification, clarification_hint` (пусто → `null`) |
+| `GET /sources` (listSources) | `search.v1.SearchService/ListSources` | `platform[]`→`platforms`, `items`←`sources` |
+| `POST /sources/resolve` | `SearchService/ResolveSource` | `SourcePreview` 1:1, `optional` → `null` |
+| `POST /sources` (createSource) | `SearchService/CreateSource` | `is_regional` по умолчанию `true` (в proto bool, по умолчанию false — подставить в gateway!) |
+| `PATCH /sources/{id}` | `SearchService/UpdateSource` | ставить в proto только присланные поля (`model_fields_set`) |
+| `DELETE /sources/{id}` | `SearchService/DeleteSource` | 204 |
+| `POST /sources/import` | `SearchService/ImportSources` | `UploadFile.read()` → `xlsx`; `failed[]`: `{row, value, code←error.code, message←error.message}` |
+| `POST /searches` (startSearch) | `SearchService/StartSearch` | **202**; `mode`, `platforms` → enum |
+| `GET /searches` (listSearches) | `SearchService/ListSearches` | `Search` → `SearchSummary` (`id, status, params, counts, created_at, finished_at`) |
+| `GET /searches/{id}` | `SearchService/GetSearch` | `Search` целиком |
+| `POST /searches/{id}/retry` | `SearchService/RetrySearch` | **202**; тело необязательно |
+| `POST /searches/{id}/cancel` | `SearchService/CancelSearch` | |
+| `GET /searches/{id}/results` | `SearchService/ListResults` | query → `ResultFilter{relevance, platforms, target_ids, date_status, include_excluded}` + `ResultSort`; `items`←`results` |
+| `GET /searches/{id}/groups` | `SearchService/ListGroups` | `items`←`groups`, `ResultGroup.items`←`results` |
+| `POST /searches/{id}/results/exclusion` | `SearchService/SetExcluded` | `{counts}` |
+| `GET /searches/{id}/export` | `SearchService/ExportSearch` | `Response(content, media_type=mime_type, headers=Content-Disposition(filename))` |
+
+**Enum'ы proto → HTTP** (один модуль `schemas/enums.py`): общее правило — убрать префикс и в нижний
+регистр (`PLATFORM_VK`→`vk`, `SEARCH_STATUS_PARTIAL`→`partial`, `SEARCH_STAGE_ANALYZING_QUERY`→
+`analyzing_query`, `TARGET_KIND_PLATFORM_SEARCH`→`platform_search`, `TITLE_SOURCE_POST_START`→
+`post_start`, `DATE_STATUS_IN_PERIOD`→`in_period`, `RESULT_SORT_DATE_DESC`→`date_desc`). Исключения:
+`RELEVANCE_IRRELEVANT` ⇄ `"rejected"`; `SENTIMENT_UNSPECIFIED` → `null`; `QUERY_TYPE_UNSPECIFIED` → `null`;
+`PLATFORM_HEALTH_*` → `ok|degraded|unavailable`. `Timestamp` → ISO UTC (`ts()` из `schemas/common.py`);
+`optional` без значения → `null`; `optional ErrorInfo error` без значения → `null`.
 
 **DoD.** Swagger `/docs` совпадает с `openapi.yaml` (сверить глазами по списку путей и полям `Search`, `Result`);
 FE переключает proxy с Prism на gateway и ничего не ломается.

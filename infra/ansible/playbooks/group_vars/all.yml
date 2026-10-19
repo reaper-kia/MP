@@ -4,16 +4,16 @@ deploy_dir: /opt/mp
 # Порт фронта (nginx), единственный порт, который нужен снаружи
 http_port: 80
 
-# true только за HTTPS, иначе браузер не сохранит refresh-cookie
-cookie_secure: false
+# На демо — ВСЕГДА false: только реальные публикации
+collector_fake: false
 
-# Эти email при регистрации станут admin
-admin_emails: ""
+# Модели по умолчанию, если LLM_PROVIDER не задан в окружении деплоя: stub | ollama | yandex
+llm_provider: stub
 
 # Docker Hub из РФ бывает недоступен — зеркала. [] — без зеркал.
 docker_registry_mirrors:
   - https://mirror.gcr.io
 
-# Пароли и JWT-секрет генерируются при первом деплое и лежат тут (в .gitignore).
-# Не удаляй, иначе на сервере поменяются пароли БД.
+# Пароль БД генерируется при первом деплое и лежит тут (в .gitignore).
+# Не удаляй, иначе на сервере поменяется пароль БД.
 secrets_dir: "{{ playbook_dir }}/../.secrets"

@@ -1,83 +1,116 @@
-"""Сквозная проверка поднятого стенда через Gateway.
+"""Сквозная проверка поднятого стенда через Gateway — путь пользователя из ТЗ.
 
 make smoke                         # http://localhost:8000
 make smoke URL=http://1.2.3.4      # сервер после деплоя (через nginx фронта)
+
+Пока сценарий не реализован, ручка отвечает 501 NOT_IMPLEMENTED — smoke так и напишет.
 """
 
 import sys
+import time
 import uuid
+from datetime import date, timedelta
 
 import httpx
 
 BASE = (sys.argv[1] if len(sys.argv) > 1 else "http://localhost:8000").rstrip("/")
+FINAL = {"completed", "partial", "failed", "cancelled"}
+SEARCH_TIMEOUT_SECONDS = 180
 
 
-def check(cond: bool, what: str) -> None:
+def check(cond: bool, what: str, r: httpx.Response | None = None) -> None:
     print(("  ok   " if cond else "  FAIL ") + what)
-    if not cond:
-        raise SystemExit(1)
+    if cond:
+        return
+    if r is not None:
+        try:
+            error = r.json().get("error", {})
+        except ValueError:
+            error = {}
+        if error.get("code") == "NOT_IMPLEMENTED":
+            print(f"       → ещё не реализовано: {error.get('message')}")
+        else:
+            print(f"       → HTTP {r.status_code}: {r.text[:300]}")
+    raise SystemExit(1)
 
 
 def main() -> None:
     print(f"Smoke test against {BASE}")
-    with httpx.Client(base_url=BASE, timeout=10) as c:
+    with httpx.Client(base_url=BASE, timeout=30) as c:
         ready = c.get("/health/ready").json()
         print(f"  ready: {ready}")
+        check(ready.get("status") == "ok", "все сервисы отвечают")
 
-        email = f"smoke-{uuid.uuid4().hex[:8]}@example.com"
-        r = c.post(
-            "/api/v1/auth/register",
-            json={"email": email, "name": "Smoke", "password": "password123"},
+        r = c.get("/api/v1/platforms")
+        check(r.status_code == 200 and len(r.json()) >= 3, "площадки", r)
+        fake = any("ТЕСТОВЫЕ" in (p.get("note") or "") for p in r.json())
+        print(
+            f"  collector: {'ТЕСТОВЫЕ данные (COLLECTOR_FAKE=true)' if fake else 'реальные площадки'}"
         )
-        check(r.status_code == 201, f"register {r.status_code}")
-        check("refresh_token" in c.cookies, "refresh cookie set")
 
-        r = c.post(
-            "/api/v1/auth/register",
-            json={"email": email, "name": "Smoke", "password": "password123"},
-        )
-        check(r.json()["error"]["code"] == "EMAIL_TAKEN", "duplicate email -> EMAIL_TAKEN")
+        r = c.post("/api/v1/query/analyze", json={"query": "Безопасность дорожного движения"})
+        check(r.status_code == 200 and r.json()["search_queries"], "разбор запроса", r)
 
-        r = c.post("/api/v1/auth/login", json={"email": email, "password": "password123"})
-        check(r.status_code == 200, "login")
-        auth = {"Authorization": f"Bearer {r.json()['access_token']}"}
+        handle = f"smoke_{uuid.uuid4().hex[:6]}" if fake else "krsk_news"
+        r = c.post("/api/v1/sources/resolve", json={"url": f"vk.com/{handle}"})
+        check(r.status_code == 200, "предпросмотр источника", r)
+        r = c.post("/api/v1/sources", json={"url": f"vk.com/{handle}", "is_regional": True})
+        check(r.status_code in (201, 409), "добавить источник (или уже есть)", r)
+        r = c.get("/api/v1/sources?platform=vk&limit=200")
+        check(r.status_code == 200 and r.json()["total"] >= 1, "список источников", r)
+        source_ids = [s["id"] for s in r.json()["items"]][:5]
 
-        r = c.get("/api/v1/users/me", headers=auth)
-        check(r.status_code == 200 and r.json()["email"] == email, "users/me")
+        today = date.today()
+        body = {
+            "query": "Безопасность дорожного движения в Красноярском крае",
+            "period_from": (today - timedelta(days=6)).isoformat(),
+            "period_to": today.isoformat(),
+            "mode": "selected",
+            "platforms": ["vk"],
+            "source_ids": source_ids,
+        }
+        r = c.post("/api/v1/searches", json=body)
+        check(r.status_code == 202 and r.json()["status"] == "queued", "запуск поиска", r)
+        search_id = r.json()["id"]
 
-        r = c.post("/api/v1/items", json={"title": "Smoke item"}, headers=auth)
-        check(r.status_code == 201, "create item")
-        item_id = r.json()["id"]
-
-        r = c.get(f"/api/v1/items/{item_id}", headers=auth)
-        check(r.json().get("owner_name") == "Smoke", "get item (+owner_name from auth via gRPC)")
-
-        r = c.get("/api/v1/items?limit=1", headers=auth)
-        check(r.status_code == 200 and len(r.json()["items"]) == 1, "list items")
-
-        r = c.patch(f"/api/v1/items/{item_id}", json={"status": "done"}, headers=auth)
-        check(r.json().get("status") == "done", "mark done")
-        r = c.patch(f"/api/v1/items/{item_id}", json={"title": "x"}, headers=auth)
+        started = time.monotonic()
+        while True:
+            r = c.get(f"/api/v1/searches/{search_id}")
+            check(r.status_code == 200, "статус поиска", r)
+            search = r.json()
+            if search["status"] in FINAL:
+                break
+            if time.monotonic() - started > SEARCH_TIMEOUT_SECONDS:
+                check(False, f"поиск не завершился за {SEARCH_TIMEOUT_SECONDS} с")
+            time.sleep(1.5)
+        elapsed = time.monotonic() - started
         check(
-            r.status_code == 409 and r.json()["error"]["code"] == "ITEM_IS_DONE", "409 ITEM_IS_DONE"
+            search["status"] in ("completed", "partial"),
+            f"поиск: {search['status']} за {elapsed:.0f} с",
         )
+        total = search["counts"]["total"]
 
-        r = c.get(f"/api/v1/items/{uuid.uuid4()}", headers=auth)
+        r = c.get(f"/api/v1/searches/{search_id}/results?limit=200")
         check(
-            r.status_code == 404 and r.json()["error"]["code"] == "ITEM_NOT_FOUND",
-            "404 ITEM_NOT_FOUND",
+            r.status_code == 200 and r.json()["total"] == total,
+            f"подборка: {total} публикаций",
+            r,
         )
+        urls = [i["url"] for i in r.json()["items"]]
+        check(len(urls) == len(set(urls)), "нет повторов одной публикации", r)
 
-        r = c.post("/api/v1/auth/refresh")
-        check(r.status_code == 200 and r.json()["access_token"], "refresh by cookie")
+        r = c.get(f"/api/v1/searches/{search_id}/groups")
+        check(r.status_code == 200, "группы", r)
 
-        r = c.post("/api/v1/auth/logout")
-        check(r.status_code == 204, "logout")
-        r = c.post("/api/v1/auth/refresh")
-        check(r.status_code == 401, "refresh after logout -> 401")
+        r = c.get(f"/api/v1/searches/{search_id}/export?format=xlsx")
+        check(r.status_code == 200 and r.content[:2] == b"PK", "выгрузка XLSX", r)
 
-        r = c.delete(f"/api/v1/items/{item_id}", headers=auth)
-        check(r.status_code == 204, "delete item")
+        r = c.get(f"/api/v1/searches/{uuid.uuid4()}")
+        check(
+            r.status_code == 404 and r.json()["error"]["code"] == "SEARCH_NOT_FOUND",
+            "404 SEARCH_NOT_FOUND",
+            r,
+        )
     print("All good")
 
 

@@ -1,16 +1,15 @@
-"""gRPC-клиенты ко всем сервисам. Один канал на сервис, создаются при старте gateway.
-
-Новый сервис: добавь адрес в config.py и строку self.<name> = ... ниже.
-"""
-
 from collections.abc import Callable
 from typing import Any
 
 import grpc
-from auth.v1 import auth_service_pb2_grpc
-from example.v1 import example_service_pb2_grpc
+from collector.v1 import collector_service_pb2_grpc
+from ml.v1 import ml_service_pb2_grpc
+from search.v1 import search_service_pb2_grpc
 
 from gateway.config import Settings
+
+# экспорт XLSX/DOCX может быть больше дефолтных 4 МБ
+MAX_MESSAGE_BYTES = 32 * 1024 * 1024
 
 
 class DefaultTimeoutInterceptor(grpc.aio.UnaryUnaryClientInterceptor):
@@ -40,16 +39,21 @@ class GrpcClients:
         self._timeout = settings.grpc_timeout_seconds
         self.channels: dict[str, grpc.aio.Channel] = {}
 
-        self.auth: Any = auth_service_pb2_grpc.AuthServiceStub(
-            self._channel("auth", settings.auth_grpc_target)
+        self.search: Any = search_service_pb2_grpc.SearchServiceStub(
+            self._channel("search", settings.search_grpc_target)
         )
-        self.example: Any = example_service_pb2_grpc.ExampleServiceStub(
-            self._channel("example", settings.example_grpc_target)
+        self.collector: Any = collector_service_pb2_grpc.CollectorServiceStub(
+            self._channel("collector", settings.collector_grpc_target)
+        )
+        self.ml: Any = ml_service_pb2_grpc.MlServiceStub(
+            self._channel("ml", settings.ml_grpc_target)
         )
 
     def _channel(self, name: str, target: str) -> grpc.aio.Channel:
         channel = grpc.aio.insecure_channel(
-            target, interceptors=[DefaultTimeoutInterceptor(self._timeout)]
+            target,
+            interceptors=[DefaultTimeoutInterceptor(self._timeout)],
+            options=[("grpc.max_receive_message_length", MAX_MESSAGE_BYTES)],
         )
         self.channels[name] = channel
         return channel

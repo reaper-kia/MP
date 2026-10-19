@@ -8,8 +8,9 @@ jobs:
       fail-fast: false
       matrix:
         service:
-          - auth_service
-          - example_service
+          - search_service
+          - collector_service
+          - ml_service
           - gateway
     runs-on: ubuntu-latest
     defaults:
@@ -42,6 +43,12 @@ jobs:
         run: uv run --project services/gateway python scripts/generate_proto.py
       - name: Generated code is up to date
         run: git diff --exit-code -- packages/platform_contracts
+      - name: Generate reference docs
+        run: |
+          uv run --project services/gateway python scripts/gen_api_docs.py
+          uv run --project services/gateway python scripts/gen_grpc_docs.py
+      - name: Reference docs are up to date
+        run: git diff --exit-code -- docs/API.md docs/api-types.ts docs/GRPC.md
 
   compose:
     runs-on: ubuntu-latest

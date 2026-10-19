@@ -43,7 +43,7 @@ def main() -> None:
     if exit_code != 0:
         raise SystemExit(exit_code)
 
-    # __init__.py + py.typed в каждом пакете (auth/, auth/v1/, ...)
+    # __init__.py + py.typed в каждом пакете (search/, search/v1/, ...)
     top_level = sorted({p.relative_to(CONTRACTS_DIR).parts[0] for p in proto_files})
     for name in top_level:
         for directory in [OUTPUT_DIR / name, *(OUTPUT_DIR / name).rglob("*")]:

@@ -20,7 +20,17 @@ def ts(value: Timestamp) -> datetime:
     return value.ToDatetime(tzinfo=UTC)
 
 
+def opt_ts(message: Any, field: str) -> datetime | None:
+    """optional Timestamp: не заполнен → None («нет данных»)."""
+    return ts(getattr(message, field)) if message.HasField(field) else None
+
+
+def opt(message: Any, field: str) -> Any:
+    """optional-поле proto: не заполнено → None."""
+    return getattr(message, field) if message.HasField(field) else None
+
+
 # какие ошибки показывать в Swagger у каждого роутера
 ERRORS: dict[int | str, dict[str, Any]] = {
-    code: {"model": ErrorResponse} for code in (401, 403, 404, 409, 422, 503)
+    code: {"model": ErrorResponse} for code in (404, 409, 422, 429, 501, 502, 503, 504)
 }

@@ -1,6 +1,6 @@
 """Единый формат ошибок для фронта:
 
-    {"error": {"code": "ITEM_NOT_FOUND", "message": "...", "request_id": "...", "details": []}}
+    {"error": {"code": "SEARCH_NOT_FOUND", "message": "...", "request_id": "...", "details": []}}
 
 Роутеры не ловят ошибки gRPC: AioRpcError долетает сюда и превращается в HTTP.
 code берётся из trailing metadata "error-code", которую ставят сервисы (transport/grpc/errors.py).
@@ -27,9 +27,13 @@ GRPC_TO_HTTP: dict[grpc.StatusCode, tuple[int, str]] = {
     grpc.StatusCode.FAILED_PRECONDITION: (409, "INVALID_STATE"),
     grpc.StatusCode.ABORTED: (409, "CONFLICT"),
     grpc.StatusCode.RESOURCE_EXHAUSTED: (429, "RATE_LIMITED"),
+    grpc.StatusCode.UNIMPLEMENTED: (501, "NOT_IMPLEMENTED"),
     grpc.StatusCode.UNAVAILABLE: (503, "SERVICE_UNAVAILABLE"),
     grpc.StatusCode.DEADLINE_EXCEEDED: (504, "UPSTREAM_TIMEOUT"),
 }
+
+# коды, у которых сообщение — «<поле>: <текст>» (ARCHITECTURE §6) → разложить в details
+FIELD_ERROR_CODES = {"SEARCH_INVALID_PARAMS", "VALIDATION_ERROR"}
 
 
 class ApiError(Exception):
@@ -48,7 +52,7 @@ class ApiError(Exception):
 def from_grpc_error(e: grpc.aio.AioRpcError) -> ApiError:
     status = e.code()
     if status not in GRPC_TO_HTTP:  # INTERNAL, UNKNOWN и т.п. — детали наружу не отдаём
-        return ApiError(502, "UPSTREAM_ERROR", "Upstream service failed")
+        return ApiError(502, "UPSTREAM_ERROR", "Ошибка внутреннего сервиса")
 
     http_status, default_code = GRPC_TO_HTTP[status]
     code = default_code
@@ -57,9 +61,19 @@ def from_grpc_error(e: grpc.aio.AioRpcError) -> ApiError:
             code = str(value)
 
     message = e.details() or default_code
-    if status in (grpc.StatusCode.UNAVAILABLE, grpc.StatusCode.DEADLINE_EXCEEDED):
-        message = "Service temporarily unavailable"
-    return ApiError(http_status, code, message)
+    if code in ("SERVICE_UNAVAILABLE", "UPSTREAM_TIMEOUT"):
+        # сервис не ответил сам — детали транспорта наружу не отдаём
+        message = "Сервис временно недоступен"
+    details = field_details(message) if code in FIELD_ERROR_CODES else []
+    return ApiError(http_status, code, message, details)
+
+
+def field_details(message: str) -> list[dict[str, str]]:
+    """'period_from: не позже period_to' → [{'field': 'period_from', 'message': ...}]."""
+    field, sep, text = message.partition(":")
+    if not sep or not field or " " in field.strip():
+        return []
+    return [{"field": field.strip(), "message": text.strip()}]
 
 
 def error_body(request_id: str, err: ApiError) -> dict[str, Any]:
@@ -98,12 +112,13 @@ def register_error_handlers(app: FastAPI) -> None:
         details = [
             {
                 "field": ".".join(str(p) for p in e["loc"] if p not in ("body", "query", "path")),
+                "message": str(e["msg"]),
                 "reason": str(e["type"]),
             }
             for e in exc.errors()
         ]
         return error_response(
-            request, ApiError(422, "VALIDATION_ERROR", "Request validation failed", details)
+            request, ApiError(422, "VALIDATION_ERROR", "Проверьте заполнение полей", details)
         )
 
     @app.exception_handler(StarletteHTTPException)
@@ -114,4 +129,4 @@ def register_error_handlers(app: FastAPI) -> None:
     @app.exception_handler(Exception)
     async def on_unhandled(request: Request, exc: Exception) -> JSONResponse:
         logger.exception("Unhandled error")
-        return error_response(request, ApiError(500, "INTERNAL", "Internal server error"))
+        return error_response(request, ApiError(500, "INTERNAL", "Внутренняя ошибка сервера"))

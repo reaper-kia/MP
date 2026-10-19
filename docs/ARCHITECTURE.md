@@ -1,8 +1,9 @@
 # Медиамониторинг соцсетей — архитектура и правила
 
 Документ — единый источник правды для команды. Задачи по людям: [`docs/tasks/`](tasks/).
-Контракты: HTTP для фронта — [`contracts/http/openapi.yaml`](../contracts/http/openapi.yaml),
-gRPC между сервисами — `contracts/{collector,search,ml}/v1/*.proto`, общие типы — `contracts/common/v1/platform.proto`.
+Контракты: HTTP для фронта — [`contracts/http/openapi.yaml`](../contracts/http/openapi.yaml)
+(читать удобнее в [`API.md`](API.md)), gRPC между сервисами — `contracts/{collector,search,ml}/v1/*.proto`,
+общие типы — `contracts/common/v1/platform.proto` (читать в [`GRPC.md`](GRPC.md)).
 
 ## 1. Что строим (одной фразой)
 
@@ -42,14 +43,12 @@ VK / OK / MAX с прямыми ссылками, выдержками, объя
 Это ровно то, что проверяет критерий «Архитектура»: **получение** (collector) · **отбор** (ml) ·
 **хранение и обработка** (search) · **интерфейс** (frontend) — разделены.
 
-| Сервис | Владелец | Порт gRPC | БД | Создать |
+| Сервис | Владелец | Порт gRPC | БД | Состояние каркаса |
 |---|---|---|---|---|
-| gateway | TL | 8000 (HTTP) | — | есть |
-| search_service | B2 | 50053 | search_db :5435 | `make new-service name=search entity=Source port=50053 db_port=5435` |
-| collector_service | B1 | 50054 | — | `make new-service name=collector port=50054` + убрать БД |
-| ml_service | ML | 50055 | — | `make new-service name=ml port=50055` + убрать БД |
-| auth_service | — | 50051 | auth_db | в UX не используем (регистрация не нужна); оставить как есть |
-| example_service | — | — | — | удалить после создания сервисов (README §18) |
+| search_service | B2 | 50053 | search_db :5435 | все 15 RPC проведены до хэндлеров; клиенты collector/ml готовы; хэндлеры → `NOT_IMPLEMENTED` |
+| collector_service | B1 | 50054 | — | 4 RPC работают; fake-площадка готова; коннекторы VK/OK/MAX/сайты → `NOT_IMPLEMENTED` |
+| ml_service | ML | 50055 | — | 3 RPC работают на эвристиках (`degraded=true`); провайдеры LLM/эмбеддингов — stub |
+| gateway | TL | 8000 (HTTP) | — | все 17 ручек `openapi.yaml`; авторизации нет (по ТЗ) |
 
 ## 3. Как проходит поиск (пайплайн в search_service)
 
@@ -72,7 +71,8 @@ VK / OK / MAX с прямыми ссылками, выдержками, объя
    найденный двумя целями или двумя фразами, — **одна** запись (`found_by_target_id` = первая цель).
 5. **Период** — `published_at` в периоде → `date_status=in_period`; вне периода → отбрасываем;
    даты нет → оставляем с `date_status=unknown` (UI: «дата недоступна», не утверждаем, что в периоде).
-6. **scoring** — `ml.ScorePosts` батчами по 20–50 → relevance (`direct/indirect/disputed/irrelevant`),
+6. **scoring** — конвейером: посты каждой цели уходят на оценку сразу после её сбора (подборка растёт
+   во время поиска); `ml.ScorePosts` батчами по 20–50 → relevance (`direct/indirect/disputed/irrelevant`),
    score, explanation, регион по тексту, тональность, позиция выдержки. `irrelevant` хранится
    (вкладка «Отсеяно системой» — пользователь может проверить, что ничего важного не потерялось).
 7. **grouping** — `ml.GroupPosts` по прошедшим отбор → `group_id`. Группа — только для удобства
@@ -203,7 +203,7 @@ search_results     id, search_id→searches, publication_id→publications, targ
 
 - TL: `compose.yaml`, `infra/`, `.github/`, `contracts/**`, `services/gateway/**`, `Makefile`, `README.md`.
 - B1: `services/collector_service/**`. B2: `services/search_service/**`. ML: `services/ml_service/**`, `eval/**`.
-- FE: `frontend/**`, `extension/**`.
+- FE: `frontend/**`, `extension/**`. UI (дизайнер): Figma, `docs/ui/**`, презентация.
 - Контракт меняется только PR'ом от/через TL: правка `.proto`/`openapi.yaml` → `make proto` → сообщение в чат.
 - Ветки `b1/…`, `b2/…`, `ml/…`, `fe/…`, PR в `main`, перед пушем `make fmt && make check`.
 - Каждая задача закрыта = DoD выполнен + `make check` зелёный + отметка в `docs/tasks/<роль>.md`.

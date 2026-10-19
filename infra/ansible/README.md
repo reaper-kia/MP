@@ -17,11 +17,18 @@ make smoke URL=http://1.2.3.4                # проверка снаружи
 | `common` | проверка SSH, git/curl/rsync |
 | `docker` | Docker + compose + buildx из репозиториев дистрибутива, зеркало Docker Hub |
 | `sync` | rsync папки проекта в `/opt/mp` (git на сервере не нужен, незакоммиченное тоже уедет) |
-| `env` | `.env` из шаблона; пароли и JWT-секрет генерируются один раз и хранятся в `infra/ansible/.secrets/` |
+| `env` | `.env` из шаблона; пароль БД генерируется один раз и хранится в `infra/ansible/.secrets/`, ключи API — из окружения машины деплоя |
 | `start` | `docker compose up -d --build`, ждёт `/health/ready` |
 
-Новый сервис со своей БД → добавь строку `<NAME>_DB_PASSWORD=...` в `roles/env/templates/env.j2`
-по образцу `EXAMPLE_DB_PASSWORD`.
+Ключи API передаются из окружения при деплое (в git их нет):
+
+```bash
+VK_SERVICE_TOKEN=... YC_FOLDER_ID=... YC_API_KEY=... YC_SEARCH_API_KEY=... LLM_PROVIDER=yandex \
+  make deploy HOST=1.2.3.4 SSH_USER=ubuntu
+```
+
+На сервере всегда `COLLECTOR_FAKE=false` (`group_vars/all.yml`). Новый сервис со своей БД → строка
+`<NAME>_DB_PASSWORD=...` в `roles/env/templates/env.j2` по образцу `SEARCH_DB_PASSWORD`.
 
 Логи на сервере: `ssh ubuntu@1.2.3.4 'cd /opt/mp && sudo docker compose logs -f --tail=100 gateway'`.
 

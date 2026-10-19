@@ -5,6 +5,11 @@
 «Поддержка площадок» + основа 10 баллов «Достоверность». Каждая площадка, которая реально работает
 на демо, — +1–2 балла; заранее внесённые карточки и сгенерированные ссылки = 0.
 
+**Где смотреть поля и типы:** [`docs/GRPC.md` → пакет `collector.v1`](../GRPC.md#collectorv1collectorservice)
+(все сообщения с типами и комментариями), первоисточник — `contracts/collector/v1/collector_service.proto`,
+общие типы `Platform`, `Period`, `ErrorInfo` — [`common.v1`](../GRPC.md#commonv1platform). В задачах ниже
+нужные поля выписаны прямо в тексте.
+
 **Золотое правило:** всё, что ты возвращаешь в `RawPost`, взято из ответа площадки. Нет даты — поле
 не заполнено. Нет текста — пост не возвращаем. Ссылку строишь из id (каноничная форма), а не копируешь.
 
@@ -52,7 +57,9 @@ tests/fixtures/      ← сохранённые реальные ответы п
 **DoD.** Решение принято и записано; для каждой площадки есть хоть один реально полученный пост
 со ссылкой, которая открывается в браузере.
 
-### [ ] B1-02 · P0 · к H+3 · стаб сервиса по контракту
+### [x] B1-02 · P0 · к H+3 · стаб сервиса по контракту
+> Сделано в каркасе: `connectors/fake.py` (тестовые посты [FAKE], `fail` / `empty` / `closed`),
+> гарантии сервиса (период, дубли, max_posts) — `service.py`. Остаётся: реальные коннекторы B1-03…B1-08.
 **Цель.** B2 начинает интеграцию, не дожидаясь настоящих коннекторов.
 
 **Сделать.** Все 4 RPC отвечают. `fake.py` читает `tests/fixtures/fake_posts.json` (20–30
@@ -61,10 +68,62 @@ tests/fixtures/      ← сохранённые реальные ответы п
 отладили сценарий 5. Включается только `COLLECTOR_FAKE=true`. `GetPlatforms` при fake пишет в `note`
 «ТЕСТОВЫЕ ДАННЫЕ».
 
+**Контракт** — `service CollectorService` (порт 50054):
+
+| RPC | Запрос | Ответ | Ошибки (`ERROR_CODES`) |
+|---|---|---|---|
+| `GetPlatforms` | `{context}` | `{platforms: PlatformInfo[]}` | — |
+| `ResolveSource` | `{context, url: str}` | `{source: SourceInfo}` | `UNSUPPORTED_URL`→`INVALID_ARGUMENT`, `SOURCE_NOT_FOUND`→`NOT_FOUND`, `SOURCE_PRIVATE`→`FAILED_PRECONDITION`, `PLATFORM_UNAVAILABLE`→`UNAVAILABLE` |
+| `CollectFromSource` | `{context, platform: Platform, source_external_id: str, period: Period, keywords: str[], max_posts: uint32}` | `{posts: RawPost[], truncated: bool, warnings: str[]}` | те же + `RATE_LIMITED`→`RESOURCE_EXHAUSTED` |
+| `SearchPlatform` | `{context, platform: Platform, queries: str[], period: Period, region_terms: str[], max_posts: uint32}` | `{posts: RawPost[], truncated: bool, warnings: str[]}` | `PLATFORM_UNAVAILABLE`, `RATE_LIMITED` |
+
+```
+Period       { start: Timestamp, end: Timestamp }          // UTC, включительно (B2 уже перевёл из Красноярска)
+PlatformInfo { platform: Platform, title: str, source_mode_supported: bool, global_mode_supported: bool,
+               health: PlatformHealth (OK|DEGRADED|UNAVAILABLE), note: str }
+SourceInfo   { platform, external_id: str, screen_name: str, url: str, name: str,
+               optional city: str, optional members_count: int64, is_closed: bool }
+RawPost      { platform, source_external_id: str, source_name: str, source_url: str,
+               post_external_id: str, url: str,             // каноничная прямая ссылка
+               optional title: str,                         // только если площадка отдаёт заголовок
+               text: str,                                   // полный текст без HTML; пустым не бывает
+               optional published_at: Timestamp,            // нет даты → НЕ заполнять
+               metrics: PostMetrics { optional views, likes, reposts, comments: int64 },
+               is_repost: bool, optional repost_of_url: str, fetched_at: Timestamp }
+```
+
+Python (сгенерированный код — `from collector.v1 import collector_service_pb2 as pb`):
+```python
+post = pb.RawPost(platform=common_pb.PLATFORM_VK, source_external_id="-123", post_external_id="456",
+                  url="https://vk.com/wall-123_456", text=text, source_name=name, source_url=src_url,
+                  is_repost=False)
+if dt is not None:
+    post.published_at.FromDatetime(dt)          # dt — aware UTC datetime
+if views is not None:
+    post.metrics.views = views                  # optional: не присвоили → HasField("views") == False
+post.fetched_at.GetCurrentTime()
+start = req.period.start.ToDatetime(tzinfo=UTC)  # чтение периода
+```
+
 **DoD.** `grpcurl … CollectFromSource` возвращает посты; `source_external_id="fail"` → ошибка с кодом.
 
 ### [ ] B1-03 · P0 · к H+10 · коннектор VK
 **Цель.** Первая реальная площадка. На ней строится MVP-1.
+
+**Контракт.** `ResolveSource` → `SourceInfo`, `CollectFromSource` / `SearchPlatform` → `RawPost[]` — поля
+в B1-02 и [GRPC.md#collectorv1rawpost](../GRPC.md#collectorv1rawpost). Соответствие VK → `RawPost`:
+
+| `RawPost` | VK API (`wall.get` / `newsfeed.search` item) |
+|---|---|
+| `source_external_id` | `owner_id` строкой (`"-12345678"`; пользователь — положительный) |
+| `post_external_id` | `id` строкой |
+| `url` | `f"https://vk.com/wall{owner_id}_{id}"` |
+| `text` | `text` + `"\n\n"` + `copy_history[0].text` (если репост) |
+| `published_at` | `date` (unix, UTC) |
+| `metrics` | `views.count`, `likes.count`, `reposts.count`, `comments.count` (нет ключа → не заполнять) |
+| `is_repost` / `repost_of_url` | `bool(copy_history)` / `wall{copy_history[0].owner_id}_{copy_history[0].id}` |
+| `source_name` / `source_url` | из `groups.getById` (`name`, `https://vk.com/{screen_name}`) |
+| `title` | не заполнять (у постов VK нет заголовка) |
 
 **Сделать.**
 1. **resolve:** принимает `vk.com/krsk_news`, `https://vk.com/club123`, `public123`, `vk.ru/...`,
@@ -89,6 +148,9 @@ tests/fixtures/      ← сохранённые реальные ответы п
 ссылок руками); `newsfeed.search("ДТП Красноярск")` даёт посты с рабочими ссылками.
 
 ### [ ] B1-04 · P0 · к H+20 · коннектор OK
+**Контракт** — тот же, что в B1-02/B1-03 (`SourceInfo`, `RawPost`). Таблицу «поле `RawPost` ← откуда на
+странице OK» (как у VK в B1-03) записать в `docs/collector-spike.md` до начала кода: `source_external_id`
+= gid группы, `post_external_id` = id топика, `title` — не заполнять (у топика нет заголовка).
 Способ — по решению B1-01. Те же требования: resolve, collect за период, каноничная ссылка
 `https://ok.ru/group/{gid}/topic/{tid}`, дата (если на странице «вчера в 14:05» — парсить относительно
 Asia/Krasnoyarsk/Moscow, как отображает OK, и записать в README, как трактуем), текст без HTML.
@@ -97,7 +159,9 @@ Asia/Krasnoyarsk/Moscow, как отображает OK, и записать в 
 **DoD.** Как B1-03 для 2–3 групп OK.
 
 ### [ ] B1-05 · P0 · к H+22 · коннектор MAX
-Способ — по решению B1-01. Минимум для баллов: посты канала из списка с текстом, датой (если есть)
+**Контракт** — тот же (`SourceInfo`, `RawPost`); таблица соответствия полей MAX → `RawPost` — в
+`docs/collector-spike.md`. `source_external_id` — стабильный id канала (не handle, если handle можно
+сменить; если другого нет — handle). Способ — по решению B1-01. Минимум для баллов: посты канала из списка с текстом, датой (если есть)
 и прямой ссылкой на пост. Учесть soft-лимит по IP: кэш, паузы, ясная ошибка `RATE_LIMITED`.
 Если глобального поиска по MAX нет — `global_mode_supported=false` и честный `note`.
 
@@ -112,6 +176,9 @@ Yandex Search API: `"<фраза>" site:ok.ru` (и `site:max.ru`), период 
 **DoD.** Глобальный поиск по OK возвращает только посты, чьи ссылки открываются и чей текст совпадает.
 
 ### [ ] B1-07 · P0 · к H+12 · GetPlatforms и здоровье
+**Контракт.** `GetPlatformsResponse { platforms: PlatformInfo[] }` — по одной записи на `PLATFORM_VK`,
+`PLATFORM_OK`, `PLATFORM_MAX`, `PLATFORM_NEWS` (если B1-08 не сделан — `health=UNAVAILABLE`, `note`
+«не подключено»). `title`: «ВКонтакте», «Одноклассники», «MAX», «Новостные сайты».
 Кэш 5 минут: VK — дешёвый запрос с ключом; OK/MAX — запрос к известной странице. `health` →
 `OK / DEGRADED / UNAVAILABLE` + понятный `note` по-русски. Нет ключа в `.env` → `UNAVAILABLE`
 «не настроен доступ».

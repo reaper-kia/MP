@@ -15,4 +15,4 @@ build-backend = "uv_build"
 
 [tool.uv.build-backend]
 # Список верхних пакетов из contracts/. scripts/generate_proto.py обновляет его сам.
-module-name = ["auth", "common", "example"]
+module-name = ["collector", "common", "ml", "search"]
