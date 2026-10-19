@@ -16,7 +16,7 @@ import { DatePickerInput } from "@mantine/dates";
 import { useDebouncedValue } from "@mantine/hooks";
 import { notifications } from "@mantine/notifications";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useNavigate } from "react-router";
 
 import { api, unwrap, type S } from "../../api/client";
@@ -49,9 +49,13 @@ const SERVER_FIELD: Record<string, keyof Errors> = {
 interface Props {
   /** Параметры показанного поиска: форма над подборкой заполняется ими, а не локальным состоянием. */
   initial?: S["SearchParams"];
+  /** Сообщает, отличаются ли текущие значения формы от initial (для баннера «Параметры изменены»). */
+  onDirtyChange?: (dirty: boolean) => void;
 }
 
-export function SearchForm({ initial }: Props) {
+const sameSet = (a: string[], b: string[]) => a.length === b.length && a.every((x) => b.includes(x));
+
+export function SearchForm({ initial, onDirtyChange }: Props) {
   const navigate = useNavigate();
   const queryClient = useQueryClient();
   const platformsQ = usePlatforms();
@@ -80,6 +84,16 @@ export function SearchForm({ initial }: Props) {
     const s = catalog.find((x) => x.id === id);
     return !s || platforms.includes(s.platform); // источники снятых площадок не отправляем
   });
+
+  const dirty =
+    !!initial &&
+    (query.trim() !== initial.query.trim() ||
+      period[0] !== initial.period_from ||
+      period[1] !== initial.period_to ||
+      mode !== initial.mode ||
+      !sameSet(platforms, initial.platforms) ||
+      (mode === "selected" && !sameSet(sourceIds, initial.source_ids)));
+  useEffect(() => onDirtyChange?.(dirty), [dirty, onDirtyChange]);
 
   // подсказка «как понят запрос»
   const [debounced] = useDebouncedValue(query.trim(), 800);
@@ -148,6 +162,7 @@ export function SearchForm({ initial }: Props) {
       p="md"
       radius="md"
       component="form"
+      id="search-form"
       onSubmit={(ev: React.FormEvent) => {
         ev.preventDefault();
         submit();

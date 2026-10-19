@@ -1,0 +1,10 @@
+.excluded {
+  opacity: 0.55;
+}
+
+.excerpt mark {
+  background: var(--mantine-color-yellow-light);
+  color: inherit;
+  padding: 0 1px;
+  border-radius: 2px;
+}

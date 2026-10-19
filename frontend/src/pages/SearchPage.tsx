@@ -1,7 +1,10 @@
 import { Button, Center, Loader, Stack, Text, Title } from "@mantine/core";
+import { useState } from "react";
 import { Link, useParams } from "react-router";
 
 import { ApiError } from "../api/client";
+import { ResultsView } from "../features/results/ResultsView";
+import { ParamsBar } from "../features/search/ParamsBar";
 import { SearchForm } from "../features/search/SearchForm";
 import { SearchProgress } from "../features/search/SearchProgress";
 import { TargetsPanel } from "../features/search/TargetsPanel";
@@ -11,6 +14,7 @@ import { errorText } from "../lib/errors";
 export function SearchPage() {
   const { searchId } = useParams();
   const search = useSearch(searchId);
+  const [dirty, setDirty] = useState(false);
 
   if (!searchId) {
     return (
@@ -46,10 +50,11 @@ export function SearchPage() {
   return (
     <Stack>
       {/* key — чтобы при переходе на другой поиск форма заполнилась его параметрами */}
-      <SearchForm key={data.id} initial={data.params} />
+      <SearchForm key={`form-${data.id}`} initial={data.params} onDirtyChange={setDirty} />
+      <ParamsBar search={data} dirty={dirty} />
       <SearchProgress search={data} />
       <TargetsPanel search={data} />
-      {/* Подборка — FE-05…FE-07 */}
+      <ResultsView key={`results-${data.id}`} search={data} />
     </Stack>
   );
 }
