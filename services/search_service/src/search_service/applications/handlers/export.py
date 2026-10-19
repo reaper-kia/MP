@@ -1,18 +1,17 @@
 from __future__ import annotations
+
 import io
 import uuid
+from dataclasses import dataclass
 from datetime import datetime
 
-from search_service.domain.enums import DateStatus, Relevance
-from search_service.applications.ports.uow import UnitOfWork
-from search_service.applications.handlers.results import ResultsHandler, ResultFilter
-from dataclasses import dataclass
-
 from search_service.applications.exceptions import NotImplementedYetError
+from search_service.applications.handlers.results import ResultFilter, ResultsHandler
 from search_service.applications.ports.unit_of_work import UnitOfWorkFactory
+from search_service.applications.ports.uow import UnitOfWork
 from search_service.applications.queries.results import ExportSearchQuery
 from search_service.applications.results.read_models import ExportFile
-
+from search_service.domain.enums import Relevance
 
 RELEVANCE_RU = {
     Relevance.DIRECT: "Прямая",
@@ -27,10 +26,16 @@ class ExportHandler:
         self.uow = uow
         self.results = ResultsHandler(uow)
 
-    async def to_xlsx(self, search_id: uuid.UUID, f: ResultFilter, sort: str = "relevance") -> tuple[bytes, str, str]:
+    async def to_xlsx(
+        self, search_id: uuid.UUID, f: ResultFilter, sort: str = "relevance"
+    ) -> tuple[bytes, str, str]:
         # тот же запрос, что и для экрана
         results, total, _, counts = await self.results.list_results(
-            search_id, f, sort, limit=10000, offset=0,
+            search_id,
+            f,
+            sort,
+            limit=10000,
+            offset=0,
         )
 
         async with self.uow:
@@ -48,7 +53,7 @@ class ExportHandler:
 
         try:
             from openpyxl import Workbook
-            from openpyxl.styles import Font, Alignment, PatternFill
+            from openpyxl.styles import Alignment, Font, PatternFill
             from openpyxl.utils import get_column_letter
         except ImportError:
             raise RuntimeError("openpyxl не установлен")
@@ -65,11 +70,22 @@ class ExportHandler:
         header_lines = [
             ("Запрос", search.query),
             ("Как понят запрос", (search.query_analysis or {}).get("summary", "")),
-            ("Период", f"{search.period.from_date.strftime('%d.%m.%Y')} — {search.period.to_date.strftime('%d.%m.%Y')} (время Красноярска)"),
-            ("Режим", "по выбранным источникам" if search.mode == "selected" else "без ограничения списком"),
+            (
+                "Период",
+                f"{search.period.from_date.strftime('%d.%m.%Y')} — {search.period.to_date.strftime('%d.%m.%Y')} (время Красноярска)",
+            ),
+            (
+                "Режим",
+                "по выбранным источникам"
+                if search.mode == "selected"
+                else "без ограничения списком",
+            ),
             ("Площадки", ", ".join(search.platforms)),
             ("Сформировано", datetime.now().strftime("%d.%m.%Y %H:%M")),
-            ("Публикаций в подборке", f"{counts['total']} (из них без даты: {counts['unknown_date']}; исключено вручную: {counts['excluded']})"),
+            (
+                "Публикаций в подборке",
+                f"{counts['total']} (из них без даты: {counts['unknown_date']}; исключено вручную: {counts['excluded']})",
+            ),
         ]
         row = 1
         for label, value in header_lines:
@@ -80,10 +96,19 @@ class ExportHandler:
 
         # шапка таблицы
         columns = [
-            "№", "Площадка", "Источник", "Ссылка на источник",
-            "Заголовок / начало поста", "Дата публикации",
-            "Ссылка на публикацию", "Выдержка",
-            "Связь с запросом", "Почему", "Регион", "Тональность", "Сюжет №",
+            "№",
+            "Площадка",
+            "Источник",
+            "Ссылка на источник",
+            "Заголовок / начало поста",
+            "Дата публикации",
+            "Ссылка на публикацию",
+            "Выдержка",
+            "Связь с запросом",
+            "Почему",
+            "Регион",
+            "Тональность",
+            "Сюжет №",
         ]
         for col_idx, name in enumerate(columns, 1):
             cell = ws.cell(row=row, column=col_idx, value=name)
@@ -115,11 +140,13 @@ class ExportHandler:
 
             # выдержка
             if r.excerpt_start is not None and r.excerpt_end is not None:
-                excerpt = pub.text[r.excerpt_start:r.excerpt_end]
+                excerpt = pub.text[r.excerpt_start : r.excerpt_end]
             else:
                 excerpt = pub.text[:300]
 
-            date_str = pub.published_at.strftime("%d.%m.%Y %H:%M") if pub.published_at else "недоступна"
+            date_str = (
+                pub.published_at.strftime("%d.%m.%Y %H:%M") if pub.published_at else "недоступна"
+            )
             relevance_ru = RELEVANCE_RU.get(r.relevance, "") if r.relevance else ""
             region = ""
             if r.region_by_source or r.region_by_content:

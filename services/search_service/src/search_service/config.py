@@ -1,13 +1,14 @@
 from pydantic_settings import BaseSettings
 
+
 class Settings(BaseSettings):
     service_name: str = "search_service"
     grpc_port: int = 50051
     http_port: int = 8100
 
-    collector_mode: str = "stub"     # stub | grpc
-    ml_mode: str = "stub"            # stub | grpc
-    stub_fail_platforms: str = ""    # "ok,max" — какие площадки стаб «роняет»
+    collector_mode: str = "stub"  # stub | grpc
+    ml_mode: str = "stub"  # stub | grpc
+    stub_fail_platforms: str = ""  # "ok,max" — какие площадки стаб «роняет»
 
     # DB
     database_url: str = "postgresql+asyncpg://search:search@db:5432/search"

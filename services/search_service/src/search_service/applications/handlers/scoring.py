@@ -1,20 +1,22 @@
 from __future__ import annotations
+
 import asyncio
 import uuid
 from itertools import islice
 
 import structlog
 
-from search_service.domain.enums import Relevance
-from search_service.applications.ports.uow import UnitOfWork
 from search_service.applications.ports.ml_client import MlClient, PostForScoring
+from search_service.applications.ports.uow import UnitOfWork
+from search_service.domain.enums import Relevance
 
 log = structlog.get_logger()
 
 
 class ScoringHandler:
-    def __init__(self, uow: UnitOfWork, ml: MlClient,
-                 batch_size: int = 30, max_concurrent: int = 3):
+    def __init__(
+        self, uow: UnitOfWork, ml: MlClient, batch_size: int = 30, max_concurrent: int = 3
+    ):
         self.uow = uow
         self.ml = ml
         self.batch_size = batch_size
@@ -45,13 +47,16 @@ class ScoringHandler:
     async def score_results(self, search_id: uuid.UUID, result_ids: list[uuid.UUID]) -> None:
         async with self.uow:
             search = await self.uow.searches.get(search_id)
-            results = [r for r in await self.uow.results.get_by_search(search_id) if r.id in result_ids]
+            results = [
+                r for r in await self.uow.results.get_by_search(search_id) if r.id in result_ids
+            ]
             pub_ids = [r.publication_id for r in results]
             pubs = await self.uow.publications.get_by_ids(pub_ids)
             pubs_by_id = {p.id: p for p in pubs}
             analysis = None
             if search.query_analysis:
                 from search_service.applications.ports.ml_client import QueryAnalysis
+
                 qa = search.query_analysis
                 analysis = QueryAnalysis(
                     query_type=qa.get("query_type", "unknown"),
@@ -61,6 +66,7 @@ class ScoringHandler:
 
         if not analysis:
             from search_service.applications.ports.ml_client import QueryAnalysis
+
             analysis, _ = await self.ml.analyze_query(search.query)
 
         batches = list(self._chunks(results, self.batch_size))
@@ -78,13 +84,15 @@ class ScoringHandler:
             pub = pubs_by_id.get(r.publication_id)
             if not pub:
                 continue
-            posts_for_scoring.append(PostForScoring(
-                id=str(r.id),
-                title=pub.title,
-                text=pub.text,
-                source_name=pub.source_name,
-                source_is_regional=r.region_by_source,
-            ))
+            posts_for_scoring.append(
+                PostForScoring(
+                    id=str(r.id),
+                    title=pub.title,
+                    text=pub.text,
+                    source_name=pub.source_name,
+                    source_is_regional=r.region_by_source,
+                )
+            )
 
         try:
             scores, degraded = await asyncio.wait_for(
@@ -157,9 +165,11 @@ class ScoringHandler:
     async def group_search(self, search_id: uuid.UUID) -> None:
         async with self.uow:
             results = await self.uow.results.get_by_search(search_id)
-            passed = [r for r in results if r.relevance in {
-                Relevance.DIRECT, Relevance.INDIRECT, Relevance.DISPUTED
-            }]
+            passed = [
+                r
+                for r in results
+                if r.relevance in {Relevance.DIRECT, Relevance.INDIRECT, Relevance.DISPUTED}
+            ]
             pub_ids = [r.publication_id for r in passed]
             pubs = await self.uow.publications.get_by_ids(pub_ids)
             pubs_by_id = {p.id: p for p in pubs}
@@ -168,8 +178,11 @@ class ScoringHandler:
             return
 
         posts_for_group = [
-            {"id": str(r.id), "title": pubs_by_id[r.publication_id].title,
-             "text": pubs_by_id[r.publication_id].text}
+            {
+                "id": str(r.id),
+                "title": pubs_by_id[r.publication_id].title,
+                "text": pubs_by_id[r.publication_id].text,
+            }
             for r in passed
         ]
         try:

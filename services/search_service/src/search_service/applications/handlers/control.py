@@ -1,9 +1,10 @@
 from __future__ import annotations
+
 import uuid
 
+from search_service.applications.ports.uow import UnitOfWork
 from search_service.domain.enums import SearchStatus, TargetStatus
 from search_service.domain.errors import NotFoundError, SearchNotFinished
-from search_service.applications.ports.uow import UnitOfWork
 
 
 class ControlHandler:
@@ -11,7 +12,9 @@ class ControlHandler:
         self.uow = uow
         self.runner = runner
 
-    async def set_excluded(self, search_id: uuid.UUID, result_ids: list[uuid.UUID], excluded: bool) -> dict:
+    async def set_excluded(
+        self, search_id: uuid.UUID, result_ids: list[uuid.UUID], excluded: bool
+    ) -> dict:
         async with self.uow:
             search = await self.uow.searches.get(search_id)
             if not search:
@@ -73,8 +76,12 @@ class ControlHandler:
                 raise NotFoundError("SEARCH_NOT_FOUND")
             await self.runner.cancel(search_id)
             search = await self.uow.searches.get_with_targets(search_id)
-            if search.status not in {SearchStatus.COMPLETED, SearchStatus.PARTIAL,
-                                     SearchStatus.FAILED, SearchStatus.CANCELLED}:
+            if search.status not in {
+                SearchStatus.COMPLETED,
+                SearchStatus.PARTIAL,
+                SearchStatus.FAILED,
+                SearchStatus.CANCELLED,
+            }:
                 search.cancel()
                 await self.uow.searches.save(search)
                 await self.uow.commit()

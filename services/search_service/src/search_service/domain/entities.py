@@ -1,17 +1,25 @@
 from __future__ import annotations
+
 import uuid
 from dataclasses import dataclass, field
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
-from search_service.domain.errors import DomainError, NotFoundError, SourceAlreadyExists
 from search_service.domain.enums import (
-    SearchStatus, SearchStage, TargetStatus, TERMINAL_TARGETS,
-    TERMINAL_SEARCHES, SearchMode, DateStatus, Relevance,
+    TERMINAL_SEARCHES,
+    TERMINAL_TARGETS,
+    DateStatus,
+    Relevance,
+    SearchMode,
+    SearchStage,
+    SearchStatus,
+    TargetStatus,
 )
+from search_service.domain.errors import DomainError
 from search_service.domain.value_objects import Period
 
+
 def utcnow() -> datetime:
-    return datetime.now(timezone.utc)
+    return datetime.now(UTC)
 
 
 @dataclass
@@ -181,7 +189,7 @@ class Publication:
     first_seen_at: datetime = field(default_factory=utcnow)
     last_seen_at: datetime = field(default_factory=utcnow)
 
-    def merge_from(self, other: "Publication") -> None:
+    def merge_from(self, other: Publication) -> None:
         """Upsert-логика: обновляем текст/метрики/last_seen_at."""
         self.text = other.text
         self.metrics = other.metrics or self.metrics
@@ -214,10 +222,19 @@ class SearchResult:
     excluded_at: datetime | None = None
     id: uuid.UUID = field(default_factory=uuid.uuid4)
 
-    def set_score(self, *, relevance: Relevance, score: float, explanation: str,
-                  region_by_content: bool, region_evidence: str,
-                  sentiment: str | None, excerpt_start: int | None, excerpt_end: int | None,
-                  highlights: list[list[int]]) -> None:
+    def set_score(
+        self,
+        *,
+        relevance: Relevance,
+        score: float,
+        explanation: str,
+        region_by_content: bool,
+        region_evidence: str,
+        sentiment: str | None,
+        excerpt_start: int | None,
+        excerpt_end: int | None,
+        highlights: list[list[int]],
+    ) -> None:
         self.relevance = relevance
         self.score = score
         self.explanation = explanation

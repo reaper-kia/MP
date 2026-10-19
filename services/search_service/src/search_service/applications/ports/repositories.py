@@ -1,16 +1,25 @@
 from __future__ import annotations
-from typing import Protocol, Iterable
-import uuid
 
-from search_service.domain.entities import Source, Search, SearchTarget, Publication, SearchResult
+import uuid
+from collections.abc import Iterable
+from typing import Protocol
+
+from search_service.domain.entities import Publication, Search, SearchResult, SearchTarget, Source
 
 
 class SourceRepository(Protocol):
     async def get_by_id(self, source_id: uuid.UUID) -> Source | None: ...
     async def get_by_key(self, platform: str, external_id: str) -> Source | None: ...
     async def get_by_ids(self, ids: Iterable[uuid.UUID]) -> list[Source]: ...
-    async def list(self, *, platforms: list[str] | None = None, q: str | None = None,
-                   is_active: bool | None = None, limit: int = 50, offset: int = 0) -> tuple[list[Source], int]: ...
+    async def list(
+        self,
+        *,
+        platforms: list[str] | None = None,
+        q: str | None = None,
+        is_active: bool | None = None,
+        limit: int = 50,
+        offset: int = 0,
+    ) -> tuple[list[Source], int]: ...
     async def add(self, source: Source) -> None: ...
     async def save(self, source: Source) -> None: ...
 
@@ -32,7 +41,9 @@ class TargetRepository(Protocol):
 
 
 class PublicationRepository(Protocol):
-    async def get_by_key(self, platform: str, source_external_id: str, post_external_id: str) -> Publication | None: ...
+    async def get_by_key(
+        self, platform: str, source_external_id: str, post_external_id: str
+    ) -> Publication | None: ...
     async def get_by_ids(self, ids: Iterable[uuid.UUID]) -> list[Publication]: ...
     async def upsert(self, pub: Publication) -> Publication: ...
 
@@ -41,10 +52,18 @@ class ResultRepository(Protocol):
     async def add(self, result: SearchResult) -> None: ...
     async def save(self, result: SearchResult) -> None: ...
     async def get_by_search(self, search_id: uuid.UUID) -> list[SearchResult]: ...
-    async def list_filtered(self, *, search_id: uuid.UUID, relevance: list[str] | None = None,
-                            platforms: list[str] | None = None, target_ids: list[uuid.UUID] | None = None,
-                            date_status: list[str] | None = None, include_excluded: bool = False,
-                            sort: str = "relevance", limit: int = 50, offset: int = 0,
-                            ) -> tuple[list[SearchResult], int, bool]: ...
+    async def list_filtered(
+        self,
+        *,
+        search_id: uuid.UUID,
+        relevance: list[str] | None = None,
+        platforms: list[str] | None = None,
+        target_ids: list[uuid.UUID] | None = None,
+        date_status: list[str] | None = None,
+        include_excluded: bool = False,
+        sort: str = "relevance",
+        limit: int = 50,
+        offset: int = 0,
+    ) -> tuple[list[SearchResult], int, bool]: ...
     async def counts(self, search_id: uuid.UUID) -> dict: ...
     async def exists_in_search(self, search_id: uuid.UUID, publication_id: uuid.UUID) -> bool: ...

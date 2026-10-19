@@ -1,12 +1,10 @@
 from __future__ import annotations
-import uuid
-from dataclasses import dataclass
 
-from search_service.domain.entities import Publication, SearchResult, Search, SearchTarget
+from search_service.applications.ports.collector_client import RawPost
+from search_service.applications.ports.uow import UnitOfWork
+from search_service.domain.entities import Publication, Search, SearchResult, SearchTarget
 from search_service.domain.enums import DateStatus
 from search_service.domain.value_objects import PostKey
-from search_service.applications.ports.uow import UnitOfWork
-from search_service.applications.ports.collector_client import RawPost
 
 
 def make_title(post: RawPost) -> tuple[str, str]:
@@ -27,8 +25,9 @@ class SaveHandler:
     def __init__(self, uow: UnitOfWork):
         self.uow = uow
 
-    async def save_posts(self, search: Search, target: SearchTarget,
-                         posts: list[RawPost]) -> list[SearchResult]:
+    async def save_posts(
+        self, search: Search, target: SearchTarget, posts: list[RawPost]
+    ) -> list[SearchResult]:
         """Upsert publications + insert results (без дублирования)."""
         async with self.uow:
             # кэш источников для region_by_source

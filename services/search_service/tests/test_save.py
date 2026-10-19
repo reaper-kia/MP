@@ -1,11 +1,12 @@
+from datetime import UTC, date, datetime
+
 import pytest
-from datetime import datetime, timezone
+
 from search_service.applications.handlers.save import SaveHandler, make_title
 from search_service.applications.ports.collector_client import RawPost
 from search_service.domain.entities import Search, SearchTarget
 from search_service.domain.enums import DateStatus
 from search_service.domain.value_objects import Period
-from datetime import date
 from tests.fakes import InMemoryUoW
 
 
@@ -32,7 +33,7 @@ def make_post(**overrides) -> RawPost:
         source_url="https://vk.com/news",
         text="Текст поста про безопасность дорожного движения",
         title="Заголовок",
-        published_at=datetime(2026, 1, 15, 12, 0, tzinfo=timezone.utc),
+        published_at=datetime(2026, 1, 15, 12, 0, tzinfo=UTC),
         metrics={"views": 100},
     )
     base.update(overrides)
@@ -68,8 +69,9 @@ async def test_out_of_period_post_not_saved(uow):
     target = SearchTarget(kind="source", platform="vk", name="n")
     handler = SaveHandler(uow)
     results = await handler.save_posts(
-        search, target,
-        [make_post(published_at=datetime(2025, 1, 1, tzinfo=timezone.utc))],
+        search,
+        target,
+        [make_post(published_at=datetime(2025, 1, 1, tzinfo=UTC))],
     )
     assert len(results) == 0
 

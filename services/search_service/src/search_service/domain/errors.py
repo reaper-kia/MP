@@ -1,11 +1,14 @@
 class DomainError(Exception):
     """Нарушение инварианта домена."""
 
+
 class NotFoundError(DomainError):
     pass
 
+
 class SourceAlreadyExists(DomainError):
     pass
+
 
 class SearchInvalidParams(DomainError):
     def __init__(self, field: str, message: str):
@@ -13,8 +16,10 @@ class SearchInvalidParams(DomainError):
         self.message = message
         super().__init__(f"{field}: {message}")
 
+
 class SearchNotFinished(DomainError):
     pass
+
 
 class CollectorError(DomainError):
     """Ошибка внешнего коллектора с кодом для mark_failed."""

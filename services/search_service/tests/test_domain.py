@@ -1,9 +1,11 @@
-import pytest
 from datetime import date
+
+import pytest
+
 from search_service.domain.entities import Search, SearchTarget
 from search_service.domain.enums import SearchStatus, TargetStatus
-from search_service.domain.value_objects import Period
 from search_service.domain.errors import DomainError, SearchInvalidParams
+from search_service.domain.value_objects import Period
 
 
 def test_period_from_after_to_raises():

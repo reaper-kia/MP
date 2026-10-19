@@ -1,4 +1,5 @@
 from __future__ import annotations
+
 from dataclasses import dataclass
 from datetime import datetime
 from typing import Protocol
@@ -41,9 +42,23 @@ class CollectResult:
 
 class CollectorClient(Protocol):
     async def resolve_source(self, url: str) -> SourceInfo: ...
-    async def collect_from_source(self, *, platform: str, source_external_id: str,
-                                  start_utc: datetime, end_utc: datetime,
-                                  keywords: list[str], max_posts: int = 300) -> CollectResult: ...
-    async def search_platform(self, *, platform: str, queries: list[str],
-                              start_utc: datetime, end_utc: datetime,
-                              region_terms: list[str], max_posts: int = 500) -> CollectResult: ...
+    async def collect_from_source(
+        self,
+        *,
+        platform: str,
+        source_external_id: str,
+        start_utc: datetime,
+        end_utc: datetime,
+        keywords: list[str],
+        max_posts: int = 300,
+    ) -> CollectResult: ...
+    async def search_platform(
+        self,
+        *,
+        platform: str,
+        queries: list[str],
+        start_utc: datetime,
+        end_utc: datetime,
+        region_terms: list[str],
+        max_posts: int = 500,
+    ) -> CollectResult: ...

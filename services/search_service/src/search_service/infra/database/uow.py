@@ -1,9 +1,14 @@
 from __future__ import annotations
+
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from search_service.applications.ports.uow import UnitOfWork as UoWProtocol
 from search_service.infra.database.repositories import (
-    SourceRepo, SearchRepo, TargetRepo, PublicationRepo, ResultRepo,
+    PublicationRepo,
+    ResultRepo,
+    SearchRepo,
+    SourceRepo,
+    TargetRepo,
 )
 
 

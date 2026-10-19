@@ -1,11 +1,6 @@
 from __future__ import annotations
-import uuid
-from dataclasses import dataclass
 
-from search_service.domain.entities import Source
-from search_service.domain.errors import NotFoundError, SourceAlreadyExists, DomainError
-from search_service.applications.ports.uow import UnitOfWork
-from search_service.applications.ports.collector_client import CollectorClient
+import uuid
 from dataclasses import dataclass
 
 from search_service.applications.commands.sources import (
@@ -16,7 +11,9 @@ from search_service.applications.commands.sources import (
 )
 from search_service.applications.exceptions import NotImplementedYetError
 from search_service.applications.ports.collector import CollectorClient as CollectorPort
+from search_service.applications.ports.collector_client import CollectorClient
 from search_service.applications.ports.unit_of_work import UnitOfWorkFactory
+from search_service.applications.ports.uow import UnitOfWork
 from search_service.applications.queries.sources import ListSourcesQuery, ResolveSourceQuery
 from search_service.applications.results.read_models import (
     ImportReport,
@@ -24,11 +21,14 @@ from search_service.applications.results.read_models import (
     SourcePreviewView,
     SourceView,
 )
+from search_service.domain.entities import Source
+from search_service.domain.errors import DomainError, NotFoundError, SourceAlreadyExists
 
 
 @dataclass
 class ResolveRequest:
     url: str
+
 
 @dataclass
 class CreateRequest:
@@ -36,6 +36,7 @@ class CreateRequest:
     name: str | None = None
     is_regional: bool = True
     notes: str = ""
+
 
 @dataclass
 class ListRequest:
@@ -45,6 +46,7 @@ class ListRequest:
     limit: int = 50
     offset: int = 0
 
+
 @dataclass
 class UpdateRequest:
     source_id: uuid.UUID
@@ -52,6 +54,7 @@ class UpdateRequest:
     is_regional: bool | None = None
     is_active: bool | None = None
     notes: str | None = None
+
 
 @dataclass
 class DeleteRequest:
@@ -96,8 +99,11 @@ class SourceHandler:
         limit = max(1, min(req.limit or 50, 200))
         async with self.uow:
             sources, total = await self.uow.sources.list(
-                platforms=req.platforms, q=req.q,
-                is_active=req.is_active, limit=limit, offset=req.offset,
+                platforms=req.platforms,
+                q=req.q,
+                is_active=req.is_active,
+                limit=limit,
+                offset=req.offset,
             )
             return sources, total, req.offset + len(sources) < total
 

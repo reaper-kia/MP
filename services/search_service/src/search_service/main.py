@@ -11,12 +11,13 @@ search.v1). Пока gRPC-транспорт не написан, всю фун�
 - SearchRunner — реестр asyncio.Task по search_id; при старте сервиса все
   RUNNING/QUEUED поиски помечаются FAILED с warning «прерван перезапуском».
 """
+
 from __future__ import annotations
 
 import asyncio
 import uuid
+from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
-from typing import AsyncIterator
 
 import structlog
 from fastapi import FastAPI, HTTPException
@@ -27,7 +28,10 @@ from search_service.config import Settings
 from search_service.domain.entities import utcnow
 from search_service.domain.enums import SearchStatus
 from search_service.domain.errors import (
-    DomainError, NotFoundError, SearchInvalidParams, SearchNotFinished,
+    DomainError,
+    NotFoundError,
+    SearchInvalidParams,
+    SearchNotFinished,
     SourceAlreadyExists,
 )
 
@@ -57,6 +61,7 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
 
     async def uow_factory():
         from search_service.infra.database.uow import UnitOfWork
+
         return UnitOfWork(session_maker())
 
     pipeline = Pipeline(uow_factory, collector, ml, sem, settings.target_timeout_sec)
@@ -96,6 +101,7 @@ def _make_collector(settings: Settings):
         # return GrpcCollectorClient(settings.collector_grpc)
         raise RuntimeError("GrpcCollectorClient ещё не реализован, используй collector_mode=stub")
     from search_service.infra.collector_stub import StubCollectorClient
+
     fail = tuple(p for p in settings.stub_fail_platforms.split(",") if p)
     return StubCollectorClient(fail_platforms=fail)
 
@@ -106,12 +112,14 @@ def _make_ml(settings: Settings):
         # return GrpcMlClient(settings.ml_grpc)
         raise RuntimeError("GrpcMlClient ещё не реализован, используй ml_mode=stub")
     from search_service.infra.ml_client import StubMl
+
     return StubMl()
 
 
 async def _mark_interrupted_searches(session_maker: async_sessionmaker[AsyncSession]) -> None:
     """Все RUNNING/QUEUED на старте → FAILED с warning."""
     from search_service.infra.database.uow import UnitOfWork
+
     try:
         async with session_maker() as session:
             uow = UnitOfWork(session)
@@ -139,7 +147,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.state.settings = settings
 
     _register_health_routes(app)
-    _register_http_api(app)        # HTTP-обёртки над хэндлерами (для демо)
+    _register_http_api(app)  # HTTP-обёртки над хэндлерами (для демо)
     return app
 
 
@@ -154,6 +162,7 @@ def _register_health_routes(app: FastAPI) -> None:
     @app.get("/health/db")
     async def health_db():
         from sqlalchemy import text
+
         try:
             async with app.state.session_maker() as session:
                 await session.execute(text("SELECT 1"))
@@ -209,16 +218,24 @@ def _register_http_api(app: FastAPI) -> None:
 
     def _source_dict(s):
         return {
-            "id": str(s.id), "platform": s.platform, "external_id": s.external_id,
-            "screen_name": s.screen_name, "url": s.url, "name": s.name,
-            "city": s.city, "is_regional": s.is_regional, "is_active": s.is_active,
-            "notes": s.notes, "created_at": s.created_at.isoformat(),
+            "id": str(s.id),
+            "platform": s.platform,
+            "external_id": s.external_id,
+            "screen_name": s.screen_name,
+            "url": s.url,
+            "name": s.name,
+            "city": s.city,
+            "is_regional": s.is_regional,
+            "is_active": s.is_active,
+            "notes": s.notes,
+            "created_at": s.created_at.isoformat(),
             "updated_at": s.updated_at.isoformat(),
         }
 
     @app.post("/sources/resolve")
     async def resolve_source(req: ResolveReq):
-        from search_service.applications.handlers.sources import SourceHandler, ResolveRequest
+        from search_service.applications.handlers.sources import ResolveRequest, SourceHandler
+
         uow = app.state.uow_factory()
         handler = SourceHandler(uow, app.state.collector)
         try:
@@ -227,8 +244,11 @@ def _register_http_api(app: FastAPI) -> None:
             raise HTTPException(400, str(e))
         return {
             "preview": {
-                "platform": info.platform, "external_id": info.external_id,
-                "url": info.url, "name": info.name, "city": info.city,
+                "platform": info.platform,
+                "external_id": info.external_id,
+                "url": info.url,
+                "name": info.name,
+                "city": info.city,
                 "members_count": info.members_count,
                 "existing_source_id": str(existing.id) if existing else None,
             }
@@ -236,7 +256,8 @@ def _register_http_api(app: FastAPI) -> None:
 
     @app.post("/sources")
     async def create_source(req: CreateSourceReq):
-        from search_service.applications.handlers.sources import SourceHandler, CreateRequest
+        from search_service.applications.handlers.sources import CreateRequest, SourceHandler
+
         uow = app.state.uow_factory()
         handler = SourceHandler(uow, app.state.collector)
         try:
@@ -248,23 +269,33 @@ def _register_http_api(app: FastAPI) -> None:
         return {"source": _source_dict(source)}
 
     @app.get("/sources")
-    async def list_sources(platforms: str | None = None, q: str | None = None,
-                           is_active: bool | None = None, limit: int = 50, offset: int = 0):
-        from search_service.applications.handlers.sources import SourceHandler, ListRequest
+    async def list_sources(
+        platforms: str | None = None,
+        q: str | None = None,
+        is_active: bool | None = None,
+        limit: int = 50,
+        offset: int = 0,
+    ):
+        from search_service.applications.handlers.sources import ListRequest, SourceHandler
+
         uow = app.state.uow_factory()
         handler = SourceHandler(uow, app.state.collector)
         platforms_list = [p for p in (platforms or "").split(",") if p] or None
         sources, total, has_more = await handler.list(
-            ListRequest(platforms=platforms_list, q=q, is_active=is_active,
-                        limit=limit, offset=offset))
+            ListRequest(
+                platforms=platforms_list, q=q, is_active=is_active, limit=limit, offset=offset
+            )
+        )
         return {
             "sources": [_source_dict(s) for s in sources],
-            "total": total, "has_more": has_more,
+            "total": total,
+            "has_more": has_more,
         }
 
     @app.patch("/sources/{source_id}")
     async def update_source(source_id: uuid.UUID, req: UpdateSourceReq):
         from search_service.applications.handlers.sources import SourceHandler, UpdateRequest
+
         uow = app.state.uow_factory()
         handler = SourceHandler(uow, app.state.collector)
         try:
@@ -275,7 +306,8 @@ def _register_http_api(app: FastAPI) -> None:
 
     @app.delete("/sources/{source_id}")
     async def delete_source(source_id: uuid.UUID):
-        from search_service.applications.handlers.sources import SourceHandler, DeleteRequest
+        from search_service.applications.handlers.sources import DeleteRequest, SourceHandler
+
         uow = app.state.uow_factory()
         handler = SourceHandler(uow, app.state.collector)
         try:
@@ -295,17 +327,21 @@ def _register_http_api(app: FastAPI) -> None:
 
     def _search_dict(s):
         return {
-            "id": str(s.id), "status": s.status, "stage": s.stage,
+            "id": str(s.id),
+            "status": s.status,
+            "stage": s.stage,
             "progress": {
                 "targets_total": len(s.targets) if hasattr(s, "targets") and s.targets else 0,
                 "targets_finished": sum(1 for t in (s.targets or []) if t.is_finished),
                 "percent": s.progress()[2] if hasattr(s, "progress") else 0,
             },
             "params": {
-                "query": s.query, "query_type": s.query_type,
+                "query": s.query,
+                "query_type": s.query_type,
                 "period_from": s.period.from_date.isoformat(),
                 "period_to": s.period.to_date.isoformat(),
-                "mode": s.mode, "platforms": s.platforms,
+                "mode": s.mode,
+                "platforms": s.platforms,
                 "source_ids": [str(x) for x in s.source_ids],
             },
             "query_analysis": s.query_analysis,
@@ -317,10 +353,15 @@ def _register_http_api(app: FastAPI) -> None:
 
     def _target_dict(t):
         return {
-            "id": str(t.id), "kind": t.kind, "platform": t.platform,
+            "id": str(t.id),
+            "kind": t.kind,
+            "platform": t.platform,
             "source_id": str(t.source_id) if t.source_id else None,
-            "name": t.name, "url": t.url,
-            "status": t.status, "fetched": t.fetched, "matched": t.matched,
+            "name": t.name,
+            "url": t.url,
+            "status": t.status,
+            "fetched": t.fetched,
+            "matched": t.matched,
             "attempts": t.attempts,
             "error": {"code": t.error_code, "message": t.error_message} if t.error_code else None,
             "started_at": t.started_at.isoformat() if t.started_at else None,
@@ -330,48 +371,68 @@ def _register_http_api(app: FastAPI) -> None:
     @app.post("/searches")
     async def start_search(req: StartSearchReq):
         from search_service.applications.handlers.searches import SearchHandler, StartSearchRequest
+
         uow = app.state.uow_factory()
         handler = SearchHandler(uow, app.state.runner)
         try:
-            search = await handler.start(StartSearchRequest(
-                query=req.query, period_from=req.period_from, period_to=req.period_to,
-                mode=req.mode, platforms=req.platforms,
-                source_ids=[uuid.UUID(x) for x in req.source_ids],
-            ))
+            search = await handler.start(
+                StartSearchRequest(
+                    query=req.query,
+                    period_from=req.period_from,
+                    period_to=req.period_to,
+                    mode=req.mode,
+                    platforms=req.platforms,
+                    source_ids=[uuid.UUID(x) for x in req.source_ids],
+                )
+            )
         except SearchInvalidParams as e:
-            raise HTTPException(400, {"code": "SEARCH_INVALID_PARAMS", "field": e.field, "message": e.message})
+            raise HTTPException(
+                400, {"code": "SEARCH_INVALID_PARAMS", "field": e.field, "message": e.message}
+            )
         except NotFoundError as e:
             raise HTTPException(404, str(e))
         except DomainError as e:
             raise HTTPException(400, str(e))
         # перечитаем с targets
         search_full = await handler.get(search.id)
-        return {"search": {**_search_dict(search_full),
-                           "targets": [_target_dict(t) for t in search_full.targets]}}
+        return {
+            "search": {
+                **_search_dict(search_full),
+                "targets": [_target_dict(t) for t in search_full.targets],
+            }
+        }
 
     @app.get("/searches")
     async def list_searches(limit: int = 50, offset: int = 0):
         from search_service.applications.handlers.searches import SearchHandler
+
         uow = app.state.uow_factory()
         handler = SearchHandler(uow, app.state.runner)
         searches, total, has_more = await handler.list(limit=limit, offset=offset)
-        return {"searches": [_search_dict(s) for s in searches], "total": total, "has_more": has_more}
+        return {
+            "searches": [_search_dict(s) for s in searches],
+            "total": total,
+            "has_more": has_more,
+        }
 
     @app.get("/searches/{search_id}")
     async def get_search(search_id: uuid.UUID):
         from search_service.applications.handlers.searches import SearchHandler
+
         uow = app.state.uow_factory()
         handler = SearchHandler(uow, app.state.runner)
         try:
             search = await handler.get(search_id)
         except NotFoundError:
             raise HTTPException(404, "SEARCH_NOT_FOUND")
-        return {"search": {**_search_dict(search),
-                           "targets": [_target_dict(t) for t in search.targets]}}
+        return {
+            "search": {**_search_dict(search), "targets": [_target_dict(t) for t in search.targets]}
+        }
 
     @app.post("/searches/{search_id}/cancel")
     async def cancel_search(search_id: uuid.UUID):
         from search_service.applications.handlers.control import ControlHandler
+
         uow = app.state.uow_factory()
         handler = ControlHandler(uow, app.state.runner)
         try:
@@ -386,6 +447,7 @@ def _register_http_api(app: FastAPI) -> None:
     @app.post("/searches/{search_id}/retry")
     async def retry_search(search_id: uuid.UUID, req: RetryReq):
         from search_service.applications.handlers.control import ControlHandler
+
         uow = app.state.uow_factory()
         handler = ControlHandler(uow, app.state.runner)
         try:
@@ -401,10 +463,17 @@ def _register_http_api(app: FastAPI) -> None:
 
     # ---------- Results (B2-07, B2-09) ----------
     @app.get("/searches/{search_id}/results")
-    async def list_results(search_id: uuid.UUID, relevance: str | None = None,
-                           platforms: str | None = None, include_excluded: bool = False,
-                           sort: str = "relevance", limit: int = 50, offset: int = 0):
-        from search_service.applications.handlers.results import ResultsHandler, ResultFilter
+    async def list_results(
+        search_id: uuid.UUID,
+        relevance: str | None = None,
+        platforms: str | None = None,
+        include_excluded: bool = False,
+        sort: str = "relevance",
+        limit: int = 50,
+        offset: int = 0,
+    ):
+        from search_service.applications.handlers.results import ResultFilter, ResultsHandler
+
         uow = app.state.uow_factory()
         handler = ResultsHandler(uow)
         f = ResultFilter(
@@ -414,7 +483,8 @@ def _register_http_api(app: FastAPI) -> None:
         )
         try:
             results, total, has_more, counts = await handler.list_results(
-                search_id, f, sort=sort, limit=limit, offset=offset)
+                search_id, f, sort=sort, limit=limit, offset=offset
+            )
         except NotFoundError:
             raise HTTPException(404, "SEARCH_NOT_FOUND")
 
@@ -425,7 +495,9 @@ def _register_http_api(app: FastAPI) -> None:
             pubs_by_id = {p.id: p for p in pubs}
         return {
             "results": [_result_with_pub(r, pubs_by_id.get(r.publication_id)) for r in results],
-            "total": total, "has_more": has_more, "counts": counts,
+            "total": total,
+            "has_more": has_more,
+            "counts": counts,
         }
 
     class SetExcludedReq(BaseModel):
@@ -435,22 +507,29 @@ def _register_http_api(app: FastAPI) -> None:
     @app.post("/searches/{search_id}/set_excluded")
     async def set_excluded(search_id: uuid.UUID, req: SetExcludedReq):
         from search_service.applications.handlers.control import ControlHandler
+
         uow = app.state.uow_factory()
         handler = ControlHandler(uow, app.state.runner)
         try:
             counts = await handler.set_excluded(
-                search_id, [uuid.UUID(x) for x in req.result_ids], req.excluded)
+                search_id, [uuid.UUID(x) for x in req.result_ids], req.excluded
+            )
         except NotFoundError as e:
             raise HTTPException(404, str(e))
         return {"counts": counts}
 
     # ---------- Export (B2-08) ----------
     @app.get("/searches/{search_id}/export.xlsx")
-    async def export_xlsx(search_id: uuid.UUID, relevance: str | None = None,
-                          platforms: str | None = None, include_excluded: bool = False,
-                          sort: str = "relevance"):
+    async def export_xlsx(
+        search_id: uuid.UUID,
+        relevance: str | None = None,
+        platforms: str | None = None,
+        include_excluded: bool = False,
+        sort: str = "relevance",
+    ):
         from search_service.applications.handlers.export import ExportHandler
         from search_service.applications.handlers.results import ResultFilter
+
         uow = app.state.uow_factory()
         handler = ExportHandler(uow)
         f = ResultFilter(
@@ -463,7 +542,8 @@ def _register_http_api(app: FastAPI) -> None:
         except NotFoundError:
             raise HTTPException(404, "SEARCH_NOT_FOUND")
         return Response(
-            content=content, media_type=mime,
+            content=content,
+            media_type=mime,
             headers={"Content-Disposition": f'attachment; filename="{filename}"'},
         )
 
@@ -489,7 +569,7 @@ def _result_with_pub(r, pub):
     excerpt = ""
     excerpt_parts = []
     if pub and r.excerpt_start is not None and r.excerpt_end is not None:
-        excerpt = pub.text[r.excerpt_start:r.excerpt_end]
+        excerpt = pub.text[r.excerpt_start : r.excerpt_end]
         # нарезка по highlights внутри выдержки
         for span in r.highlights:
             if len(span) != 2:
@@ -499,18 +579,24 @@ def _result_with_pub(r, pub):
             lo = max(a, r.excerpt_start)
             hi = min(b, r.excerpt_end)
             if lo < hi:
-                excerpt_parts.append({
-                    "text": pub.text[lo:hi],
-                    "highlight": True,
-                    "start": lo - r.excerpt_start,
-                    "end": hi - r.excerpt_start,
-                })
+                excerpt_parts.append(
+                    {
+                        "text": pub.text[lo:hi],
+                        "highlight": True,
+                        "start": lo - r.excerpt_start,
+                        "end": hi - r.excerpt_start,
+                    }
+                )
 
     return {
         "id": str(r.id),
         "publication_id": str(r.publication_id),
         "platform": pub.platform,
-        "source": {"name": pub.source_name, "url": pub.source_url, "is_regional": r.region_by_source},
+        "source": {
+            "name": pub.source_name,
+            "url": pub.source_url,
+            "is_regional": r.region_by_source,
+        },
         "url": pub.url,
         "title": title,
         "title_source": title_source,
@@ -533,10 +619,12 @@ def _result_with_pub(r, pub):
         "found_by_target_id": str(r.target_id),
     }
 
+
 app = create_app()
 
 
 if __name__ == "__main__":
     import uvicorn
+
     s = Settings()
     uvicorn.run("search_service.main:app", host="0.0.0.0", port=s.http_port, reload=False)

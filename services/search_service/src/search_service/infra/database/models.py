@@ -1,12 +1,22 @@
 from __future__ import annotations
+
 import uuid
 from datetime import datetime
 
 from sqlalchemy import (
-    String, Text, Integer, Boolean, DateTime, Date, JSON, Index, ForeignKey,
-    UniqueConstraint, text,
+    JSON,
+    Boolean,
+    Date,
+    DateTime,
+    ForeignKey,
+    Index,
+    Integer,
+    String,
+    Text,
+    UniqueConstraint,
+    text,
 )
-from sqlalchemy.dialects.postgresql import UUID, ARRAY, REAL
+from sqlalchemy.dialects.postgresql import ARRAY, REAL, UUID
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship
 
 
@@ -33,11 +43,18 @@ class SourceModel(Base):
     notes: Mapped[str] = mapped_column(Text, default="")
     deleted_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
-    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, onupdate=utcnow)
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=utcnow, onupdate=utcnow
+    )
 
     __table_args__ = (
-        Index("ix_sources_platform_external", "platform", "external_id",
-              unique=True, postgresql_where=text("deleted_at IS NULL")),
+        Index(
+            "ix_sources_platform_external",
+            "platform",
+            "external_id",
+            unique=True,
+            postgresql_where=text("deleted_at IS NULL"),
+        ),
     )
 
 
@@ -60,7 +77,9 @@ class SearchModel(Base):
     started_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     finished_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
 
-    targets = relationship("SearchTargetModel", back_populates="search", cascade="all, delete-orphan")
+    targets = relationship(
+        "SearchTargetModel", back_populates="search", cascade="all, delete-orphan"
+    )
 
 
 class SearchTargetModel(Base):
@@ -70,7 +89,9 @@ class SearchTargetModel(Base):
     search_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), ForeignKey("searches.id"))
     kind: Mapped[str] = mapped_column(String(16))
     platform: Mapped[str] = mapped_column(String(16))
-    source_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), ForeignKey("sources.id"), nullable=True)
+    source_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("sources.id"), nullable=True
+    )
     name: Mapped[str] = mapped_column(Text)
     url: Mapped[str | None] = mapped_column(Text, nullable=True)
     status: Mapped[str] = mapped_column(String(16))
@@ -105,8 +126,9 @@ class PublicationModel(Base):
     last_seen_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
 
     __table_args__ = (
-        UniqueConstraint("platform", "source_external_id", "post_external_id",
-                         name="uq_publications_post_key"),
+        UniqueConstraint(
+            "platform", "source_external_id", "post_external_id", name="uq_publications_post_key"
+        ),
     )
 
 
@@ -115,8 +137,12 @@ class SearchResultModel(Base):
 
     id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     search_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), ForeignKey("searches.id"))
-    publication_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), ForeignKey("publications.id"))
-    target_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), ForeignKey("search_targets.id"))
+    publication_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("publications.id")
+    )
+    target_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("search_targets.id")
+    )
     relevance: Mapped[str | None] = mapped_column(String(16), nullable=True)
     score: Mapped[float | None] = mapped_column(REAL, nullable=True)
     explanation: Mapped[str] = mapped_column(Text, default="")

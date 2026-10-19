@@ -1,4 +1,5 @@
 from __future__ import annotations
+
 from dataclasses import dataclass, field
 from typing import Protocol
 
@@ -27,7 +28,7 @@ class PostForScoring:
 @dataclass
 class PostScore:
     id: str
-    relevance: str          # direct|indirect|disputed|irrelevant
+    relevance: str  # direct|indirect|disputed|irrelevant
     score: float
     explanation: str
     region_by_content: bool = False
@@ -46,6 +47,7 @@ class PostGroup:
 
 class MlClient(Protocol):
     async def analyze_query(self, query: str) -> tuple[QueryAnalysis, bool]: ...
-    async def score_posts(self, *, query: str, analysis: QueryAnalysis,
-                          posts: list[PostForScoring]) -> tuple[list[PostScore], bool]: ...
+    async def score_posts(
+        self, *, query: str, analysis: QueryAnalysis, posts: list[PostForScoring]
+    ) -> tuple[list[PostScore], bool]: ...
     async def group_posts(self, posts: list[dict]) -> list[PostGroup]: ...

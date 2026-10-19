@@ -1,12 +1,6 @@
 from __future__ import annotations
-import uuid
-from dataclasses import dataclass
 
-from search_service.domain.entities import Search, SearchTarget
-from search_service.domain.errors import SearchInvalidParams, NotFoundError
-from search_service.domain.enums import SearchMode, TargetKind, SearchStatus
-from search_service.domain.value_objects import Period
-from search_service.applications.ports.uow import UnitOfWork
+import uuid
 from dataclasses import dataclass
 
 from search_service.applications.commands.searches import (
@@ -18,8 +12,13 @@ from search_service.applications.exceptions import NotImplementedYetError
 from search_service.applications.ports.collector import CollectorClient
 from search_service.applications.ports.ml import MlClient
 from search_service.applications.ports.unit_of_work import UnitOfWorkFactory
+from search_service.applications.ports.uow import UnitOfWork
 from search_service.applications.queries.searches import GetSearchQuery, ListSearchesQuery
 from search_service.applications.results.read_models import SearchPage, SearchView
+from search_service.domain.entities import Search, SearchTarget
+from search_service.domain.enums import SearchMode, TargetKind
+from search_service.domain.errors import NotFoundError, SearchInvalidParams
+from search_service.domain.value_objects import Period
 
 
 @dataclass
@@ -43,6 +42,7 @@ class SearchHandler:
             raise SearchInvalidParams("query", "слишком короткий (минимум 3 символа)")
 
         from datetime import date
+
         try:
             pf = date.fromisoformat(req.period_from)
             pt = date.fromisoformat(req.period_to)
@@ -69,20 +69,24 @@ class SearchHandler:
                             "source_ids",
                             f"источник {src.name} на площадке {src.platform} не входит в выбранные {req.platforms}",
                         )
-                    targets.append(SearchTarget(
-                        kind=TargetKind.SOURCE,
-                        platform=src.platform,
-                        name=src.name,
-                        url=src.url,
-                        source_id=src.id,
-                    ))
+                    targets.append(
+                        SearchTarget(
+                            kind=TargetKind.SOURCE,
+                            platform=src.platform,
+                            name=src.name,
+                            url=src.url,
+                            source_id=src.id,
+                        )
+                    )
             else:
                 for p in req.platforms:
-                    targets.append(SearchTarget(
-                        kind=TargetKind.PLATFORM_SEARCH,
-                        platform=p,
-                        name=p.upper(),
-                    ))
+                    targets.append(
+                        SearchTarget(
+                            kind=TargetKind.PLATFORM_SEARCH,
+                            platform=p,
+                            name=p.upper(),
+                        )
+                    )
 
             search = Search(
                 query=req.query,

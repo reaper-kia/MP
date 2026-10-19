@@ -1,19 +1,18 @@
 from __future__ import annotations
+
 import asyncio
 import uuid
 from dataclasses import dataclass
 
 import structlog
 
-from search_service.domain.entities import Search, SearchTarget, Publication
-from search_service.domain.enums import SearchStatus, SearchStage, TargetStatus, DateStatus
-from search_service.domain.value_objects import PostKey
-from search_service.domain.errors import DomainError
-from search_service.applications.ports.uow import UnitOfWork
-from search_service.applications.ports.collector_client import CollectorClient
-from search_service.applications.ports.ml_client import MlClient, PostForScoring
 from search_service.applications.handlers.save import SaveHandler
 from search_service.applications.handlers.scoring import ScoringHandler
+from search_service.applications.ports.collector_client import CollectorClient
+from search_service.applications.ports.ml_client import MlClient
+from search_service.applications.ports.uow import UnitOfWork
+from search_service.domain.entities import Search, SearchTarget
+from search_service.domain.enums import DateStatus, SearchStage, SearchStatus
 
 log = structlog.get_logger()
 
@@ -36,8 +35,14 @@ class TargetJob:
 class Pipeline:
     """Основной пайплайн поиска: analyzing → collecting → scoring → grouping."""
 
-    def __init__(self, uow: UnitOfWork, collector: CollectorClient, ml: MlClient,
-                 semaphore: asyncio.Semaphore, target_timeout: int = 60):
+    def __init__(
+        self,
+        uow: UnitOfWork,
+        collector: CollectorClient,
+        ml: MlClient,
+        semaphore: asyncio.Semaphore,
+        target_timeout: int = 60,
+    ):
         self.uow = uow
         self.collector = collector
         self.ml = ml
@@ -120,6 +125,7 @@ class Pipeline:
         except Exception as e:
             log.warning("analyze_query failed, degrading", error=str(e))
             from search_service.applications.ports.ml_client import QueryAnalysis
+
             return QueryAnalysis(
                 query_type="fallback",
                 summary="Базовый поиск по фразе",
@@ -141,7 +147,9 @@ class Pipeline:
                 jobs.append(res)
         return jobs
 
-    async def _collect_target(self, search_id: uuid.UUID, target: SearchTarget, analysis) -> TargetJob:
+    async def _collect_target(
+        self, search_id: uuid.UUID, target: SearchTarget, analysis
+    ) -> TargetJob:
         async with self.sem:
             async with self.uow:
                 target = await self.uow.targets.get_by_ids([target.id])
@@ -155,13 +163,16 @@ class Pipeline:
                     self._call_collector(target, analysis),
                     timeout=self.target_timeout,
                 )
-            except asyncio.TimeoutError:
-                await self._fail_target(target.id, "TIMEOUT",
-                    ERROR_MESSAGES["TIMEOUT"].format(platform=target.platform))
+            except TimeoutError:
+                await self._fail_target(
+                    target.id, "TIMEOUT", ERROR_MESSAGES["TIMEOUT"].format(platform=target.platform)
+                )
                 return TargetJob(target=target, posts=[])
             except Exception as e:
                 code = getattr(e, "code", "PLATFORM_UNAVAILABLE")
-                msg = ERROR_MESSAGES.get(code, f"{target.platform}: {e}").format(platform=target.platform)
+                msg = ERROR_MESSAGES.get(code, f"{target.platform}: {e}").format(
+                    platform=target.platform
+                )
                 await self._fail_target(target.id, code, msg)
                 return TargetJob(target=target, posts=[])
 
@@ -180,7 +191,9 @@ class Pipeline:
             else:
                 async with self.uow:
                     target = (await self.uow.targets.get_by_ids([target.id]))[0]
-                    in_period = sum(1 for r in saved_results if r.date_status == DateStatus.IN_PERIOD)
+                    in_period = sum(
+                        1 for r in saved_results if r.date_status == DateStatus.IN_PERIOD
+                    )
                     target.mark_done(fetched=len(posts), matched=in_period)
                     await self.uow.targets.save(target)
                     await self.uow.commit()
@@ -223,8 +236,12 @@ class Pipeline:
     async def _force_fail(self, search_id: uuid.UUID, message: str):
         async with self.uow:
             search = await self.uow.searches.get_with_targets(search_id)
-            if not search or search.status in {SearchStatus.COMPLETED, SearchStatus.PARTIAL,
-                                               SearchStatus.FAILED, SearchStatus.CANCELLED}:
+            if not search or search.status in {
+                SearchStatus.COMPLETED,
+                SearchStatus.PARTIAL,
+                SearchStatus.FAILED,
+                SearchStatus.CANCELLED,
+            }:
                 return
             for t in search.targets:
                 if not t.is_finished:
@@ -232,6 +249,7 @@ class Pipeline:
             search.status = SearchStatus.FAILED
             search.stage = SearchStage.DONE
             from search_service.domain.entities import utcnow
+
             search.finished_at = utcnow()
             await self.uow.searches.save(search)
             await self.uow.commit()

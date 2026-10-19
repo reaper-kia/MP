@@ -1,8 +1,9 @@
-from search_service.applications.ports.collector_client import CollectorClient, SourceInfo, CollectResult
+from search_service.applications.ports.collector_client import CollectResult, SourceInfo
 
 
 class StubCollector:
     """Реализация CollectorClient, возвращает пустые ответы. Позже заменим на gRPC."""
+
     async def resolve_source(self, url: str) -> SourceInfo:
         raise NotImplementedError("collector service not wired yet")
 
