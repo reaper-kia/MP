@@ -1,5 +1,8 @@
 # ml_client.py
+from typing import Any
+
 from search_service.applications.ports.ml_client import (
+    PostForScoring,
     PostGroup,
     PostScore,
     QueryAnalysis,
@@ -7,16 +10,18 @@ from search_service.applications.ports.ml_client import (
 
 
 class StubMl:
-    async def analyze_query(self, query: str):
+    async def analyze_query(self, query: str) -> tuple[QueryAnalysis, bool]:
         return QueryAnalysis(
             query_type="topic",
             summary=f"Поиск по запросу: {query}",
             search_queries=[query],
         ), True  # degraded
 
-    async def score_posts(self, *, query, analysis, posts):
+    async def score_posts(
+        self, *, query: str, analysis: QueryAnalysis, posts: list[PostForScoring]
+    ) -> tuple[list[PostScore], bool]:
         # базовый скоринг: все DISPUTED, чтобы не терялись
-        scores = []
+        scores: list[PostScore] = []
         for p in posts:
             scores.append(
                 PostScore(
@@ -29,7 +34,7 @@ class StubMl:
             )
         return scores, True
 
-    async def group_posts(self, posts):
+    async def group_posts(self, posts: list[dict[str, Any]]) -> list[PostGroup]:
         # без групп
         return [
             PostGroup(group_id=str(i), post_ids=[p["id"]], representative_post_id=p["id"])

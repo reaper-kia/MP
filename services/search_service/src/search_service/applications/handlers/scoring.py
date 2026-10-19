@@ -2,13 +2,17 @@ from __future__ import annotations
 
 import asyncio
 import uuid
+from collections.abc import Iterable, Iterator
 from itertools import islice
+from typing import Any
 
 import structlog
 
-from search_service.applications.ports.ml_client import MlClient, PostForScoring
+from search_service.applications.ports.ml_client import MlClient, PostForScoring, QueryAnalysis
 from search_service.applications.ports.uow import UnitOfWork
+from search_service.domain.entities import Publication, Search, SearchResult
 from search_service.domain.enums import Relevance
+from search_service.domain.errors import NotFoundError
 
 log = structlog.get_logger()
 
@@ -16,14 +20,14 @@ log = structlog.get_logger()
 class ScoringHandler:
     def __init__(
         self, uow: UnitOfWork, ml: MlClient, batch_size: int = 30, max_concurrent: int = 3
-    ):
+    ) -> None:
         self.uow = uow
         self.ml = ml
         self.batch_size = batch_size
         self.max_concurrent = max_concurrent
         self._sem = asyncio.Semaphore(max_concurrent)
 
-    async def score_search(self, search_id: uuid.UUID, analysis) -> None:
+    async def score_search(self, search_id: uuid.UUID, analysis: QueryAnalysis) -> None:
         """Скорит все relevance IS NULL в поиске."""
         async with self.uow:
             results = await self.uow.results.get_by_search(search_id)
@@ -33,12 +37,14 @@ class ScoringHandler:
             pubs_by_id = {p.id: p for p in pubs}
 
             async with self.uow:
-                search = await self.uow.searches.get(search_id)
+                search = await self.uow.searches.get_by_id(search_id)
+            if search is None:
+                raise NotFoundError("SEARCH_NOT_FOUND")
 
         batches = list(self._chunks(pending, self.batch_size))
         sem = self._sem
 
-        async def process_batch(batch):
+        async def process_batch(batch: list[SearchResult]) -> None:
             async with sem:
                 await self._score_batch(search, analysis, batch, pubs_by_id)
 
@@ -46,17 +52,17 @@ class ScoringHandler:
 
     async def score_results(self, search_id: uuid.UUID, result_ids: list[uuid.UUID]) -> None:
         async with self.uow:
-            search = await self.uow.searches.get(search_id)
+            search = await self.uow.searches.get_by_id(search_id)
+            if search is None:
+                raise NotFoundError("SEARCH_NOT_FOUND")
             results = [
                 r for r in await self.uow.results.get_by_search(search_id) if r.id in result_ids
             ]
             pub_ids = [r.publication_id for r in results]
             pubs = await self.uow.publications.get_by_ids(pub_ids)
             pubs_by_id = {p.id: p for p in pubs}
-            analysis = None
+            analysis: QueryAnalysis | None = None
             if search.query_analysis:
-                from search_service.applications.ports.ml_client import QueryAnalysis
-
                 qa = search.query_analysis
                 analysis = QueryAnalysis(
                     query_type=qa.get("query_type", "unknown"),
@@ -65,21 +71,25 @@ class ScoringHandler:
                 )
 
         if not analysis:
-            from search_service.applications.ports.ml_client import QueryAnalysis
-
             analysis, _ = await self.ml.analyze_query(search.query)
 
         batches = list(self._chunks(results, self.batch_size))
         sem = self._sem
 
-        async def process_batch(batch):
+        async def process_batch(batch: list[SearchResult]) -> None:
             async with sem:
                 await self._score_batch(search, analysis, batch, pubs_by_id)
 
         await asyncio.gather(*(process_batch(b) for b in batches))
 
-    async def _score_batch(self, search, analysis, batch, pubs_by_id):
-        posts_for_scoring = []
+    async def _score_batch(
+        self,
+        search: Search,
+        analysis: QueryAnalysis,
+        batch: list[SearchResult],
+        pubs_by_id: dict[uuid.UUID, Publication],
+    ) -> None:
+        posts_for_scoring: list[PostForScoring] = []
         for r in batch:
             pub = pubs_by_id.get(r.publication_id)
             if not pub:
@@ -137,7 +147,7 @@ class ScoringHandler:
                     ex_start, ex_end = 0, min(300, text_len)
 
                 # валидация highlights
-                highlights = []
+                highlights: list[list[int]] = []
                 for span in s.highlight_spans:
                     a, b = span
                     if 0 <= a < b <= text_len:
@@ -177,7 +187,7 @@ class ScoringHandler:
         if not passed:
             return
 
-        posts_for_group = [
+        posts_for_group: list[dict[str, Any]] = [
             {
                 "id": str(r.id),
                 "title": pubs_by_id[r.publication_id].title,
@@ -207,7 +217,7 @@ class ScoringHandler:
             await self.uow.commit()
 
     @staticmethod
-    def _chunks(seq, size):
+    def _chunks[T](seq: Iterable[T], size: int) -> Iterator[list[T]]:
         it = iter(seq)
         while chunk := list(islice(it, size)):
             yield chunk

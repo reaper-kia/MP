@@ -11,7 +11,9 @@ from search_service.applications.ports.unit_of_work import UnitOfWorkFactory
 from search_service.applications.ports.uow import UnitOfWork
 from search_service.applications.queries.results import ExportSearchQuery
 from search_service.applications.results.read_models import ExportFile
+from search_service.domain.entities import Source
 from search_service.domain.enums import Relevance
+from search_service.domain.errors import NotFoundError
 
 RELEVANCE_RU = {
     Relevance.DIRECT: "Прямая",
@@ -22,7 +24,7 @@ RELEVANCE_RU = {
 
 
 class ExportHandler:
-    def __init__(self, uow: UnitOfWork):
+    def __init__(self, uow: UnitOfWork) -> None:
         self.uow = uow
         self.results = ResultsHandler(uow)
 
@@ -36,16 +38,19 @@ class ExportHandler:
             sort,
             limit=10000,
             offset=0,
+            max_limit=10000,
         )
 
         async with self.uow:
             search = await self.uow.searches.get_with_targets(search_id)
+            if not search:
+                raise NotFoundError("SEARCH_NOT_FOUND")
             pub_ids = [r.publication_id for r in results]
             pubs = await self.uow.publications.get_by_ids(pub_ids)
             pubs_by_id = {p.id: p for p in pubs}
             # каталог источников
             source_keys = {(p.platform, p.source_external_id) for p in pubs}
-            sources = {}
+            sources: dict[tuple[str, str], Source] = {}
             for pk in source_keys:
                 s = await self.uow.sources.get_by_key(*pk)
                 if s:
@@ -55,8 +60,8 @@ class ExportHandler:
             from openpyxl import Workbook
             from openpyxl.styles import Alignment, Font, PatternFill
             from openpyxl.utils import get_column_letter
-        except ImportError:
-            raise RuntimeError("openpyxl не установлен")
+        except ImportError as e:
+            raise RuntimeError("openpyxl не установлен") from e
 
         wb = Workbook()
 
@@ -72,7 +77,8 @@ class ExportHandler:
             ("Как понят запрос", (search.query_analysis or {}).get("summary", "")),
             (
                 "Период",
-                f"{search.period.from_date.strftime('%d.%m.%Y')} — {search.period.to_date.strftime('%d.%m.%Y')} (время Красноярска)",
+                f"{search.period.from_date.strftime('%d.%m.%Y')} — "
+                f"{search.period.to_date.strftime('%d.%m.%Y')} (время Красноярска)",
             ),
             (
                 "Режим",
@@ -84,7 +90,8 @@ class ExportHandler:
             ("Сформировано", datetime.now().strftime("%d.%m.%Y %H:%M")),
             (
                 "Публикаций в подборке",
-                f"{counts['total']} (из них без даты: {counts['unknown_date']}; исключено вручную: {counts['excluded']})",
+                f"{counts['total']} (из них без даты: {counts['unknown_date']}; "
+                f"исключено вручную: {counts['excluded']})",
             ),
         ]
         row = 1

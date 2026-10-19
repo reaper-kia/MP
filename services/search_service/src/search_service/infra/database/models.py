@@ -1,7 +1,8 @@
 from __future__ import annotations
 
 import uuid
-from datetime import datetime
+from datetime import UTC, date, datetime
+from typing import Any
 
 from sqlalchemy import (
     JSON,
@@ -17,15 +18,14 @@ from sqlalchemy import (
     text,
 )
 from sqlalchemy.dialects.postgresql import ARRAY, REAL, UUID
-from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship
+from sqlalchemy.orm import Mapped, mapped_column, relationship
+
+# общий Base: migrations/env.py берёт таблицы из search_service.infra.database.base.Base.metadata
+from search_service.infra.database.base import Base
 
 
-class Base(DeclarativeBase):
-    pass
-
-
-def utcnow():
-    return datetime.utcnow()
+def utcnow() -> datetime:
+    return datetime.now(UTC)
 
 
 class SourceModel(Base):
@@ -64,20 +64,20 @@ class SearchModel(Base):
     id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     query: Mapped[str] = mapped_column(Text)
     query_type: Mapped[str | None] = mapped_column(String(16), nullable=True)
-    period_from: Mapped[datetime] = mapped_column(Date)
-    period_to: Mapped[datetime] = mapped_column(Date)
+    period_from: Mapped[date] = mapped_column(Date)
+    period_to: Mapped[date] = mapped_column(Date)
     mode: Mapped[str] = mapped_column(String(16))
     platforms: Mapped[list[str]] = mapped_column(ARRAY(String), default=list)
     source_ids: Mapped[list[uuid.UUID]] = mapped_column(ARRAY(UUID(as_uuid=True)), default=list)
-    query_analysis: Mapped[dict | None] = mapped_column(JSON, nullable=True)
+    query_analysis: Mapped[dict[str, Any] | None] = mapped_column(JSON, nullable=True)
     status: Mapped[str] = mapped_column(String(24))
     stage: Mapped[str] = mapped_column(String(24))
-    warnings: Mapped[list] = mapped_column(JSON, default=list)
+    warnings: Mapped[list[str]] = mapped_column(JSON, default=list)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
     started_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     finished_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
 
-    targets = relationship(
+    targets: Mapped[list[SearchTargetModel]] = relationship(
         "SearchTargetModel", back_populates="search", cascade="all, delete-orphan"
     )
 
@@ -103,7 +103,7 @@ class SearchTargetModel(Base):
     started_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     finished_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
 
-    search = relationship("SearchModel", back_populates="targets")
+    search: Mapped[SearchModel] = relationship("SearchModel", back_populates="targets")
 
 
 class PublicationModel(Base):
@@ -119,7 +119,7 @@ class PublicationModel(Base):
     text: Mapped[str] = mapped_column(Text)
     title: Mapped[str | None] = mapped_column(Text, nullable=True)
     published_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
-    metrics: Mapped[dict | None] = mapped_column(JSON, nullable=True)
+    metrics: Mapped[dict[str, int] | None] = mapped_column(JSON, nullable=True)
     is_repost: Mapped[bool] = mapped_column(Boolean, default=False)
     repost_of_url: Mapped[str | None] = mapped_column(Text, nullable=True)
     first_seen_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
@@ -152,7 +152,7 @@ class SearchResultModel(Base):
     sentiment: Mapped[str | None] = mapped_column(String(16), nullable=True)
     excerpt_start: Mapped[int | None] = mapped_column(Integer, nullable=True)
     excerpt_end: Mapped[int | None] = mapped_column(Integer, nullable=True)
-    highlights: Mapped[list] = mapped_column(JSON, default=list)
+    highlights: Mapped[list[list[int]]] = mapped_column(JSON, default=list)
     group_id: Mapped[str | None] = mapped_column(Text, nullable=True)
     date_status: Mapped[str] = mapped_column(String(16))
     excluded: Mapped[bool] = mapped_column(Boolean, default=False)

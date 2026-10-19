@@ -13,9 +13,9 @@ log = structlog.get_logger()
 class SearchRunner:
     """Реестр asyncio.Task по search_id, запуск/отмена."""
 
-    def __init__(self, pipeline: Pipeline):
+    def __init__(self, pipeline: Pipeline) -> None:
         self.pipeline = pipeline
-        self._tasks: dict[uuid.UUID, asyncio.Task] = {}
+        self._tasks: dict[uuid.UUID, asyncio.Task[None]] = {}
 
     async def launch(self, search_id: uuid.UUID) -> None:
         if search_id in self._tasks and not self._tasks[search_id].done():
@@ -23,7 +23,7 @@ class SearchRunner:
         task = asyncio.create_task(self.pipeline.run(search_id))
         self._tasks[search_id] = task
 
-        def _done(t: asyncio.Task):
+        def _done(t: asyncio.Task[None]) -> None:
             self._tasks.pop(search_id, None)
             if t.cancelled():
                 log.info("search cancelled", search_id=str(search_id))
@@ -42,7 +42,7 @@ class SearchRunner:
                 pass
 
     async def cancel_all(self) -> None:
-        for sid, task in list(self._tasks.items()):
+        for task in list(self._tasks.values()):
             if not task.done():
                 task.cancel()
         self._tasks.clear()

@@ -3,6 +3,7 @@ from __future__ import annotations
 import uuid
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
+from typing import Any
 
 from search_service.domain.enums import (
     TERMINAL_SEARCHES,
@@ -42,7 +43,7 @@ class Source:
         self.deleted_at = utcnow()
         self.updated_at = self.deleted_at
 
-    def update(self, **fields) -> None:
+    def update(self, **fields: object) -> None:
         for k, v in fields.items():
             if v is not None:
                 setattr(self, k, v)
@@ -111,7 +112,7 @@ class Search:
     targets: list[SearchTarget] = field(default_factory=list)
     id: uuid.UUID = field(default_factory=uuid.uuid4)
     query_type: str | None = None
-    query_analysis: dict | None = None
+    query_analysis: dict[str, Any] | None = None
     status: SearchStatus = SearchStatus.QUEUED
     stage: SearchStage = SearchStage.ANALYZING_QUERY
     warnings: list[str] = field(default_factory=list)
@@ -182,7 +183,7 @@ class Publication:
     text: str
     title: str | None = None
     published_at: datetime | None = None
-    metrics: dict | None = None
+    metrics: dict[str, int] | None = None
     is_repost: bool = False
     repost_of_url: str | None = None
     id: uuid.UUID = field(default_factory=uuid.uuid4)

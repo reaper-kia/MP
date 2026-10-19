@@ -11,6 +11,7 @@ from search_service.applications.commands.searches import (
 from search_service.applications.exceptions import NotImplementedYetError
 from search_service.applications.ports.collector import CollectorClient
 from search_service.applications.ports.ml import MlClient
+from search_service.applications.ports.runner import SearchRunner
 from search_service.applications.ports.unit_of_work import UnitOfWorkFactory
 from search_service.applications.ports.uow import UnitOfWork
 from search_service.applications.queries.searches import GetSearchQuery, ListSearchesQuery
@@ -32,7 +33,7 @@ class StartSearchRequest:
 
 
 class SearchHandler:
-    def __init__(self, uow: UnitOfWork, runner):
+    def __init__(self, uow: UnitOfWork, runner: SearchRunner) -> None:
         self.uow = uow
         self.runner = runner
 
@@ -47,7 +48,7 @@ class SearchHandler:
             pf = date.fromisoformat(req.period_from)
             pt = date.fromisoformat(req.period_to)
         except ValueError as e:
-            raise SearchInvalidParams("period", f"неверный формат даты: {e}")
+            raise SearchInvalidParams("period", f"неверный формат даты: {e}") from e
 
         period = Period(from_date=pf, to_date=pt)
 
@@ -67,7 +68,8 @@ class SearchHandler:
                     if src.platform not in req.platforms:
                         raise SearchInvalidParams(
                             "source_ids",
-                            f"источник {src.name} на площадке {src.platform} не входит в выбранные {req.platforms}",
+                            f"источник {src.name} на площадке {src.platform} "
+                            f"не входит в выбранные {req.platforms}",
                         )
                     targets.append(
                         SearchTarget(
@@ -113,7 +115,7 @@ class SearchHandler:
                 raise NotFoundError("SEARCH_NOT_FOUND")
             return search
 
-    async def list(self, limit: int = 50, offset: int = 0):
+    async def list(self, limit: int = 50, offset: int = 0) -> tuple[list[Search], int, bool]:
         limit = max(1, min(limit or 50, 200))
         async with self.uow:
             return await self.uow.searches.list(limit=limit, offset=offset)

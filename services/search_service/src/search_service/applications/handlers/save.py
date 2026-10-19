@@ -2,9 +2,14 @@ from __future__ import annotations
 
 from search_service.applications.ports.collector_client import RawPost
 from search_service.applications.ports.uow import UnitOfWork
-from search_service.domain.entities import Publication, Search, SearchResult, SearchTarget
+from search_service.domain.entities import (
+    Publication,
+    Search,
+    SearchResult,
+    SearchTarget,
+    Source,
+)
 from search_service.domain.enums import DateStatus
-from search_service.domain.value_objects import PostKey
 
 
 def make_title(post: RawPost) -> tuple[str, str]:
@@ -31,12 +36,10 @@ class SaveHandler:
         """Upsert publications + insert results (без дублирования)."""
         async with self.uow:
             # кэш источников для region_by_source
-            source_cache: dict[tuple[str, str], object] = {}
+            source_cache: dict[tuple[str, str], Source | None] = {}
 
             results: list[SearchResult] = []
             for post in posts:
-                key = PostKey(post.platform, post.source_external_id, post.post_external_id)
-
                 pub = Publication(
                     platform=post.platform,
                     source_external_id=post.source_external_id,

@@ -2,21 +2,23 @@ from __future__ import annotations
 
 import uuid
 
+from search_service.applications.ports.runner import SearchRunner
 from search_service.applications.ports.uow import UnitOfWork
+from search_service.domain.entities import Search
 from search_service.domain.enums import SearchStatus, TargetStatus
 from search_service.domain.errors import NotFoundError, SearchNotFinished
 
 
 class ControlHandler:
-    def __init__(self, uow: UnitOfWork, runner):
+    def __init__(self, uow: UnitOfWork, runner: SearchRunner) -> None:
         self.uow = uow
         self.runner = runner
 
     async def set_excluded(
         self, search_id: uuid.UUID, result_ids: list[uuid.UUID], excluded: bool
-    ) -> dict:
+    ) -> dict[str, int]:
         async with self.uow:
-            search = await self.uow.searches.get(search_id)
+            search = await self.uow.searches.get_by_id(search_id)
             if not search:
                 raise NotFoundError("SEARCH_NOT_FOUND")
             results = await self.uow.results.get_by_search(search_id)
@@ -31,7 +33,7 @@ class ControlHandler:
             counts = await self.uow.results.counts(search_id)
             return counts
 
-    async def retry(self, search_id: uuid.UUID, target_ids: list[uuid.UUID] | None) -> object:
+    async def retry(self, search_id: uuid.UUID, target_ids: list[uuid.UUID] | None) -> Search:
         async with self.uow:
             search = await self.uow.searches.get_with_targets(search_id)
             if not search:
@@ -67,15 +69,20 @@ class ControlHandler:
 
         await self.runner.launch(search_id)
         async with self.uow:
-            return await self.uow.searches.get_with_targets(search_id)
+            fresh = await self.uow.searches.get_with_targets(search_id)
+            if not fresh:
+                raise NotFoundError("SEARCH_NOT_FOUND")
+            return fresh
 
-    async def cancel(self, search_id: uuid.UUID) -> object:
+    async def cancel(self, search_id: uuid.UUID) -> Search:
         async with self.uow:
             search = await self.uow.searches.get_with_targets(search_id)
             if not search:
                 raise NotFoundError("SEARCH_NOT_FOUND")
             await self.runner.cancel(search_id)
             search = await self.uow.searches.get_with_targets(search_id)
+            if not search:
+                raise NotFoundError("SEARCH_NOT_FOUND")
             if search.status not in {
                 SearchStatus.COMPLETED,
                 SearchStatus.PARTIAL,
@@ -84,5 +91,8 @@ class ControlHandler:
             }:
                 search.cancel()
                 await self.uow.searches.save(search)
+                # cancel() переводит незавершённые цели в SKIPPED — их тоже сохраняем
+                for t in search.targets:
+                    await self.uow.targets.save(t)
                 await self.uow.commit()
             return search

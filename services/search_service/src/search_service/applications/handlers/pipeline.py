@@ -8,11 +8,12 @@ import structlog
 
 from search_service.applications.handlers.save import SaveHandler
 from search_service.applications.handlers.scoring import ScoringHandler
-from search_service.applications.ports.collector_client import CollectorClient
-from search_service.applications.ports.ml_client import MlClient
+from search_service.applications.ports.collector_client import CollectorClient, RawPost
+from search_service.applications.ports.ml_client import MlClient, QueryAnalysis
 from search_service.applications.ports.uow import UnitOfWork
 from search_service.domain.entities import Search, SearchTarget
 from search_service.domain.enums import DateStatus, SearchStage, SearchStatus
+from search_service.domain.errors import NotFoundError
 
 log = structlog.get_logger()
 
@@ -29,7 +30,13 @@ ERROR_MESSAGES = {
 @dataclass
 class TargetJob:
     target: SearchTarget
-    posts: list
+    posts: list[RawPost]
+
+
+def _require(search: Search | None, search_id: uuid.UUID) -> Search:
+    if search is None:
+        raise NotFoundError(f"SEARCH_NOT_FOUND: {search_id}")
+    return search
 
 
 class Pipeline:
@@ -42,7 +49,7 @@ class Pipeline:
         ml: MlClient,
         semaphore: asyncio.Semaphore,
         target_timeout: int = 60,
-    ):
+    ) -> None:
         self.uow = uow
         self.collector = collector
         self.ml = ml
@@ -71,7 +78,7 @@ class Pipeline:
         # 2. analyze query
         analysis, degraded = await self._analyze(search)
         async with self.uow:
-            search = await self.uow.searches.get_with_targets(search_id)
+            search = _require(await self.uow.searches.get_with_targets(search_id), search_id)
             search.query_type = analysis.query_type
             search.query_analysis = {
                 "query_type": analysis.query_type,
@@ -87,16 +94,16 @@ class Pipeline:
 
         # 3. collecting
         async with self.uow:
-            search = await self.uow.searches.get_with_targets(search_id)
+            search = _require(await self.uow.searches.get_with_targets(search_id), search_id)
             search.stage = SearchStage.COLLECTING
             await self.uow.searches.save(search)
             await self.uow.commit()
 
-        jobs = await self._collect(search_id, analysis)
+        await self._collect(search_id, analysis)
 
         # 4. scoring (по уже сохранённым постам)
         async with self.uow:
-            search = await self.uow.searches.get_with_targets(search_id)
+            search = _require(await self.uow.searches.get_with_targets(search_id), search_id)
             search.stage = SearchStage.SCORING
             await self.uow.searches.save(search)
             await self.uow.commit()
@@ -105,7 +112,7 @@ class Pipeline:
 
         # 5. grouping
         async with self.uow:
-            search = await self.uow.searches.get_with_targets(search_id)
+            search = _require(await self.uow.searches.get_with_targets(search_id), search_id)
             search.stage = SearchStage.GROUPING
             await self.uow.searches.save(search)
             await self.uow.commit()
@@ -114,53 +121,50 @@ class Pipeline:
 
         # 6. finish
         async with self.uow:
-            search = await self.uow.searches.get_with_targets(search_id)
+            search = _require(await self.uow.searches.get_with_targets(search_id), search_id)
             search.finish()
             await self.uow.searches.save(search)
             await self.uow.commit()
 
-    async def _analyze(self, search: Search):
+    async def _analyze(self, search: Search) -> tuple[QueryAnalysis, bool]:
         try:
             return await self.ml.analyze_query(search.query)
         except Exception as e:
             log.warning("analyze_query failed, degrading", error=str(e))
-            from search_service.applications.ports.ml_client import QueryAnalysis
-
             return QueryAnalysis(
                 query_type="fallback",
                 summary="Базовый поиск по фразе",
                 search_queries=[search.query],
             ), True
 
-    async def _collect(self, search_id: uuid.UUID, analysis) -> list[TargetJob]:
+    async def _collect(self, search_id: uuid.UUID, analysis: QueryAnalysis) -> list[TargetJob]:
         async with self.uow:
-            search = await self.uow.searches.get_with_targets(search_id)
+            search = _require(await self.uow.searches.get_with_targets(search_id), search_id)
             targets = list(search.targets)
 
         jobs: list[TargetJob] = []
         tasks = [self._collect_target(search_id, t, analysis) for t in targets]
         results = await asyncio.gather(*tasks, return_exceptions=True)
-        for t, res in zip(targets, results):
-            if isinstance(res, Exception):
+        for t, res in zip(targets, results, strict=True):
+            if isinstance(res, BaseException):
                 log.warning("target collect crashed", target_id=str(t.id), error=str(res))
             else:
                 jobs.append(res)
         return jobs
 
     async def _collect_target(
-        self, search_id: uuid.UUID, target: SearchTarget, analysis
+        self, search_id: uuid.UUID, target: SearchTarget, analysis: QueryAnalysis
     ) -> TargetJob:
         async with self.sem:
             async with self.uow:
-                target = await self.uow.targets.get_by_ids([target.id])
-                target = target[0]
+                target = (await self.uow.targets.get_by_ids([target.id]))[0]
                 target.start()
                 await self.uow.targets.save(target)
                 await self.uow.commit()
 
             try:
                 posts = await asyncio.wait_for(
-                    self._call_collector(target, analysis),
+                    self._call_collector(search_id, target, analysis),
                     timeout=self.target_timeout,
                 )
             except TimeoutError:
@@ -178,7 +182,7 @@ class Pipeline:
 
             # сохраняем посты и сразу скорим их
             async with self.uow:
-                search = await self.uow.searches.get_with_targets(search_id)
+                search = _require(await self.uow.searches.get_with_targets(search_id), search_id)
 
             saved_results = await self.save.save_posts(search, target, posts)
 
@@ -203,9 +207,11 @@ class Pipeline:
 
             return TargetJob(target=target, posts=posts)
 
-    async def _call_collector(self, target: SearchTarget, analysis):
+    async def _call_collector(
+        self, search_id: uuid.UUID, target: SearchTarget, analysis: QueryAnalysis
+    ) -> list[RawPost]:
         async with self.uow:
-            search = await self.uow.searches.get(search_id := target.search_id)
+            search = _require(await self.uow.searches.get_by_id(search_id), search_id)
         if target.kind == "source":
             res = await self.collector.collect_from_source(
                 platform=target.platform,
@@ -226,14 +232,14 @@ class Pipeline:
             )
         return res.posts
 
-    async def _fail_target(self, target_id: uuid.UUID, code: str, message: str):
+    async def _fail_target(self, target_id: uuid.UUID, code: str, message: str) -> None:
         async with self.uow:
             target = (await self.uow.targets.get_by_ids([target_id]))[0]
             target.mark_failed(code, message)
             await self.uow.targets.save(target)
             await self.uow.commit()
 
-    async def _force_fail(self, search_id: uuid.UUID, message: str):
+    async def _force_fail(self, search_id: uuid.UUID, message: str) -> None:
         async with self.uow:
             search = await self.uow.searches.get_with_targets(search_id)
             if not search or search.status in {
@@ -252,4 +258,7 @@ class Pipeline:
 
             search.finished_at = utcnow()
             await self.uow.searches.save(search)
+            # цели, помеченные FAILED выше, тоже сохраняем
+            for t in search.targets:
+                await self.uow.targets.save(t)
             await self.uow.commit()

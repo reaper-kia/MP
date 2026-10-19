@@ -1,9 +1,21 @@
 from __future__ import annotations
 
+import builtins
+import uuid
+from collections.abc import Iterable
+
 from sqlalchemy import and_, case, func, or_, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from search_service.domain.entities import Publication, Search, SearchResult, SearchTarget, Source
+from search_service.domain.enums import (
+    DateStatus,
+    Relevance,
+    SearchMode,
+    SearchStage,
+    SearchStatus,
+    TargetStatus,
+)
 from search_service.domain.value_objects import Period
 from search_service.infra.database.models import (
     PublicationModel,
@@ -36,14 +48,14 @@ def _search_to_entity(m: SearchModel) -> Search:
     return Search(
         query=m.query,
         period=Period(from_date=m.period_from, to_date=m.period_to),
-        mode=m.mode,
+        mode=SearchMode(m.mode),
         platforms=m.platforms,
         source_ids=m.source_ids,
         id=m.id,
         query_type=m.query_type,
         query_analysis=m.query_analysis,
-        status=m.status,
-        stage=m.stage,
+        status=SearchStatus(m.status),
+        stage=SearchStage(m.stage),
         warnings=m.warnings or [],
         created_at=m.created_at,
         started_at=m.started_at,
@@ -60,7 +72,7 @@ def _target_to_entity(m: SearchTargetModel) -> SearchTarget:
         source_id=m.source_id,
         id=m.id,
         search_id=m.search_id,
-        status=m.status,
+        status=TargetStatus(m.status),
         fetched=m.fetched,
         matched=m.matched,
         attempts=m.attempts,
@@ -92,8 +104,6 @@ def _pub_to_entity(m: PublicationModel) -> Publication:
 
 
 def _result_to_entity(m: SearchResultModel) -> SearchResult:
-    from search_service.domain.enums import DateStatus, Relevance
-
     return SearchResult(
         search_id=m.search_id,
         publication_id=m.publication_id,
@@ -117,15 +127,15 @@ def _result_to_entity(m: SearchResultModel) -> SearchResult:
 
 
 class SourceRepo:
-    def __init__(self, s: AsyncSession):
+    def __init__(self, s: AsyncSession) -> None:
         self.s = s
 
-    async def get_by_id(self, source_id):
+    async def get_by_id(self, source_id: uuid.UUID) -> Source | None:
         r = await self.s.execute(select(SourceModel).where(SourceModel.id == source_id))
         m = r.scalar_one_or_none()
         return _source_to_entity(m) if m else None
 
-    async def get_by_key(self, platform, external_id):
+    async def get_by_key(self, platform: str, external_id: str) -> Source | None:
         r = await self.s.execute(
             select(SourceModel).where(
                 SourceModel.platform == platform,
@@ -136,7 +146,7 @@ class SourceRepo:
         m = r.scalar_one_or_none()
         return _source_to_entity(m) if m else None
 
-    async def get_by_ids(self, ids):
+    async def get_by_ids(self, ids: Iterable[uuid.UUID]) -> builtins.list[Source]:
         if not ids:
             return []
         r = await self.s.execute(
@@ -144,7 +154,15 @@ class SourceRepo:
         )
         return [_source_to_entity(m) for m in r.scalars().all()]
 
-    async def list(self, *, platforms=None, q=None, is_active=None, limit=50, offset=0):
+    async def list(
+        self,
+        *,
+        platforms: builtins.list[str] | None = None,
+        q: str | None = None,
+        is_active: bool | None = None,
+        limit: int = 50,
+        offset: int = 0,
+    ) -> tuple[builtins.list[Source], int]:
         stmt = select(SourceModel).where(SourceModel.deleted_at.is_(None))
         if platforms:
             stmt = stmt.where(SourceModel.platform.in_(platforms))
@@ -161,7 +179,7 @@ class SourceRepo:
         r = await self.s.execute(stmt)
         return [_source_to_entity(m) for m in r.scalars().all()], total
 
-    async def add(self, e: Source):
+    async def add(self, e: Source) -> None:
         m = SourceModel(
             id=e.id,
             platform=e.platform,
@@ -178,7 +196,7 @@ class SourceRepo:
         )
         self.s.add(m)
 
-    async def save(self, e: Source):
+    async def save(self, e: Source) -> None:
         await self.s.execute(
             update(SourceModel)
             .where(SourceModel.id == e.id)
@@ -195,15 +213,15 @@ class SourceRepo:
 
 
 class SearchRepo:
-    def __init__(self, s: AsyncSession):
+    def __init__(self, s: AsyncSession) -> None:
         self.s = s
 
-    async def get_by_id(self, search_id):
+    async def get_by_id(self, search_id: uuid.UUID) -> Search | None:
         r = await self.s.execute(select(SearchModel).where(SearchModel.id == search_id))
         m = r.scalar_one_or_none()
         return _search_to_entity(m) if m else None
 
-    async def get_with_targets(self, search_id):
+    async def get_with_targets(self, search_id: uuid.UUID) -> Search | None:
         r = await self.s.execute(select(SearchModel).where(SearchModel.id == search_id))
         m = r.scalar_one_or_none()
         if not m:
@@ -215,7 +233,9 @@ class SearchRepo:
         e.targets = [_target_to_entity(t) for t in tr.scalars().all()]
         return e
 
-    async def list(self, *, limit=50, offset=0):
+    async def list(
+        self, *, limit: int = 50, offset: int = 0
+    ) -> tuple[builtins.list[Search], int, bool]:
         count_stmt = select(func.count()).select_from(SearchModel)
         total = (await self.s.execute(count_stmt)).scalar_one()
         stmt = (
@@ -225,13 +245,13 @@ class SearchRepo:
         items = [_search_to_entity(m) for m in r.scalars().all()]
         return items, total, offset + len(items) < total
 
-    async def list_running_or_queued(self):
+    async def list_running_or_queued(self) -> builtins.list[Search]:
         r = await self.s.execute(
             select(SearchModel).where(SearchModel.status.in_(["queued", "running"]))
         )
         return [_search_to_entity(m) for m in r.scalars().all()]
 
-    async def add(self, e: Search):
+    async def add(self, e: Search) -> None:
         m = SearchModel(
             id=e.id,
             query=e.query,
@@ -251,7 +271,7 @@ class SearchRepo:
         )
         self.s.add(m)
 
-    async def save(self, e: Search):
+    async def save(self, e: Search) -> None:
         await self.s.execute(
             update(SearchModel)
             .where(SearchModel.id == e.id)
@@ -268,16 +288,16 @@ class SearchRepo:
 
 
 class TargetRepo:
-    def __init__(self, s: AsyncSession):
+    def __init__(self, s: AsyncSession) -> None:
         self.s = s
 
-    async def list_by_search(self, search_id):
+    async def list_by_search(self, search_id: uuid.UUID) -> list[SearchTarget]:
         r = await self.s.execute(
             select(SearchTargetModel).where(SearchTargetModel.search_id == search_id)
         )
         return [_target_to_entity(m) for m in r.scalars().all()]
 
-    async def add(self, e: SearchTarget):
+    async def add(self, e: SearchTarget) -> None:
         m = SearchTargetModel(
             id=e.id,
             search_id=e.search_id,
@@ -297,7 +317,7 @@ class TargetRepo:
         )
         self.s.add(m)
 
-    async def save(self, e: SearchTarget):
+    async def save(self, e: SearchTarget) -> None:
         await self.s.execute(
             update(SearchTargetModel)
             .where(SearchTargetModel.id == e.id)
@@ -313,7 +333,7 @@ class TargetRepo:
             )
         )
 
-    async def get_by_ids(self, ids):
+    async def get_by_ids(self, ids: Iterable[uuid.UUID]) -> list[SearchTarget]:
         if not ids:
             return []
         r = await self.s.execute(select(SearchTargetModel).where(SearchTargetModel.id.in_(ids)))
@@ -321,10 +341,12 @@ class TargetRepo:
 
 
 class PublicationRepo:
-    def __init__(self, s: AsyncSession):
+    def __init__(self, s: AsyncSession) -> None:
         self.s = s
 
-    async def get_by_key(self, platform, source_external_id, post_external_id):
+    async def get_by_key(
+        self, platform: str, source_external_id: str, post_external_id: str
+    ) -> Publication | None:
         r = await self.s.execute(
             select(PublicationModel).where(
                 PublicationModel.platform == platform,
@@ -335,7 +357,7 @@ class PublicationRepo:
         m = r.scalar_one_or_none()
         return _pub_to_entity(m) if m else None
 
-    async def get_by_ids(self, ids):
+    async def get_by_ids(self, ids: Iterable[uuid.UUID]) -> list[Publication]:
         if not ids:
             return []
         r = await self.s.execute(select(PublicationModel).where(PublicationModel.id.in_(ids)))
@@ -382,10 +404,10 @@ class PublicationRepo:
 
 
 class ResultRepo:
-    def __init__(self, s: AsyncSession):
+    def __init__(self, s: AsyncSession) -> None:
         self.s = s
 
-    async def add(self, e: SearchResult):
+    async def add(self, e: SearchResult) -> None:
         m = SearchResultModel(
             id=e.id,
             search_id=e.search_id,
@@ -408,7 +430,7 @@ class ResultRepo:
         )
         self.s.add(m)
 
-    async def save(self, e: SearchResult):
+    async def save(self, e: SearchResult) -> None:
         await self.s.execute(
             update(SearchResultModel)
             .where(SearchResultModel.id == e.id)
@@ -428,7 +450,7 @@ class ResultRepo:
             )
         )
 
-    async def get_by_search(self, search_id):
+    async def get_by_search(self, search_id: uuid.UUID) -> list[SearchResult]:
         r = await self.s.execute(
             select(SearchResultModel).where(SearchResultModel.search_id == search_id)
         )
@@ -437,18 +459,16 @@ class ResultRepo:
     async def list_filtered(
         self,
         *,
-        search_id,
-        relevance=None,
-        platforms=None,
-        target_ids=None,
-        date_status=None,
-        include_excluded=False,
-        sort="relevance",
-        limit=50,
-        offset=0,
-    ):
-        from search_service.domain.enums import Relevance
-
+        search_id: uuid.UUID,
+        relevance: list[str] | None = None,
+        platforms: list[str] | None = None,
+        target_ids: list[uuid.UUID] | None = None,
+        date_status: list[str] | None = None,
+        include_excluded: bool = False,
+        sort: str = "relevance",
+        limit: int = 50,
+        offset: int = 0,
+    ) -> tuple[list[SearchResult], int, bool]:
         # join с publications для фильтра по platform
         stmt = (
             select(SearchResultModel)
@@ -467,7 +487,7 @@ class ResultRepo:
         if date_status:
             stmt = stmt.where(SearchResultModel.date_status.in_(date_status))
         if not include_excluded:
-            stmt = stmt.where(SearchResultModel.excluded == False)
+            stmt = stmt.where(SearchResultModel.excluded.is_(False))
 
         # сортировка
         if sort == "date_desc":
@@ -497,10 +517,8 @@ class ResultRepo:
         items = [_result_to_entity(m) for m in r.scalars().all()]
         return items, total, offset + len(items) < total
 
-    async def counts(self, search_id):
+    async def counts(self, search_id: uuid.UUID) -> dict[str, int]:
         """Один SQL со всеми счётчиками через FILTER."""
-        from search_service.domain.enums import DateStatus, Relevance
-
         stmt = select(
             func.count()
             .filter(
@@ -508,7 +526,7 @@ class ResultRepo:
                     SearchResultModel.relevance.in_(
                         [Relevance.DIRECT, Relevance.INDIRECT, Relevance.DISPUTED]
                     ),
-                    SearchResultModel.excluded == False,
+                    SearchResultModel.excluded.is_(False),
                 )
             )
             .label("total"),
@@ -516,7 +534,7 @@ class ResultRepo:
             .filter(
                 and_(
                     SearchResultModel.relevance == Relevance.DIRECT,
-                    SearchResultModel.excluded == False,
+                    SearchResultModel.excluded.is_(False),
                 )
             )
             .label("direct"),
@@ -524,7 +542,7 @@ class ResultRepo:
             .filter(
                 and_(
                     SearchResultModel.relevance == Relevance.INDIRECT,
-                    SearchResultModel.excluded == False,
+                    SearchResultModel.excluded.is_(False),
                 )
             )
             .label("indirect"),
@@ -532,7 +550,7 @@ class ResultRepo:
             .filter(
                 and_(
                     SearchResultModel.relevance == Relevance.DISPUTED,
-                    SearchResultModel.excluded == False,
+                    SearchResultModel.excluded.is_(False),
                 )
             )
             .label("disputed"),
@@ -542,7 +560,7 @@ class ResultRepo:
             func.count()
             .filter(
                 and_(
-                    SearchResultModel.excluded == True,
+                    SearchResultModel.excluded.is_(True),
                     SearchResultModel.relevance != Relevance.IRRELEVANT,
                 )
             )
@@ -553,7 +571,7 @@ class ResultRepo:
                     SearchResultModel.relevance.in_(
                         [Relevance.DIRECT, Relevance.INDIRECT, Relevance.DISPUTED]
                     ),
-                    SearchResultModel.excluded == False,
+                    SearchResultModel.excluded.is_(False),
                     SearchResultModel.date_status == DateStatus.UNKNOWN,
                 )
             )
@@ -564,7 +582,7 @@ class ResultRepo:
                     SearchResultModel.relevance.in_(
                         [Relevance.DIRECT, Relevance.INDIRECT, Relevance.DISPUTED]
                     ),
-                    SearchResultModel.excluded == False,
+                    SearchResultModel.excluded.is_(False),
                 )
             )
             .label("groups"),
@@ -583,7 +601,7 @@ class ResultRepo:
             "groups": row.groups or 0,
         }
 
-    async def exists_in_search(self, search_id, publication_id):
+    async def exists_in_search(self, search_id: uuid.UUID, publication_id: uuid.UUID) -> bool:
         r = await self.s.execute(
             select(SearchResultModel.id)
             .where(

@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import asyncio
 from datetime import UTC, datetime, timedelta
+from typing import Any
 
 import structlog
 
@@ -25,7 +26,7 @@ log = structlog.get_logger()
 _URL_PLATFORMS = (("vk.com", "vk"), ("ok.ru", "ok"), ("odnoklassniki.ru", "ok"), ("max.ru", "max"))
 
 # platform, source_external_id, source_name, post_external_id, days_ago, title, text, ...
-_FIXTURES: list[dict] = [
+_FIXTURES: list[dict[str, Any]] = [
     dict(
         platform="vk",
         source_external_id="krsk_news",
@@ -130,7 +131,14 @@ class StubCollectorClient:
         )
 
     async def collect_from_source(
-        self, *, platform, source_external_id, start_utc, end_utc, keywords, max_posts=300
+        self,
+        *,
+        platform: str,
+        source_external_id: str,
+        start_utc: datetime,
+        end_utc: datetime,
+        keywords: list[str],
+        max_posts: int = 300,
     ) -> CollectResult:
         await asyncio.sleep(self._latency)
         self._raise_if_down(platform)
@@ -142,7 +150,14 @@ class StubCollectorClient:
         return self._pack(posts, start_utc, end_utc, max_posts)
 
     async def search_platform(
-        self, *, platform, queries, start_utc, end_utc, region_terms, max_posts=500
+        self,
+        *,
+        platform: str,
+        queries: list[str],
+        start_utc: datetime,
+        end_utc: datetime,
+        region_terms: list[str],
+        max_posts: int = 500,
     ) -> CollectResult:
         await asyncio.sleep(self._latency)
         self._raise_if_down(platform)
@@ -153,7 +168,9 @@ class StubCollectorClient:
         if platform in self._fail:
             raise CollectorError("PLATFORM_UNAVAILABLE", f"{platform} недоступна (имитация)")
 
-    def _pack(self, posts, start_utc, end_utc, max_posts) -> CollectResult:
+    def _pack(
+        self, posts: list[RawPost], start_utc: datetime, end_utc: datetime, max_posts: int
+    ) -> CollectResult:
         posts = [
             p for p in posts if p.published_at is None or start_utc <= p.published_at <= end_utc
         ]
@@ -161,7 +178,7 @@ class StubCollectorClient:
         return CollectResult(posts=posts[:max_posts], truncated=len(posts) > max_posts, warnings=())
 
     @staticmethod
-    def _to_raw(p: dict) -> RawPost:
+    def _to_raw(p: dict[str, Any]) -> RawPost:
         published = (
             datetime.now(UTC) - timedelta(days=p["days_ago"]) if p["days_ago"] is not None else None
         )

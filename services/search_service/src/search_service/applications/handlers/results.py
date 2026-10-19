@@ -2,6 +2,8 @@ from __future__ import annotations
 
 import uuid
 from dataclasses import dataclass
+from datetime import datetime
+from typing import Any
 
 from search_service.applications.commands.results import SetExcludedCommand
 from search_service.applications.exceptions import NotImplementedYetError
@@ -13,6 +15,7 @@ from search_service.applications.results.read_models import (
     ResultPage,
     SearchCountsView,
 )
+from search_service.domain.entities import SearchResult
 from search_service.domain.enums import Relevance
 from search_service.domain.errors import NotFoundError
 
@@ -27,7 +30,7 @@ class ResultFilter:
 
 
 class ResultsHandler:
-    def __init__(self, uow: UnitOfWork):
+    def __init__(self, uow: UnitOfWork) -> None:
         self.uow = uow
 
     async def list_results(
@@ -37,10 +40,12 @@ class ResultsHandler:
         sort: str = "relevance",
         limit: int = 50,
         offset: int = 0,
-    ):
-        limit = max(1, min(limit or 50, 200))
+        max_limit: int = 200,
+    ) -> tuple[list[SearchResult], int, bool, dict[str, int]]:
+        # max_limit: экран — до 200 на страницу, экспорт берёт всё (см. ExportHandler)
+        limit = max(1, min(limit or 50, max_limit))
         async with self.uow:
-            search = await self.uow.searches.get(search_id)
+            search = await self.uow.searches.get_by_id(search_id)
             if not search:
                 raise NotFoundError("SEARCH_NOT_FOUND")
             rel = f.relevance or [Relevance.DIRECT, Relevance.INDIRECT, Relevance.DISPUTED]
@@ -60,10 +65,10 @@ class ResultsHandler:
 
     async def list_groups(
         self, search_id: uuid.UUID, f: ResultFilter, limit: int = 50, offset: int = 0
-    ):
+    ) -> tuple[list[dict[str, Any]], int, bool]:
         """Группирует результаты по group_id, representative = первый по релевантности."""
         async with self.uow:
-            search = await self.uow.searches.get(search_id)
+            search = await self.uow.searches.get_by_id(search_id)
             if not search:
                 raise NotFoundError("SEARCH_NOT_FOUND")
             # получаем все результаты без limit
@@ -83,15 +88,21 @@ class ResultsHandler:
             pubs_by_id = {p.id: p for p in pubs}
 
         # группировка
-        groups: dict[str, list] = {}
+        groups: dict[str, list[SearchResult]] = {}
         for r in results:
             gid = r.group_id or str(r.id)
             groups.setdefault(gid, []).append(r)
 
-        group_list = []
+        group_list: list[dict[str, Any]] = []
         for gid, items in groups.items():
             rep = items[0]
             pub = pubs_by_id.get(rep.publication_id)
+            dates: list[datetime] = [
+                d
+                for r in items
+                if r.publication_id in pubs_by_id
+                and (d := pubs_by_id[r.publication_id].published_at) is not None
+            ]
             group_list.append(
                 {
                     "group_id": gid,
@@ -104,15 +115,7 @@ class ResultsHandler:
                             if r.publication_id in pubs_by_id
                         }
                     ),
-                    "earliest_published_at": min(
-                        (
-                            pubs_by_id[r.publication_id].published_at
-                            for r in items
-                            if r.publication_id in pubs_by_id
-                            and pubs_by_id[r.publication_id].published_at
-                        ),
-                        default=None,
-                    ),
+                    "earliest_published_at": min(dates, default=None),
                     "results": items,
                 }
             )

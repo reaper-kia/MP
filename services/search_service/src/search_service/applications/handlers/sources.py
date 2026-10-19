@@ -11,7 +11,7 @@ from search_service.applications.commands.sources import (
 )
 from search_service.applications.exceptions import NotImplementedYetError
 from search_service.applications.ports.collector import CollectorClient as CollectorPort
-from search_service.applications.ports.collector_client import CollectorClient
+from search_service.applications.ports.collector_client import CollectorClient, SourceInfo
 from search_service.applications.ports.unit_of_work import UnitOfWorkFactory
 from search_service.applications.ports.uow import UnitOfWork
 from search_service.applications.queries.sources import ListSourcesQuery, ResolveSourceQuery
@@ -62,11 +62,11 @@ class DeleteRequest:
 
 
 class SourceHandler:
-    def __init__(self, uow: UnitOfWork, collector: CollectorClient):
+    def __init__(self, uow: UnitOfWork, collector: CollectorClient) -> None:
         self.uow = uow
         self.collector = collector
 
-    async def resolve(self, req: ResolveRequest):
+    async def resolve(self, req: ResolveRequest) -> tuple[SourceInfo, Source | None]:
         info = await self.collector.resolve_source(req.url)
         async with self.uow:
             existing = await self.uow.sources.get_by_key(info.platform, info.external_id)
@@ -95,7 +95,7 @@ class SourceHandler:
             await self.uow.commit()
             return source
 
-    async def list(self, req: ListRequest):
+    async def list(self, req: ListRequest) -> tuple[list[Source], int, bool]:
         limit = max(1, min(req.limit or 50, 200))
         async with self.uow:
             sources, total = await self.uow.sources.list(

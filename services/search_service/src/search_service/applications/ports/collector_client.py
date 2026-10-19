@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from collections.abc import Sequence
 from dataclasses import dataclass
 from datetime import datetime
 from typing import Protocol
@@ -28,7 +29,7 @@ class RawPost:
     text: str
     title: str | None = None
     published_at: datetime | None = None
-    metrics: dict | None = None
+    metrics: dict[str, int] | None = None
     is_repost: bool = False
     repost_of_url: str | None = None
 
@@ -37,7 +38,7 @@ class RawPost:
 class CollectResult:
     posts: list[RawPost]
     truncated: bool = False
-    warnings: list[str] = ()
+    warnings: Sequence[str] = ()
 
 
 class CollectorClient(Protocol):
