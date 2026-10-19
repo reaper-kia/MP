@@ -189,6 +189,34 @@ async def test_retry_only_failed_targets(stand: Stand) -> None:
     assert done.targets[0].attempts == 2
 
 
+async def test_cancel_running_search(stand: Stand) -> None:
+    stub = stand.stub
+    created = await stub.CreateSource(pb.CreateSourceRequest(context=CTX, url=URL))
+    stand.collector.delay = 5
+    started = await stub.StartSearch(
+        pb.StartSearchRequest(
+            context=CTX,
+            query="дороги",
+            period_from=(TODAY - timedelta(days=30)).date().isoformat(),
+            period_to=TODAY.date().isoformat(),
+            mode=pb.SEARCH_MODE_SELECTED,
+            source_ids=[created.source.id],
+        )
+    )
+    for _ in range(100):  # ждём, пока цель уйдёт в сбор
+        if stand.collector.calls[-1].startswith("collect:"):
+            break
+        await asyncio.sleep(0.01)
+    cancelled = await stub.CancelSearch(
+        pb.CancelSearchRequest(context=CTX, search_id=started.search.id)
+    )
+    assert cancelled.search.status == pb.SEARCH_STATUS_CANCELLED
+    assert cancelled.search.targets[0].status == pb.TARGET_STATUS_SKIPPED
+    with pytest.raises(grpc.aio.AioRpcError) as info:  # кривой id = «не найдено»
+        await stub.RetrySearch(pb.RetrySearchRequest(context=CTX, search_id="bad-id"))
+    assert error_code(info.value) == "SEARCH_NOT_FOUND"
+
+
 async def test_errors_have_public_codes(stand: Stand) -> None:
     stub = stand.stub
     cases = [

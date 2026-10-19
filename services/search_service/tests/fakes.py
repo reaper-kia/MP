@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import uuid
 from datetime import datetime
 from typing import Any
@@ -195,6 +196,7 @@ class FakeCollector:
         self.search_posts: dict[str, list[RawPost]] = {}
         self.failing: dict[str, str] = {}
         self.calls: list[str] = []
+        self.delay = 0.0  # секунды на сбор — для отмены «на лету»
 
     async def resolve_source(self, url: str) -> SourceInfo:
         self.calls.append(f"resolve:{url}")
@@ -213,6 +215,7 @@ class FakeCollector:
         max_posts: int = 300,
     ) -> CollectResult:
         self.calls.append(f"collect:{platform}:{source_external_id}")
+        await asyncio.sleep(self.delay)
         if source_external_id in self.failing:
             code = self.failing[source_external_id]
             raise UpstreamError("collector", code, f"тестовая ошибка {code}")
