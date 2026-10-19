@@ -6,6 +6,12 @@ from datetime import datetime
 from search_service.domain.enums import DateStatus, Relevance
 from search_service.applications.ports.uow import UnitOfWork
 from search_service.applications.handlers.results import ResultsHandler, ResultFilter
+from dataclasses import dataclass
+
+from search_service.applications.exceptions import NotImplementedYetError
+from search_service.applications.ports.unit_of_work import UnitOfWorkFactory
+from search_service.applications.queries.results import ExportSearchQuery
+from search_service.applications.results.read_models import ExportFile
 
 
 RELEVANCE_RU = {
@@ -178,3 +184,23 @@ class ExportHandler:
         filename = f"podborka_{search.period.to_date.isoformat()}_{str(search.id)[:8]}.xlsx"
         mime = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
         return buf.getvalue(), filename, mime
+
+
+# ---------------------------------------------------------------------------
+# Хэндлеры медиатора для gRPC-транспорта (каркас из main, регистрируются в
+# dependencies.build_mediator). Пока не связаны с реализацией выше.
+# ---------------------------------------------------------------------------
+
+
+XLSX_MIME = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+DOCX_MIME = "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+
+
+@dataclass
+class ExportSearchQueryHandler:
+    uow_factory: UnitOfWorkFactory
+
+    async def handle(self, query: ExportSearchQuery) -> ExportFile:
+        """Строки — тем же запросом, что ListResults (без limit), тот же filter и sort →
+        файл совпадает с экраном. Формат листов — B2-08."""
+        raise NotImplementedYetError("ExportSearch: B2-08")
