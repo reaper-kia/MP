@@ -1,3 +1,4 @@
+import asyncio
 import logging
 
 from grpc import aio
@@ -7,7 +8,7 @@ from ml.v1 import ml_service_pb2 as pb
 from ml.v1 import ml_service_pb2_grpc as pb_grpc
 
 from ml_service.config import get_settings
-from ml_service.dependencies import build_engine
+from ml_service.dependencies import build_engine, warm_up
 from ml_service.engine import MlEngine
 from ml_service.transport.grpc.servicer import MlServicer
 
@@ -44,14 +45,13 @@ async def serve() -> None:
 
     server, _ = await create_server(engine, settings.grpc_address)
     await server.start()
-    logger.info(
-        "ML gRPC server listening on %s (llm=%s, embeddings=%s)",
-        settings.grpc_address,
-        settings.llm_provider,
-        settings.embed_provider,
-    )
+    logger.info("ML gRPC server listening on %s (%s)", settings.grpc_address, engine.describe)
+    # прогрев в фоне: сервер уже отвечает (эвристиками), пока модель грузится в память
+    warm = asyncio.create_task(warm_up(engine))
 
     try:
         await server.wait_for_termination()
     finally:
+        warm.cancel()
         await server.stop(grace=5)
+        await engine.aclose()
