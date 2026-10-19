@@ -18,15 +18,24 @@ const queryClient = new QueryClient({
   defaultOptions: { queries: { retry: 1, refetchOnWindowFocus: false } },
 });
 
-createRoot(document.getElementById("root")!).render(
-  <StrictMode>
-    <MantineProvider theme={theme}>
-      <DatesProvider settings={{ locale: "ru", firstDayOfWeek: 1 }}>
-        <Notifications position="top-right" />
-        <QueryClientProvider client={queryClient}>
-          <App />
-        </QueryClientProvider>
-      </DatesProvider>
-    </MantineProvider>
-  </StrictMode>,
-);
+async function enableMocks() {
+  // VITE_MOCKS=1 (npm run dev:mocks) — все /api/v1 отвечает MSW из src/mocks, бэкенд не нужен
+  if (import.meta.env.VITE_MOCKS !== "1") return;
+  const { worker } = await import("./mocks/browser");
+  await worker.start({ onUnhandledFrame: "bypass", quiet: true });
+}
+
+enableMocks().then(() => {
+  createRoot(document.getElementById("root")!).render(
+    <StrictMode>
+      <MantineProvider theme={theme}>
+        <DatesProvider settings={{ locale: "ru", firstDayOfWeek: 1 }}>
+          <Notifications position="top-right" />
+          <QueryClientProvider client={queryClient}>
+            <App />
+          </QueryClientProvider>
+        </DatesProvider>
+      </MantineProvider>
+    </StrictMode>,
+  );
+});
