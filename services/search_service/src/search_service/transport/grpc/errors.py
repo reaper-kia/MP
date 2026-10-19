@@ -20,6 +20,7 @@ from search_service.applications.exceptions import (
     SourceNotFoundError,
     UpstreamError,
 )
+from search_service.applications.request_context import bind_request_id
 from search_service.domain.exceptions import InvalidPeriodError, InvalidStatusTransitionError
 
 logger = logging.getLogger(__name__)
@@ -64,6 +65,9 @@ def grpc_errors[S, Req, Resp](
 ) -> Callable[[S, Req, Context], Awaitable[Resp]]:
     @wraps(method)
     async def wrapper(self: S, request: Req, context: Context) -> Resp:
+        # request_id из gateway — в логи этого запроса и (через ContextVar) в вызовы соседей
+        request_id = getattr(getattr(request, "context", None), "request_id", "")
+        bind_request_id(request_id if isinstance(request_id, str) else "")
         try:
             return await method(self, request, context)
         except grpc.aio.AbortError:
@@ -71,7 +75,9 @@ def grpc_errors[S, Req, Resp](
         except Exception as e:
             found = find_error(e)
             if found is None:
-                logger.exception("Unhandled error in %s", method.__name__)
+                logger.exception(
+                    "Unhandled error in %s (request_id=%s)", method.__name__, request_id
+                )
                 await context.abort(grpc.StatusCode.INTERNAL, "Internal server error.")
             else:
                 status_code, public_code = found

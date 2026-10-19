@@ -245,11 +245,11 @@ class ExportHandler:
                 r.sentiment,
                 r.story,
             ]
-            for col_idx, value in enumerate(values, 1):
-                cell = ws.cell(row=row, column=col_idx, value=value)
+            for col_idx, cell_value in enumerate(values, 1):
+                cell = ws.cell(row=row, column=col_idx, value=cell_value)
                 cell.alignment = Alignment(wrap_text=True, vertical="top")
-                if col_idx == 7 and value:
-                    cell.hyperlink = str(value)
+                if col_idx == 7 and cell_value:
+                    cell.hyperlink = str(cell_value)
                     cell.font = Font(color="0563C1", underline="single")
             row += 1
 
