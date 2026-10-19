@@ -15,6 +15,7 @@ from search_service.applications.ports.ml_client import (
     PostScore,
     QueryAnalysis,
 )
+from search_service.applications.request_context import current_request_id
 from search_service.domain.entities import Publication, Search, SearchResult, SearchTarget, Source
 from search_service.domain.enums import DateStatus, QueryType, Relevance
 
@@ -85,6 +86,9 @@ class InMemoryTargets:
 
     async def get_by_ids(self, ids):
         return [self.store[i] for i in ids if i in self.store]
+
+    async def set_matched(self, target_id, matched):
+        self.store[target_id].matched = matched
 
 
 class InMemoryPublications:
@@ -196,6 +200,7 @@ class FakeCollector:
         self.search_posts: dict[str, list[RawPost]] = {}
         self.failing: dict[str, str] = {}
         self.calls: list[str] = []
+        self.request_ids: list[str] = []  # request_id в момент каждого вызова (B2-12)
         self.delay = 0.0  # секунды на сбор — для отмены «на лету»
 
     async def resolve_source(self, url: str) -> SourceInfo:
@@ -215,6 +220,7 @@ class FakeCollector:
         max_posts: int = 300,
     ) -> CollectResult:
         self.calls.append(f"collect:{platform}:{source_external_id}")
+        self.request_ids.append(current_request_id())
         await asyncio.sleep(self.delay)
         if source_external_id in self.failing:
             code = self.failing[source_external_id]
@@ -240,7 +246,11 @@ class FakeMl:
 
     def __init__(self) -> None:
         self.relevance_by_text: dict[str, Relevance] = {}
+        self.region_texts: set[str] = set()  # подстрока текста → region.by_content = True
+        self.excerpt_span: tuple[int, int] | None = None  # None — «весь текст до 300»
         self.unavailable = False
+        self.group_calls: list[int] = []  # размеры вызовов GroupPosts
+        self.request_ids: list[str] = []  # request_id в момент каждого вызова (B2-12)
 
     async def analyze_query(self, query: str) -> tuple[QueryAnalysis, bool]:
         if self.unavailable:
@@ -250,6 +260,7 @@ class FakeMl:
     async def score_posts(
         self, *, query: str, analysis: QueryAnalysis, posts: list[PostForScoring]
     ) -> tuple[list[PostScore], bool]:
+        self.request_ids.append(current_request_id())
         if self.unavailable:
             raise UpstreamError("ml", "ML_UNAVAILABLE", "ml недоступен")
         scores = []
@@ -264,13 +275,15 @@ class FakeMl:
                     relevance=relevance.value,
                     score=0.9,
                     explanation="тест",
-                    excerpt_span=(0, min(len(p.text), 300)),
+                    region_by_content=any(needle in p.text for needle in self.region_texts),
+                    excerpt_span=self.excerpt_span or (0, min(len(p.text), 300)),
                     highlight_spans=[(0, 5)],
                 )
             )
         return scores, False
 
     async def group_posts(self, posts: list[dict[str, Any]]) -> list[PostGroup]:
+        self.group_calls.append(len(posts))
         return [PostGroup(f"g{i}", [p["id"]], p["id"]) for i, p in enumerate(posts, start=1)]
 
 

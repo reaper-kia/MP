@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import uuid
 
+from search_service.applications.handlers.matched import recount_matched
 from search_service.applications.ports.runner import SearchRunner
 from search_service.applications.ports.uow import UnitOfWork
 from search_service.domain.entities import Search
@@ -31,7 +32,9 @@ class ControlHandler:
                 await self.uow.results.save(r)
             await self.uow.commit()
             counts = await self.uow.results.counts(search_id)
-            return counts
+        # «в подборке N» в блоке «Где искали» не должно считать исключённые (B2-07)
+        await recount_matched(self.uow, search_id)
+        return counts
 
     async def retry(self, search_id: uuid.UUID, target_ids: list[uuid.UUID] | None) -> Search:
         async with self.uow:

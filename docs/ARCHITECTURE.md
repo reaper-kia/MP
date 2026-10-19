@@ -45,7 +45,7 @@ VK / OK / MAX с прямыми ссылками, выдержками, объя
 
 | Сервис | Владелец | Порт gRPC | БД | Состояние каркаса |
 |---|---|---|---|---|
-| search_service | B2 | 50053 | search_db :5435 | все 15 RPC проведены до хэндлеров; клиенты collector/ml готовы; хэндлеры → `NOT_IMPLEMENTED` |
+| search_service | B2 | 50053 | search_db :5435 | gRPC `search.v1` работает на 50053 (в т.ч. импорт XLSX и выгрузка DOCX); образ Docker не проверен |
 | collector_service | B1 | 50054 | — | 4 RPC работают; fake-площадка готова; коннекторы VK/OK/MAX/сайты → `NOT_IMPLEMENTED` |
 | ml_service | ML | 50055 | — | 3 RPC работают на эвристиках (`degraded=true`); провайдеры LLM/эмбеддингов — stub |
 | gateway | TL | 8000 (HTTP) | — | все 17 ручек `openapi.yaml`; авторизации нет (по ТЗ) |
