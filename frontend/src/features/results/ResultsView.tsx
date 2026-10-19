@@ -20,6 +20,7 @@ import { PLATFORM_TITLE } from "../../lib/platforms";
 import { fmtNumber, publications } from "../../lib/format";
 import { useConnectionNotice } from "../../lib/useConnectionNotice";
 import { isFinal } from "../search/status";
+import { ExportBar } from "./ExportBar";
 import { useResultFilters, type Sort, type Tab } from "./filters";
 import { GroupCard } from "./GroupCard";
 import { ResultCard } from "./ResultCard";
@@ -68,6 +69,7 @@ export function ResultsView({ search }: { search: S["Search"] }) {
 
   return (
     <Stack gap="sm">
+      <ExportBar search={search} filters={f} grouped={grouped} />
       <Tabs value={f.tab} onChange={(v) => update({ tab: (v ?? "all") as Tab })}>
         <Tabs.List>
           <Tabs.Tab value="all">Все {fmtNumber(c.total)}</Tabs.Tab>

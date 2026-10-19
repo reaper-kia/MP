@@ -71,6 +71,19 @@ export function listQuery(f: ResultFilters) {
   };
 }
 
+/**
+ * Параметры для GET /export — ровно то, что на экране, но без include_excluded:
+ * исключённые в файл не попадают никогда. В режиме сюжетов экран фильтрует только по relevance и platform.
+ */
+export function exportQuery(f: ResultFilters, grouped: boolean) {
+  if (grouped) {
+    const { relevance, platform } = groupsQuery(f);
+    return { relevance, platform };
+  }
+  const { relevance, platform, target_id, date_status, sort } = listQuery(f);
+  return { relevance, platform, target_id, date_status, sort };
+}
+
 /** /groups не знает target_id, date_status и sort. */
 export function groupsQuery(f: ResultFilters) {
   const { relevance, platform, include_excluded } = listQuery(f);
