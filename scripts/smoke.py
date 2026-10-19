@@ -133,6 +133,19 @@ def main() -> None:
             f"поиск: {search['status']} за {elapsed:.0f} с",
         )
         total = search["counts"]["total"]
+        warnings = search.get("warnings") or []
+        simplified = any("упрощённом" in w or "ML_MODE=stub" in w for w in warnings)
+        print(
+            f"  ML: {'эвристики (упрощённый режим)' if simplified else 'модели'}; "
+            f"предупреждения: {warnings or 'нет'}"
+        )
+        if search["counts"]:
+            counts = search["counts"]
+            print(
+                f"  отбор: прямых {counts['direct']}, косвенных {counts['indirect']}, "
+                f"спорных {counts['disputed']}, отсеяно {counts['rejected']}, "
+                f"групп {counts['groups']}"
+            )
 
         r = c.get(f"/api/v1/searches/{search_id}/results?limit=200")
         check(

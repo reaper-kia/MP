@@ -18,7 +18,8 @@ NEWS = (
 
 @pytest.fixture
 def engine() -> MlEngine:
-    return build_engine(Settings())
+    # явно stub и без .env: тесты не зависят от того, запущена ли у разработчика Ollama
+    return build_engine(Settings(llm_provider="stub", embed_provider="stub", _env_file=None))
 
 
 async def test_analyze_query(engine: MlEngine) -> None:

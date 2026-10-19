@@ -1,28 +1,33 @@
 # ML — ml_service («анализ»)
 
 Зона: `services/ml_service/**`, `eval/**`. Контракт: `contracts/ml/v1/ml_service.proto` (gRPC, порт 50055).
-Своей БД нет. Каркас, транспорт и стаб на эвристиках готовы — **твоя часть — логика в `core/` и провайдеры
-в `providers/`**, чистые функции, которые можно гонять из скрипта и тестов без gRPC.
+Своей БД нет. Модели — **локальные (Ollama)**: `qwen2.5:7b-instruct` + `bge-m3`. Без модели сервис работает
+на эвристиках (`degraded=true`) и никогда не падает. Как устроено и почему — `services/ml_service/README.md`.
 
 ```
 ml_service/
   core/
     models.py       ← dataclass'ы — зеркало контракта (QueryAnalysis, Post, PostScore, Span, PostGroup …)
     text.py         ← токены / основы слов, предложения
-    query.py        ← analyze_query: эвристика (есть) → LLM (ML-03)
-    scoring.py      ← score_posts: эвристика (есть) → эмбеддинги (ML-04) → LLM-судья (ML-05)
-    same_news.py    ← режим «текст новости» (ML-06) — пока пустой
-    grouping.py     ← группы: Жаккар по основам слов (есть) → MinHash + эмбеддинги (ML-07)
-    region.py       ← справочник края + поиск привязки в тексте (есть)
-    excerpt.py      ← выдержка и подсветка — позиции в исходном тексте (есть)
+    text.py         ← основы слов (срез окончаний), числа с единицами, даты, шинглы
+    llm_json.py     ← ответ LLM → JSON → pydantic → один ретрай
+    query.py        ← AnalyzeQuery: эвристика (тип, сущности, ловушки) и LLM (ML-03)
+    scoring.py      ← ScorePosts v1: лексика + эмбеддинги + регион (ML-04)
+    judge.py        ← ScorePosts v2: LLM-судья пачками, кэш, бюджет времени (ML-05, ML-08)
+    same_news.py    ← «та же новость / другое событие»: место, дата, числа, вложенность (ML-06)
+    grouping.py     ← сюжеты: шинглы + эмбеддинги, конфликт фактов не склеивает (ML-07)
+    region.py       ← справочник края (многословные названия) + места вне края
+    excerpt.py      ← выдержка и подсветка — позиции в исходном тексте
   providers/
-    llm.py          ← Protocol LLM: complete_json(system, user); есть только Stub
-    embeddings.py   ← Protocol Embedder: embed(texts, kind=query|doc); есть только Stub
-  engine.py         ← MlEngine: выбирает путь (модель или эвристика), следит за инвариантами, degraded
+    base.py         ← Protocol LLM / Embedder + «автомат» (после сбоя N с не дёргаем модель)
+    llm.py          ← StubLLM, OllamaLLM (/api/chat, format=json)
+    embeddings.py   ← StubEmbedder, OllamaEmbedder (/api/embed, bge-m3) + кэш векторов
+  engine.py         ← MlEngine: путь (модель / эвристика), бюджеты RPC, degraded, инварианты
   transport/grpc/   ← servicer: proto ⇄ core (mappers.py)
 eval/
-  datasets/*.jsonl  ← размеченные примеры (есть)
-  run_eval.py       ← precision / recall / F1 / время (нет)
+  datasets/*.jsonl  ← размеченные примеры
+  run_eval.py       ← precision / recall / F1 / время → eval/report.md
+scripts/ml_check.sh ← проверка на моделях + стенд: логи в .ml_check/, сводка summary.log
 ```
 
 **Где смотреть поля и типы:** [`docs/GRPC.md` → `ml.v1`](../GRPC.md#mlv1mlservice), первоисточник —
@@ -35,15 +40,18 @@ eval/
 cd services/ml_service
 uv sync
 uv run ruff check . && uv run ruff format --check . && uv run mypy src && uv run pytest -q
-GRPC_ADDRESS=127.0.0.1:50055 LLM_PROVIDER=stub EMBED_PROVIDER=stub uv run ml-service
+ollama pull qwen2.5:7b-instruct && ollama pull bge-m3            # один раз
+GRPC_ADDRESS=127.0.0.1:50055 LLM_PROVIDER=ollama EMBED_PROVIDER=ollama uv run ml-service
 grpcurl -plaintext -d '{"query":"Безопасность дорожного движения в Красноярском крае"}' \
-  127.0.0.1:50055 ml.v1.MlService/AnalyzeQuery          # ответ с "degraded": true
+  127.0.0.1:50055 ml.v1.MlService/AnalyzeQuery          # "degraded": false — модель работает
+
+bash scripts/ml_check.sh --stack     # всё разом: проверки, eval, gRPC вживую, стенд + smoke
 ```
 
-PowerShell: `$env:GRPC_ADDRESS="127.0.0.1:50055"; $env:LLM_PROVIDER="stub"; $env:EMBED_PROVIDER="stub"; uv run ml-service`.
+PowerShell: `$env:GRPC_ADDRESS="127.0.0.1:50055"; $env:LLM_PROVIDER="ollama"; $env:EMBED_PROVIDER="ollama"; uv run ml-service`.
 
-**Внимание:** сейчас работает только `stub`. С `LLM_PROVIDER=yandex|ollama` или `EMBED_PROVIDER=yandex|ollama`
-сервис **не стартует**: `build_llm` / `build_embedder` бросают `ProviderNotConfiguredError` при сборке.
+Ollama не запущена / модель не скачана → сервис **стартует** и отвечает эвристиками (`degraded=true`),
+причина — в логе («Прогрев LLM …»). `yandex` не реализован — так же уходит в эвристики.
 
 Весь стенд — вариант Б из [README](../../README.md#быстрый-старт-после-pull). Твой сервис в цепочке
 видно так: каждый поиск получает предупреждение «ML работал в упрощённом режиме» — это `degraded=true`
@@ -64,11 +72,10 @@ PowerShell: `$env:GRPC_ADDRESS="127.0.0.1:50055"; $env:LLM_PROVIDER="stub"; $env
    `degraded=true`. Сервис **никогда** не падает из-за кривого ответа модели — и из-за неподключённого
    провайдера тоже (сейчас падает — ML-03 п. 1).
 
-Провайдер — из env: `LLM_PROVIDER=yandex|ollama|stub`, `EMBED_PROVIDER=…`. До ключей Яндекса (TL-04) —
-Ollama (`docker compose --profile llm-local up -d ollama`, модели `qwen2.5:7b-instruct`, `bge-m3`; имена —
-в `config.py`). На демо — **YandexGPT + эмбеддинги Яндекса** (организаторы рекомендуют продукты Яндекса;
-SDK `yandex-cloud-ml-sdk`, модели `yandexgpt-lite` / `yandexgpt`, эмбеддинги `text-search-query` /
-`text-search-doc` — сверить с документацией Yandex AI Studio).
+Провайдер — из env: `LLM_PROVIDER=ollama|stub`, `EMBED_PROVIDER=…`; модели — `OLLAMA_LLM_MODEL`,
+`OLLAMA_EMBED_MODEL`, `OLLAMA_JUDGE_MODEL` (судья поменьше, если не укладываемся в 60 с). Решение команды —
+**всё на локальных моделях** (Ollama на хосте или `docker compose --profile llm-local up -d ollama`):
+ключи не нужны, данные никуда не уходят.
 
 ---
 
@@ -84,7 +91,12 @@ SDK `yandex-cloud-ml-sdk`, модели `yandexgpt-lite` / `yandexgpt`, эмбе
 > другие события). **Тексты и ссылки придуманные** (`https://vk.com/wall-1_1`, `wall-e1` …): для подбора
 > порогов годятся, для слайда «качество на реальных постах» — нет.
 
-**Осталось.**
+> 2026-10-19: `eval/run_eval.py` готов (метрики по формулам ниже, режим `global` повторяет правило B2 про регион,
+> проверка групп сценария 2, `--details` — ошибки по постам с косинусом). Базовая линия на эвристиках —
+> `eval/report_baseline_heuristic.md`: recall 69 %, precision 91 %; «Человек» и «Текст новости» 100 %,
+> «Тема БДД» recall 24 % — без синонимов от LLM слова не совпадают (это и закрывают модели).
+
+**Осталось.** Пп. 1–2 сделаны (оставлены для справки), п. 3 — ждёт ключ VK.
 1. `eval/run_eval.py`: читает `eval/datasets/*.jsonl`, гоняет `core` (через `MlEngine`, без gRPC),
    печатает precision / recall / F1 по классам и сценариям + среднее время на пост. Запуск:
    `uv run --project services/ml_service python eval/run_eval.py` (у `eval/` нет своего `pyproject`).
@@ -100,6 +112,13 @@ SDK `yandex-cloud-ml-sdk`, модели `yandexgpt-lite` / `yandexgpt`, эмбе
 `eval/report.md` в git.
 
 ### [ ] ML-03 · P0 · к H+10 · провайдеры и AnalyzeQuery v1
+> 2026-10-19 сделано: `OllamaLLM` / `OllamaEmbedder` (httpx), «автомат» после сбоя, прогрев при старте; старт
+> с любым провайдером без падения (тест `test_unimplemented_or_unreachable_provider_does_not_crash_startup`).
+> AnalyzeQuery: правило NEWS_TEXT + LLM для TOPIC / EVENT / PERSON, промпт с примером из ТЗ, pydantic + ретрай +
+> бюджет 15 с → эвристика. Эвристика тоже умнее: тип по именам / датам, сущности, «безопасность» → exclude
+> и подсказка уточнить. Яндекс не делаем — решение команды: локальные модели. Тесты на фейковой LLM.
+> **Осталось:** DoD на настоящей модели — 10 запросов, тип ≥ 9/10 (`scripts/ml_check.sh`, блок 04).
+
 **Сделать.**
 1. **Провайдеры.** `providers/llm.py`: `YandexLLM` и `OllamaLLM` (httpx → `/api/chat`, `format=json`);
    `providers/embeddings.py`: `YandexEmbedder`, `OllamaEmbedder` (`/api/embed`, `bge-m3`). Если ключа нет
@@ -142,6 +161,11 @@ SDK `yandex-cloud-ml-sdk`, модели `yandexgpt-lite` / `yandexgpt`, эмбе
 
 **DoD.** eval: recall класса direct ≥ 0.8 на «БДД»; пожарная безопасность не `DIRECT`.
 
+> 2026-10-19 сделано: `core/scoring.py` — косинус bge-m3 (`SIM_LOW` 0.38 / `SIM_HIGH` 0.68) + доля слов лучшей
+> фразы запроса (синонимы от LLM) + exclude-концепты; запрос о человеке без его фамилии → не выше «спорной»;
+> score — в полосе своего класса. Пожарная безопасность → `IRRELEVANT` уже на эвристике.
+> **Осталось:** подобрать `SIM_LOW` / `SIM_HIGH` по `eval --details` на bge-m3 (в песочнице моделей не было).
+
 ### [ ] ML-05 · P0 · к H+22 · ScorePosts v2 (LLM-судья)
 Два этапа: эмбеддинги отсекают **явно** нерелевантное (низкий порог — экономим деньги, не теряем
 полноту), остальное — LLM пачками по 5–10 постов в одном промпте → `relevance`, `explanation`
@@ -152,6 +176,11 @@ SDK `yandex-cloud-ml-sdk`, модели `yandexgpt-lite` / `yandexgpt`, эмбе
 
 **DoD.** eval: F1 по direct выше, чем у v1; каждое объяснение не противоречит тексту (выборочно 20 штук).
 
+> 2026-10-19 сделано: `core/judge.py` — пачки по 6 постов, ≤ 2 параллельно, бюджет ScorePosts 45 с (что не успело —
+> v1), кэш по (запрос, текст), в модель не идёт только явно далёкое по смыслу и без общих слов. Расхождение
+> «v1 прямая / модель мимо» → спорная. Токены и вызовы — в `eval/report.md`; денег не стоит (локально).
+> **Осталось:** замер на модели — F1 по direct против v1, 20 объяснений глазами, время батча 30 постов.
+
 ### [ ] ML-06 · P0 · к H+22 · «та же новость» (сценарий 2)
 `core/same_news.py` (сейчас пустой). Для `QUERY_TYPE_NEWS_TEXT`: близость эмбеддингов + совпадение ключевых
 сущностей (люди, организации, места, **числа и даты**) + LLM-проверка «Это та же новость (копия /
@@ -161,9 +190,17 @@ SDK `yandex-cloud-ml-sdk`, модели `yandexgpt-lite` / `yandexgpt`, эмбе
 
 **DoD.** eval `news_text.jsonl`: исходник, сокращение, пересказ найдены; другое событие отсеяно.
 
+> 2026-10-19: на эвристике DoD выполнен — 12 / 12 (тест `test_same_news_dataset_heuristic`), объяснения
+> «Похожая новость, но другое событие: другое место (Норильск), другие цифры (2 вместо 3)». LLM-проверка
+> «та же / другая» подключена; модель сказала «та же», а факты спорят → спорная.
+
 ### [ ] ML-07 · P1 · к H+20 · GroupPosts
 > Есть: Жаккар по основам слов ≥ 0.7 + связные компоненты (`core/grouping.py`), каждый пост ровно в одной
 > группе, представитель — самый длинный текст.
+
+> 2026-10-19 сделано: шинглы + вложенность (сокращения), общие слова / косинус ≥ 0.86 (пересказы), расхождение
+> места / даты / цифр не склеивает; лимит 500 (B2 режет — договорились), CPU-часть в потоке. Тесты:
+> группы сценария 2 и «40 копий одной новости = одна группа».
 
 **Сделать.** Почти дубли — MinHash / шинглы; пересказы — эмбеддинги + порог + связные компоненты.
 **Лимит:** контракт — до 500 постов, а search_service шлёт все прошедшие отбор одним вызовом (B2-06 п. 2) —
@@ -174,7 +211,11 @@ SDK `yandex-cloud-ml-sdk`, модели `yandexgpt-lite` / `yandexgpt`, эмбе
 В ответе LLM-судьи из ML-05. Без LLM — `SENTIMENT_UNSPECIFIED` (на фронте «не определена»), а не
 выдуманное «нейтрально». Проверить на 30 постах руками.
 
+> 2026-10-19: в ответе судьи есть; без судьи — `UNSPECIFIED` (тест). **Осталось:** 30 постов глазами.
+
 ### [ ] ML-09 · P0 · к H+36 · цифры и README
+> 2026-10-19: п. 2 сделан — `services/ml_service/README.md` (модели и зачем, настройки, данные не уходят с
+> машины, цена — время и память GPU, фолбэк). **Осталось:** п. 1 — цифры с моделей (`scripts/ml_check.sh`).
 1. Финальный прогон eval → таблица для слайда «Качество»: precision / recall / F1 по сценариям, время
    на поиск, на пост.
 2. Раздел README: какие модели и зачем, настройки (пороги, размер батча), **какие данные уходят в
@@ -187,7 +228,7 @@ SDK `yandex-cloud-ml-sdk`, модели `yandexgpt-lite` / `yandexgpt`, эмбе
 
 | Что | Связь |
 |---|---|
-| Ключи Yandex Cloud (`YC_FOLDER_ID`, `YC_API_KEY`) | ждёшь от TL (TL-04); до них — Ollama |
+| Модели | локальные (Ollama), ключи Яндекса не нужны |
 | Реальные посты для eval | от B1 (B1-03, ключ VK) |
 | Боевой прогон отбора в поиске | ждёт B2 (B2-06 «Осталось» п. 3): warning «упрощённый режим» пропадает, объяснения осмысленные |
 | Лимит GroupPosts | договориться с B2 (B2-06 п. 2, ML-07) |

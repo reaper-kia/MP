@@ -74,13 +74,19 @@ ML и FE — только то, что проверили при сборке, �
 
 ## Отбор (ML)
 
-Дописывает ML. Проверено при сборке `main`:
+Модели — локальные (Ollama: `qwen2.5:7b-instruct`, `bge-m3`). Обновлено 2026-10-19 после ML-03…ML-08.
 
 | Функция | Статус | Как проверено / как проверить |
 |---|---|---|
-| Стаб на эвристиках: AnalyzeQuery, ScorePosts, GroupPosts по контракту, `degraded=true` | ✔ имитация | Тесты `tests/test_engine.py` в CI; работает в сквозном прогоне через gateway (`/query/analyze`, поиск, группы) |
-| YandexGPT / эмбеддинги Яндекса / Ollama | ✘ | Провайдеры не написаны; с `LLM_PROVIDER` / `EMBED_PROVIDER` не `stub` сервис не стартует (ML-03, ML-04) |
-| Eval-наборы | ◐ | `eval/datasets/*.jsonl`: 102 поста по 4 сценариям, **тексты и ссылки придуманные**; скрипта подсчёта (`run_eval.py`) и цифр нет (ML-02) |
+| Эвристики (без моделей): AnalyzeQuery, ScorePosts, «та же новость», GroupPosts, `degraded=true` | ✔ имитация | 27 тестов `services/ml_service/tests`; eval → `eval/report_baseline_heuristic.md`: recall 69 %, precision 91 %; «Текст новости» и «Человек» 100 %, «Тема БДД» recall 24 % |
+| Сервис стартует с любым провайдером, Ollama нет / модель не скачана → эвристики, причина в логе | ✔ | тест `test_unimplemented_or_unreachable_provider_does_not_crash_startup` |
+| Провайдеры Ollama (LLM `/api/chat` JSON, эмбеддинги `/api/embed`), «автомат», кэш векторов | ◐ | тесты на поддельном HTTP; через HTTP-имитацию Ollama прогнан весь eval. С настоящей Ollama не запускали (в песочнице сборки нет моделей) — `bash scripts/ml_check.sh` |
+| AnalyzeQuery через LLM (синонимы для поиска, exclude, уточнение) | ◐ | тесты на фейковой LLM; на модели — `scripts/ml_check.sh`, блок 04 |
+| ScorePosts v1 (эмбеддинги + лексика) и v2 (LLM-судья, бюджет 45 с, кэш), тональность | ◐ | тесты на фейках (бюджет, кэш, фолбэк, расхождения); пороги bge-m3 не подобраны — `eval/run_eval.py --details` с моделями |
+| «Та же новость» (сценарий 2): копия / сокращение / пересказ vs другое событие | ✔ на eval-наборе | 12 / 12 на эвристике (тест `test_same_news_dataset_heuristic`); с LLM — ◐ |
+| GroupPosts: копии, сокращения, пересказы; конфликт фактов не склеивает | ✔ на eval-наборе | тесты групп сценария 2 и «40 копий = 1 группа» |
+| Eval-наборы и `eval/run_eval.py` | ✔ | 102 поста по 4 сценариям, **тексты придуманные**; `eval/report.md` |
+| Метрики на настоящих моделях, время батча 30 постов | ⌛ | `bash scripts/ml_check.sh` на машине с Ollama |
 
 ## Интерфейс (FE)
 

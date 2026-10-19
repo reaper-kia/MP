@@ -18,3 +18,4 @@ frontend/dist/
 infra/ansible/.secrets/
 Claude_outputs
 .diagnose/
+.ml_check/
