@@ -1,22 +1,28 @@
 from __future__ import annotations
 
 import uuid
+from collections import Counter
 from dataclasses import dataclass
 from datetime import datetime
 from typing import Any
 
 from search_service.applications.commands.results import SetExcludedCommand
-from search_service.applications.exceptions import NotImplementedYetError
-from search_service.applications.ports.unit_of_work import UnitOfWorkFactory
+from search_service.applications.handlers.control import ControlHandler
+from search_service.applications.handlers.errors import domain_errors
+from search_service.applications.handlers.views import counts_view, result_view
+from search_service.applications.ports.runner import SearchRunner
 from search_service.applications.ports.uow import UnitOfWork
 from search_service.applications.queries.results import ListGroupsQuery, ListResultsQuery
+from search_service.applications.queries.results import ResultFilter as ResultFilterQuery
 from search_service.applications.results.read_models import (
     GroupPage,
+    ResultGroupView,
     ResultPage,
+    ResultView,
     SearchCountsView,
 )
-from search_service.domain.entities import SearchResult
-from search_service.domain.enums import Relevance
+from search_service.domain.entities import SearchResult, Source
+from search_service.domain.enums import IN_SELECTION, Platform, Relevance
 from search_service.domain.errors import NotFoundError
 
 
@@ -125,34 +131,109 @@ class ResultsHandler:
 
 
 # ---------------------------------------------------------------------------
-# Хэндлеры медиатора для gRPC-транспорта (каркас из main, регистрируются в
-# dependencies.build_mediator). Пока не связаны с реализацией выше.
+# Хэндлеры медиатора для gRPC-транспорта (регистрируются в dependencies.build_mediator):
+# запрос → ResultsHandler / ControlHandler → read model.
 # ---------------------------------------------------------------------------
+
+
+def filter_from_query(f: ResultFilterQuery) -> ResultFilter:
+    """Фильтр запроса (enum'ы, пусто = без ограничения) → фильтр ResultsHandler (строки / None)."""
+    return ResultFilter(
+        relevance=[r.value for r in f.relevance] or None,
+        platforms=[p.value for p in f.platforms] or None,
+        target_ids=list(f.target_ids) or None,
+        date_status=[d.value for d in f.date_status] or None,
+        include_excluded=f.include_excluded,
+    )
+
+
+async def result_views(
+    uow: UnitOfWork, search_id: uuid.UUID, results: list[SearchResult]
+) -> list[ResultView]:
+    """Результаты + публикации + источник из каталога + размер сюжета."""
+    async with uow:
+        pubs = {
+            p.id: p for p in await uow.publications.get_by_ids([r.publication_id for r in results])
+        }
+        group_sizes = Counter(
+            r.group_id
+            for r in await uow.results.get_by_search(search_id)
+            if r.group_id and r.relevance in IN_SELECTION and not r.excluded
+        )
+        catalog: dict[tuple[str, str], Source | None] = {}
+        for p in pubs.values():
+            key = (p.platform, p.source_external_id)
+            if key not in catalog:
+                catalog[key] = await uow.sources.get_by_key(*key)
+    views: list[ResultView] = []
+    for r in results:
+        pub = pubs.get(r.publication_id)
+        if pub is None:
+            continue
+        size = group_sizes.get(r.group_id, 1) if r.group_id else 1
+        views.append(result_view(r, pub, catalog.get((pub.platform, pub.source_external_id)), size))
+    return views
 
 
 @dataclass
 class ListResultsQueryHandler:
-    uow_factory: UnitOfWorkFactory
+    uow: UnitOfWork
 
     async def handle(self, query: ListResultsQuery) -> ResultPage:
         """Фильтр (пустой relevance = DIRECT+INDIRECT+DISPUTED; relevance IS NULL — никогда),
         сортировка (RELEVANCE: класс → score → дата NULLS LAST), total без limit."""
-        raise NotImplementedYetError("ListResults: B2-07")
+        with domain_errors():
+            results, total, has_more, _ = await ResultsHandler(self.uow).list_results(
+                query.search_id,
+                filter_from_query(query.filter),
+                sort=query.sort.value,
+                limit=query.limit,
+                offset=query.offset,
+            )
+        items = await result_views(self.uow, query.search_id, results)
+        return ResultPage(items=items, total=total, has_more=has_more)
 
 
 @dataclass
 class ListGroupsQueryHandler:
-    uow_factory: UnitOfWorkFactory
+    uow: UnitOfWork
 
     async def handle(self, query: ListGroupsQuery) -> GroupPage:
         """Группы по group_id с ПОЛНЫМ списком размещений; title — у representative."""
-        raise NotImplementedYetError("ListGroups: B2-07")
+        with domain_errors():
+            groups, total, has_more = await ResultsHandler(self.uow).list_groups(
+                query.search_id,
+                filter_from_query(query.filter),
+                limit=query.limit,
+                offset=query.offset,
+            )
+        items: list[ResultGroupView] = []
+        for g in groups:
+            views = await result_views(self.uow, query.search_id, g["results"])
+            if not views:
+                continue
+            items.append(
+                ResultGroupView(
+                    group_id=str(g["group_id"]),
+                    title=views[0].title,
+                    size=len(views),
+                    platforms=list(dict.fromkeys(Platform(v.platform) for v in views)),
+                    earliest_published_at=g["earliest_published_at"],
+                    results=views,
+                )
+            )
+        return GroupPage(items=items, total=total, has_more=has_more)
 
 
 @dataclass
 class SetExcludedCommandHandler:
-    uow_factory: UnitOfWorkFactory
+    uow: UnitOfWork
+    runner: SearchRunner
 
     async def handle(self, cmd: SetExcludedCommand) -> SearchCountsView:
         """Пачкой; чужой/несуществующий id → ResultNotFoundError; вернуть пересчитанные counts."""
-        raise NotImplementedYetError("SetExcluded: B2-09")
+        with domain_errors():
+            counts = await ControlHandler(self.uow, self.runner).set_excluded(
+                cmd.search_id, list(cmd.result_ids), cmd.excluded
+            )
+        return counts_view(counts)

@@ -7,7 +7,7 @@ from search.v1 import search_service_pb2 as pb
 from search.v1 import search_service_pb2_grpc as pb_grpc
 
 from search_service.applications.mediator import Mediator
-from search_service.dependencies import build_container
+from search_service.dependencies import build_container, mark_interrupted_searches
 from search_service.infra.config import get_settings
 from search_service.transport.grpc.servicer import SearchServicer
 
@@ -42,9 +42,20 @@ async def serve() -> None:
     settings = get_settings()
     container = build_container(settings)
 
+    try:
+        await mark_interrupted_searches(container.uow)
+    except Exception:
+        # БД ещё не готова или нет миграций — сервер всё равно поднимаем, ошибка будет в RPC
+        logger.exception("Не удалось пометить прерванные поиски")
+
     server, _ = await create_server(container.mediator, settings.grpc_address)
     await server.start()
-    logger.info("Search gRPC server listening on %s", settings.grpc_address)
+    logger.info(
+        "Search gRPC server listening on %s (collector=%s, ml=%s)",
+        settings.grpc_address,
+        settings.collector_mode,
+        settings.ml_mode,
+    )
 
     try:
         await server.wait_for_termination()

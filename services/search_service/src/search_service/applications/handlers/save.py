@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from typing import Protocol
+
 from search_service.applications.ports.collector_client import RawPost
 from search_service.applications.ports.uow import UnitOfWork
 from search_service.domain.entities import (
@@ -12,7 +14,15 @@ from search_service.domain.entities import (
 from search_service.domain.enums import DateStatus
 
 
-def make_title(post: RawPost) -> tuple[str, str]:
+class _Titled(Protocol):
+    @property
+    def title(self) -> str | None: ...
+    @property
+    def text(self) -> str: ...
+
+
+def make_title(post: _Titled) -> tuple[str, str]:
+    """Заголовок или начало текста (≤120 символов по границе слова): RawPost / Publication."""
     if post.title:
         return post.title, "title"
     text = post.text.strip()

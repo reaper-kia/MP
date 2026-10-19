@@ -6,7 +6,6 @@ import grpc
 from common.v1 import common_pb2, platform_pb2
 from google.protobuf.timestamp_pb2 import Timestamp
 
-from search_service.applications.context import RequestContext
 from search_service.applications.exceptions import UpstreamError
 from search_service.domain.enums import Platform
 from search_service.domain.value_objects import UtcPeriod
@@ -20,8 +19,9 @@ PLATFORM_TO_PROTO: dict[Platform, platform_pb2.Platform] = {
 PLATFORM_FROM_PROTO: dict[int, Platform] = {v: k for k, v in PLATFORM_TO_PROTO.items()}
 
 
-def context_to_proto(ctx: RequestContext) -> common_pb2.RequestContext:
-    return common_pb2.RequestContext(request_id=ctx.request_id)
+def context_to_proto(request_id: str = "") -> common_pb2.RequestContext:
+    # порты B2 не принимают контекст запроса: фоновый пайплайн живёт дольше запроса gateway
+    return common_pb2.RequestContext(request_id=request_id)
 
 
 def to_timestamp(value: datetime) -> Timestamp:

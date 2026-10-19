@@ -1,17 +1,19 @@
-"""gRPC-клиент к collector_service: proto ⇄ DTO порта, ошибки → UpstreamError."""
+"""gRPC-клиент к collector_service: proto ⇄ DTO порта, ошибки → UpstreamError.
 
-from collections.abc import Sequence
+Реализует порт applications/ports/collector_client.py (им пользуется пайплайн B2).
+"""
+
+from datetime import datetime
 
 import grpc
 from collector.v1 import collector_service_pb2 as pb
 from collector.v1 import collector_service_pb2_grpc as pb_grpc
+from common.v1 import platform_pb2
 
-from search_service.applications.context import RequestContext
-from search_service.applications.ports.collector import (
+from search_service.applications.exceptions import UpstreamError
+from search_service.applications.ports.collector_client import (
     CollectorClient,
     CollectResult,
-    PlatformInfo,
-    PostMetrics,
     RawPost,
     SourceInfo,
 )
@@ -26,11 +28,13 @@ from search_service.infra.clients.common import (
     upstream_error,
 )
 
-HEALTH_FROM_PROTO: dict[int, str] = {
-    pb.PLATFORM_HEALTH_OK: "ok",
-    pb.PLATFORM_HEALTH_DEGRADED: "degraded",
-    pb.PLATFORM_HEALTH_UNAVAILABLE: "unavailable",
-}
+
+def _platform_to_proto(platform: str) -> platform_pb2.Platform:
+    try:
+        return PLATFORM_TO_PROTO[Platform(platform)]
+    except ValueError as e:
+        message = f"Неизвестная площадка {platform}"
+        raise UpstreamError("collector", "VALIDATION_ERROR", message) from e
 
 
 class GrpcCollectorClient(CollectorClient):
@@ -41,38 +45,17 @@ class GrpcCollectorClient(CollectorClient):
         self._resolve_timeout = resolve_timeout
         self._collect_timeout = collect_timeout
 
-    async def get_platforms(self, ctx: RequestContext) -> list[PlatformInfo]:
-        try:
-            response: pb.GetPlatformsResponse = await self._stub.GetPlatforms(
-                pb.GetPlatformsRequest(context=context_to_proto(ctx)),
-                timeout=self._resolve_timeout,
-            )
-        except grpc.aio.AioRpcError as e:
-            raise upstream_error("collector", e) from e
-        return [
-            PlatformInfo(
-                platform=PLATFORM_FROM_PROTO[p.platform],
-                title=p.title,
-                source_mode_supported=p.source_mode_supported,
-                global_mode_supported=p.global_mode_supported,
-                health=HEALTH_FROM_PROTO.get(p.health, "unavailable"),
-                note=p.note,
-            )
-            for p in response.platforms
-            if p.platform in PLATFORM_FROM_PROTO
-        ]
-
-    async def resolve_source(self, ctx: RequestContext, url: str) -> SourceInfo:
+    async def resolve_source(self, url: str) -> SourceInfo:
         try:
             response: pb.ResolveSourceResponse = await self._stub.ResolveSource(
-                pb.ResolveSourceRequest(context=context_to_proto(ctx), url=url),
+                pb.ResolveSourceRequest(context=context_to_proto(), url=url),
                 timeout=self._resolve_timeout,
             )
         except grpc.aio.AioRpcError as e:
             raise upstream_error("collector", e) from e
         s = response.source
         return SourceInfo(
-            platform=PLATFORM_FROM_PROTO[s.platform],
+            platform=PLATFORM_FROM_PROTO[s.platform].value,
             external_id=s.external_id,
             screen_name=s.screen_name,
             url=s.url,
@@ -84,18 +67,19 @@ class GrpcCollectorClient(CollectorClient):
 
     async def collect_from_source(
         self,
-        ctx: RequestContext,
-        platform: Platform,
+        *,
+        platform: str,
         source_external_id: str,
-        period: UtcPeriod,
-        keywords: Sequence[str] = (),
-        max_posts: int = 0,
+        start_utc: datetime,
+        end_utc: datetime,
+        keywords: list[str],
+        max_posts: int = 300,
     ) -> CollectResult:
         request = pb.CollectFromSourceRequest(
-            context=context_to_proto(ctx),
-            platform=PLATFORM_TO_PROTO[platform],
+            context=context_to_proto(),
+            platform=_platform_to_proto(platform),
             source_external_id=source_external_id,
-            period=period_to_proto(period),
+            period=period_to_proto(UtcPeriod(start=start_utc, end=end_utc)),
             keywords=list(keywords),
             max_posts=max_posts,
         )
@@ -113,18 +97,19 @@ class GrpcCollectorClient(CollectorClient):
 
     async def search_platform(
         self,
-        ctx: RequestContext,
-        platform: Platform,
-        queries: Sequence[str],
-        period: UtcPeriod,
-        region_terms: Sequence[str] = (),
-        max_posts: int = 0,
+        *,
+        platform: str,
+        queries: list[str],
+        start_utc: datetime,
+        end_utc: datetime,
+        region_terms: list[str],
+        max_posts: int = 500,
     ) -> CollectResult:
         request = pb.SearchPlatformRequest(
-            context=context_to_proto(ctx),
-            platform=PLATFORM_TO_PROTO[platform],
+            context=context_to_proto(),
+            platform=_platform_to_proto(platform),
             queries=list(queries),
-            period=period_to_proto(period),
+            period=period_to_proto(UtcPeriod(start=start_utc, end=end_utc)),
             region_terms=list(region_terms),
             max_posts=max_posts,
         )
@@ -143,23 +128,22 @@ class GrpcCollectorClient(CollectorClient):
 
 def _post(p: pb.RawPost) -> RawPost:
     m = p.metrics
+    metrics = {
+        name: getattr(m, name)
+        for name in ("views", "likes", "reposts", "comments")
+        if m.HasField(name)
+    }
     return RawPost(
-        platform=PLATFORM_FROM_PROTO[p.platform],
+        platform=PLATFORM_FROM_PROTO[p.platform].value,
         source_external_id=p.source_external_id,
-        source_name=p.source_name,
-        source_url=p.source_url,
         post_external_id=p.post_external_id,
         url=p.url,
+        source_name=p.source_name,
+        source_url=p.source_url,
         text=p.text,
         title=p.title if p.HasField("title") else None,
         published_at=from_timestamp(p.published_at) if p.HasField("published_at") else None,
-        metrics=PostMetrics(
-            views=m.views if m.HasField("views") else None,
-            likes=m.likes if m.HasField("likes") else None,
-            reposts=m.reposts if m.HasField("reposts") else None,
-            comments=m.comments if m.HasField("comments") else None,
-        ),
+        metrics=metrics or None,
         is_repost=p.is_repost,
         repost_of_url=p.repost_of_url if p.HasField("repost_of_url") else None,
-        fetched_at=from_timestamp(p.fetched_at),
     )

@@ -1,6 +1,11 @@
 from functools import lru_cache
+from typing import Literal
 
 from pydantic_settings import BaseSettings, SettingsConfigDict
+
+# grpc — боевые соседи (collector_service, ml_service);
+# stub — офлайн-разработка без соседей: фикстуры infra/collector_stub.py, infra/ml_client.py
+ClientMode = Literal["grpc", "stub"]
 
 
 class Settings(BaseSettings):
@@ -13,6 +18,11 @@ class Settings(BaseSettings):
     collector_grpc_target: str = "localhost:50054"
     ml_grpc_target: str = "localhost:50055"
 
+    # по умолчанию — настоящие gRPC-клиенты; stub включается только явно
+    collector_mode: ClientMode = "grpc"
+    ml_mode: ClientMode = "grpc"
+    stub_fail_platforms: str = ""  # "ok,max" — какие площадки стаб коллектора «роняет»
+
     # таймауты вызовов, секунды
     collector_resolve_timeout: float = 20.0
     collector_collect_timeout: float = 60.0
@@ -22,11 +32,7 @@ class Settings(BaseSettings):
 
     # пайплайн (B2-04)
     collect_concurrency: int = 5
-    score_batch_size: int = 30
-    score_concurrency: int = 3
-    max_posts_per_source: int = 300
-    max_posts_per_platform_search: int = 500
-    region_terms: list[str] = ["Красноярск", "Красноярский край"]
+    target_timeout: int = 60  # одна цель (источник / площадка) целиком
 
     model_config = SettingsConfigDict(env_file=".env", env_file_encoding="utf-8", extra="ignore")
 

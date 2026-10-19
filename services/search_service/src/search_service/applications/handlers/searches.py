@@ -8,11 +8,10 @@ from search_service.applications.commands.searches import (
     RetrySearchCommand,
     StartSearchCommand,
 )
-from search_service.applications.exceptions import NotImplementedYetError
-from search_service.applications.ports.collector import CollectorClient
-from search_service.applications.ports.ml import MlClient
+from search_service.applications.handlers.control import ControlHandler
+from search_service.applications.handlers.errors import domain_errors
+from search_service.applications.handlers.views import counts_view, search_view
 from search_service.applications.ports.runner import SearchRunner
-from search_service.applications.ports.unit_of_work import UnitOfWorkFactory
 from search_service.applications.ports.uow import UnitOfWork
 from search_service.applications.queries.searches import GetSearchQuery, ListSearchesQuery
 from search_service.applications.results.read_models import SearchPage, SearchView
@@ -54,23 +53,24 @@ class SearchHandler:
 
         if req.mode is SearchMode.SELECTED and not req.source_ids:
             raise SearchInvalidParams("source_ids", "в режиме selected нужны источники")
+        if req.mode is SearchMode.GLOBAL and not req.platforms:
+            raise SearchInvalidParams("platforms", "выберите хотя бы одну площадку")
 
+        platforms = list(dict.fromkeys(req.platforms))
         async with self.uow:
             # снимок источников
             targets: list[SearchTarget] = []
             if req.mode is SearchMode.SELECTED:
+                # по контракту в SELECTED площадки берутся из источников, platforms игнорируется
+                platforms = []
                 sources = await self.uow.sources.get_by_ids(req.source_ids)
                 by_id = {s.id: s for s in sources}
-                for sid in req.source_ids:
+                for sid in dict.fromkeys(req.source_ids):
                     src = by_id.get(sid)
                     if not src or not src.is_alive:
                         raise NotFoundError(f"SOURCE_NOT_FOUND: {sid}")
-                    if src.platform not in req.platforms:
-                        raise SearchInvalidParams(
-                            "source_ids",
-                            f"источник {src.name} на площадке {src.platform} "
-                            f"не входит в выбранные {req.platforms}",
-                        )
+                    if src.platform not in platforms:
+                        platforms.append(src.platform)
                     targets.append(
                         SearchTarget(
                             kind=TargetKind.SOURCE,
@@ -81,7 +81,7 @@ class SearchHandler:
                         )
                     )
             else:
-                for p in req.platforms:
+                for p in platforms:
                     targets.append(
                         SearchTarget(
                             kind=TargetKind.PLATFORM_SEARCH,
@@ -94,8 +94,8 @@ class SearchHandler:
                 query=req.query,
                 period=period,
                 mode=req.mode,
-                platforms=req.platforms,
-                source_ids=req.source_ids,
+                platforms=platforms,
+                source_ids=list(dict.fromkeys(req.source_ids)),
                 targets=targets,
             )
             await self.uow.searches.add(search)
@@ -122,55 +122,93 @@ class SearchHandler:
 
 
 # ---------------------------------------------------------------------------
-# Хэндлеры медиатора для gRPC-транспорта (каркас из main, регистрируются в
-# dependencies.build_mediator). Пока не связаны с реализацией выше.
+# Хэндлеры медиатора для gRPC-транспорта (регистрируются в dependencies.build_mediator):
+# команда → SearchHandler / ControlHandler → read model.
 # ---------------------------------------------------------------------------
+
+
+async def load_search_view(uow: UnitOfWork, search_id: uuid.UUID) -> SearchView:
+    """Поиск + цели + счётчики (одним SQL по search_results) + прогресс."""
+    async with uow:
+        search = await uow.searches.get_with_targets(search_id)
+        if search is None:
+            raise NotFoundError("SEARCH_NOT_FOUND")
+        counts = await uow.results.counts(search_id)
+    return search_view(search, counts_view(counts))
 
 
 @dataclass
 class StartSearchCommandHandler:
-    uow_factory: UnitOfWorkFactory
-    collector: CollectorClient
-    ml: MlClient
+    uow: UnitOfWork
+    runner: SearchRunner
 
     async def handle(self, cmd: StartSearchCommand) -> SearchView:
-        """1) валидация → SearchInvalidParamsError("<поле>: <текст>"); период —
-        UtcPeriod.from_local_dates; 2) Search + цели (снимок name/url) в одной транзакции;
-        3) запустить пайплайн фоновой задачей (B2-04) и сразу вернуть status=QUEUED."""
-        raise NotImplementedYetError("StartSearch: B2-03")
+        """1) валидация → SearchInvalidParamsError("<поле>: <текст>"); период — по Красноярску;
+        2) Search + цели (снимок name/url) в одной транзакции;
+        3) пайплайн запускается фоновой задачей (B2-04), сразу возвращаем status=QUEUED."""
+        with domain_errors():
+            search = await SearchHandler(self.uow, self.runner).start(
+                StartSearchRequest(
+                    query=cmd.query,
+                    period_from=cmd.period_from.isoformat(),
+                    period_to=cmd.period_to.isoformat(),
+                    mode=cmd.mode,
+                    platforms=[p.value for p in cmd.platforms],
+                    source_ids=list(cmd.source_ids),
+                )
+            )
+            return await load_search_view(self.uow, search.id)
 
 
 @dataclass
 class GetSearchQueryHandler:
-    uow_factory: UnitOfWorkFactory
+    uow: UnitOfWork
 
     async def handle(self, query: GetSearchQuery) -> SearchView:
-        """Поиск + цели + счётчики (одним SQL по search_results) + прогресс."""
-        raise NotImplementedYetError("GetSearch: B2-03")
+        """Поиск + цели + счётчики + прогресс."""
+        with domain_errors():
+            return await load_search_view(self.uow, query.search_id)
 
 
 @dataclass
 class ListSearchesQueryHandler:
-    uow_factory: UnitOfWorkFactory
+    uow: UnitOfWork
+    runner: SearchRunner
 
     async def handle(self, query: ListSearchesQuery) -> SearchPage:
-        """Новые сверху, без targets; limit+1 для has_more (как в шаблоне)."""
-        raise NotImplementedYetError("ListSearches: B2-03")
+        """Новые сверху, без targets."""
+        searches, _, has_more = await SearchHandler(self.uow, self.runner).list(
+            limit=query.limit, offset=query.offset
+        )
+        async with self.uow:
+            items = [
+                search_view(s, counts_view(await self.uow.results.counts(s.id)), with_targets=False)
+                for s in searches
+            ]
+        return SearchPage(items=items, has_more=has_more)
 
 
 @dataclass
 class RetrySearchCommandHandler:
-    uow_factory: UnitOfWorkFactory
+    uow: UnitOfWork
+    runner: SearchRunner
 
     async def handle(self, cmd: RetrySearchCommand) -> SearchView:
         """Только FAILED цели (или указанные); поиск ещё идёт → SearchNotFinishedError."""
-        raise NotImplementedYetError("RetrySearch: B2-09")
+        with domain_errors():
+            search = await ControlHandler(self.uow, self.runner).retry(
+                cmd.search_id, list(cmd.target_ids) or None
+            )
+            return await load_search_view(self.uow, search.id)
 
 
 @dataclass
 class CancelSearchCommandHandler:
-    uow_factory: UnitOfWorkFactory
+    uow: UnitOfWork
+    runner: SearchRunner
 
     async def handle(self, cmd: CancelSearchCommand) -> SearchView:
         """Отменить фоновую задачу; незавершённые цели → SKIPPED; статус CANCELLED."""
-        raise NotImplementedYetError("CancelSearch: B2-09")
+        with domain_errors():
+            search = await ControlHandler(self.uow, self.runner).cancel(cmd.search_id)
+            return await load_search_view(self.uow, search.id)

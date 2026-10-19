@@ -125,6 +125,7 @@ class Search:
             raise DomainError(f"start из статуса {self.status}")
         self.status = SearchStatus.RUNNING
         self.started_at = utcnow()
+        self.finished_at = None  # повторный запуск (RetrySearch)
 
     def cancel(self) -> None:
         if self.status in TERMINAL_SEARCHES:

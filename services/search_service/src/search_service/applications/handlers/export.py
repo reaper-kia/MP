@@ -6,13 +6,17 @@ from dataclasses import dataclass
 from datetime import datetime
 
 from search_service.applications.exceptions import NotImplementedYetError
-from search_service.applications.handlers.results import ResultFilter, ResultsHandler
-from search_service.applications.ports.unit_of_work import UnitOfWorkFactory
+from search_service.applications.handlers.errors import domain_errors
+from search_service.applications.handlers.results import (
+    ResultFilter,
+    ResultsHandler,
+    filter_from_query,
+)
 from search_service.applications.ports.uow import UnitOfWork
 from search_service.applications.queries.results import ExportSearchQuery
 from search_service.applications.results.read_models import ExportFile
 from search_service.domain.entities import Source
-from search_service.domain.enums import Relevance
+from search_service.domain.enums import ExportFormat, Relevance
 from search_service.domain.errors import NotFoundError
 
 RELEVANCE_RU = {
@@ -221,20 +225,21 @@ class ExportHandler:
 
 
 # ---------------------------------------------------------------------------
-# Хэндлеры медиатора для gRPC-транспорта (каркас из main, регистрируются в
-# dependencies.build_mediator). Пока не связаны с реализацией выше.
+# Хэндлер медиатора для gRPC-транспорта (регистрируется в dependencies.build_mediator).
 # ---------------------------------------------------------------------------
-
-
-XLSX_MIME = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
-DOCX_MIME = "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
 
 
 @dataclass
 class ExportSearchQueryHandler:
-    uow_factory: UnitOfWorkFactory
+    uow: UnitOfWork
 
     async def handle(self, query: ExportSearchQuery) -> ExportFile:
         """Строки — тем же запросом, что ListResults (без limit), тот же filter и sort →
         файл совпадает с экраном. Формат листов — B2-08."""
-        raise NotImplementedYetError("ExportSearch: B2-08")
+        if query.format is not ExportFormat.XLSX:
+            raise NotImplementedYetError("ExportSearch DOCX: B2-08")
+        with domain_errors():
+            content, filename, mime = await ExportHandler(self.uow).to_xlsx(
+                query.search_id, filter_from_query(query.filter), sort=query.sort.value
+            )
+        return ExportFile(content=content, filename=filename, mime_type=mime)

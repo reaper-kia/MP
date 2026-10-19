@@ -16,7 +16,7 @@ from search_service.applications.queries import sources as q_sources
 from search_service.dependencies import build_mediator
 from search_service.domain.exceptions import InvalidPeriodError
 from search_service.domain.value_objects import UtcPeriod
-from tests.fakes import FakeCollector, FakeMl, FakeUnitOfWork
+from tests.fakes import FakeCollector, FakeRunner, InMemoryUoW
 
 MODULES = [c_sources, c_searches, c_results, q_sources, q_searches, q_results]
 
@@ -36,7 +36,7 @@ def command_types() -> list[type]:
 
 def test_every_command_has_handler() -> None:
     assert commands and queries  # пакеты на месте
-    mediator = build_mediator(FakeUnitOfWork, FakeCollector(), FakeMl())
+    mediator = build_mediator(InMemoryUoW(), FakeCollector(), FakeRunner())
     registered = set(mediator._handlers)  # проверяем проводку
     missing = [t.__name__ for t in command_types() if t not in registered]
     assert not missing, f"нет хэндлера для: {missing}"

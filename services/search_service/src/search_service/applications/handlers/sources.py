@@ -9,10 +9,10 @@ from search_service.applications.commands.sources import (
     ImportSourcesCommand,
     UpdateSourceCommand,
 )
-from search_service.applications.exceptions import NotImplementedYetError
-from search_service.applications.ports.collector import CollectorClient as CollectorPort
+from search_service.applications.exceptions import NotImplementedYetError, UpstreamError
+from search_service.applications.handlers.errors import SOURCE_PRIVATE_MESSAGE, domain_errors
+from search_service.applications.handlers.views import preview_view, source_view
 from search_service.applications.ports.collector_client import CollectorClient, SourceInfo
-from search_service.applications.ports.unit_of_work import UnitOfWorkFactory
 from search_service.applications.ports.uow import UnitOfWork
 from search_service.applications.queries.sources import ListSourcesQuery, ResolveSourceQuery
 from search_service.applications.results.read_models import (
@@ -129,66 +129,103 @@ class SourceHandler:
 
 
 # ---------------------------------------------------------------------------
-# Хэндлеры медиатора для gRPC-транспорта (каркас из main, регистрируются в
-# dependencies.build_mediator). Пока не связаны с реализацией выше.
+# Хэндлеры медиатора для gRPC-транспорта (регистрируются в dependencies.build_mediator):
+# команда → SourceHandler выше → read model.
 # ---------------------------------------------------------------------------
 
 
 @dataclass
 class ResolveSourceQueryHandler:
-    uow_factory: UnitOfWorkFactory
-    collector: CollectorPort
+    uow: UnitOfWork
+    collector: CollectorClient
 
     async def handle(self, query: ResolveSourceQuery) -> SourcePreviewView:
         """1) collector.resolve_source(url) — ошибки соседа пробрасываются как есть (UpstreamError);
         2) is_closed → SOURCE_PRIVATE; 3) поиск в каталоге по (platform, external_id) →
         existing_source_id."""
-        raise NotImplementedYetError("ResolveSource: B2-02")
+        with domain_errors():
+            info, existing = await SourceHandler(self.uow, self.collector).resolve(
+                ResolveRequest(url=query.url)
+            )
+        if info.is_closed:
+            raise UpstreamError("collector", "SOURCE_PRIVATE", SOURCE_PRIVATE_MESSAGE)
+        return preview_view(info, existing)
 
 
 @dataclass
 class CreateSourceCommandHandler:
-    uow_factory: UnitOfWorkFactory
-    collector: CollectorPort
+    uow: UnitOfWork
+    collector: CollectorClient
 
     async def handle(self, cmd: CreateSourceCommand) -> SourceView:
-        """resolve (вне транзакции) → дубль? SourceAlreadyExistsError → Source.create → commit."""
-        raise NotImplementedYetError("CreateSource: B2-02")
+        """resolve (вне транзакции) → дубль? SourceAlreadyExistsError → Source → commit."""
+        with domain_errors():
+            source = await SourceHandler(self.uow, self.collector).create(
+                CreateRequest(
+                    url=cmd.url, name=cmd.name, is_regional=cmd.is_regional, notes=cmd.notes
+                )
+            )
+        return source_view(source)
 
 
 @dataclass
 class ListSourcesQueryHandler:
-    uow_factory: UnitOfWorkFactory
+    uow: UnitOfWork
+    collector: CollectorClient
 
     async def handle(self, query: ListSourcesQuery) -> SourcePage:
         """Фильтры platforms / q (ILIKE по name и url) / is_active; limit 1..200; total.
 
         Удалённые (deleted_at) не показываем."""
-        raise NotImplementedYetError("ListSources: B2-02")
+        sources, total, has_more = await SourceHandler(self.uow, self.collector).list(
+            ListRequest(
+                platforms=[p.value for p in query.platforms] or None,
+                q=query.q or None,
+                is_active=query.is_active,
+                limit=query.limit,
+                offset=query.offset,
+            )
+        )
+        return SourcePage(items=[source_view(s) for s in sources], total=total, has_more=has_more)
 
 
 @dataclass
 class UpdateSourceCommandHandler:
-    uow_factory: UnitOfWorkFactory
+    uow: UnitOfWork
+    collector: CollectorClient
 
     async def handle(self, cmd: UpdateSourceCommand) -> SourceView:
         """Меняем только поля, которые не None. Нет источника → SourceNotFoundError."""
-        raise NotImplementedYetError("UpdateSource: B2-02")
+        with domain_errors():
+            source = await SourceHandler(self.uow, self.collector).update(
+                UpdateRequest(
+                    source_id=cmd.source_id,
+                    name=cmd.name,
+                    is_regional=cmd.is_regional,
+                    is_active=cmd.is_active,
+                    notes=cmd.notes,
+                )
+            )
+        return source_view(source)
 
 
 @dataclass
 class DeleteSourceCommandHandler:
-    uow_factory: UnitOfWorkFactory
+    uow: UnitOfWork
+    collector: CollectorClient
 
     async def handle(self, cmd: DeleteSourceCommand) -> None:
         """Мягкое удаление (deleted_at): история поисков хранит снимок имени и ссылки."""
-        raise NotImplementedYetError("DeleteSource: B2-02")
+        with domain_errors():
+            await SourceHandler(self.uow, self.collector).delete(
+                DeleteRequest(source_id=cmd.source_id)
+            )
 
 
 @dataclass
 class ImportSourcesCommandHandler:
-    uow_factory: UnitOfWorkFactory
-    collector: CollectorPort
+    uow: UnitOfWork
+    collector: CollectorClient
 
     async def handle(self, cmd: ImportSourcesCommand) -> ImportReport:
         """openpyxl: A — ссылка, B — название, C — региональный (да/нет); по строке — как Create."""

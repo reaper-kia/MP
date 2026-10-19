@@ -11,10 +11,36 @@ import structlog
 from search_service.applications.ports.ml_client import MlClient, PostForScoring, QueryAnalysis
 from search_service.applications.ports.uow import UnitOfWork
 from search_service.domain.entities import Publication, Search, SearchResult
-from search_service.domain.enums import Relevance
+from search_service.domain.enums import QueryType, Relevance
 from search_service.domain.errors import NotFoundError
 
 log = structlog.get_logger()
+
+
+def analysis_to_dict(analysis: QueryAnalysis) -> dict[str, Any]:
+    return {
+        "query_type": str(analysis.query_type),
+        "summary": analysis.summary,
+        "search_queries": list(analysis.search_queries),
+        "entities": list(analysis.entities),
+        "must_concepts": list(analysis.must_concepts),
+        "exclude_concepts": list(analysis.exclude_concepts),
+        "needs_clarification": analysis.needs_clarification,
+        "clarification_hint": analysis.clarification_hint,
+    }
+
+
+def analysis_from_dict(qa: dict[str, Any]) -> QueryAnalysis:
+    return QueryAnalysis(
+        query_type=str(qa.get("query_type", QueryType.TOPIC.value)),
+        summary=str(qa.get("summary", "")),
+        search_queries=list(qa.get("search_queries", [])),
+        entities=list(qa.get("entities", [])),
+        must_concepts=list(qa.get("must_concepts", [])),
+        exclude_concepts=list(qa.get("exclude_concepts", [])),
+        needs_clarification=bool(qa.get("needs_clarification", False)),
+        clarification_hint=str(qa.get("clarification_hint", "")),
+    )
 
 
 class ScoringHandler:
@@ -63,12 +89,7 @@ class ScoringHandler:
             pubs_by_id = {p.id: p for p in pubs}
             analysis: QueryAnalysis | None = None
             if search.query_analysis:
-                qa = search.query_analysis
-                analysis = QueryAnalysis(
-                    query_type=qa.get("query_type", "unknown"),
-                    summary=qa.get("summary", ""),
-                    search_queries=qa.get("search_queries", []),
-                )
+                analysis = analysis_from_dict(search.query_analysis)
 
         if not analysis:
             analysis, _ = await self.ml.analyze_query(search.query)

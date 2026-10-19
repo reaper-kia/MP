@@ -7,13 +7,13 @@ from dataclasses import dataclass
 import structlog
 
 from search_service.applications.handlers.save import SaveHandler
-from search_service.applications.handlers.scoring import ScoringHandler
+from search_service.applications.handlers.scoring import ScoringHandler, analysis_to_dict
 from search_service.applications.ports.collector_client import CollectorClient, RawPost
 from search_service.applications.ports.ml_client import MlClient, QueryAnalysis
 from search_service.applications.ports.uow import UnitOfWork
 from search_service.domain.entities import Search, SearchTarget
-from search_service.domain.enums import DateStatus, SearchStage, SearchStatus
-from search_service.domain.errors import NotFoundError
+from search_service.domain.enums import DateStatus, QueryType, SearchStage, SearchStatus
+from search_service.domain.errors import CollectorError, NotFoundError
 
 log = structlog.get_logger()
 
@@ -72,6 +72,12 @@ class Pipeline:
             if not search:
                 return
             search.start()
+            if getattr(self.collector, "is_stub", False):
+                search.add_warning(
+                    "Коллектор в режиме имитации (COLLECTOR_MODE=stub) — посты тестовые"
+                )
+            if getattr(self.ml, "is_stub", False):
+                search.add_warning("ML в режиме имитации (ML_MODE=stub)")
             await self.uow.searches.save(search)
             await self.uow.commit()
 
@@ -80,13 +86,8 @@ class Pipeline:
         async with self.uow:
             search = _require(await self.uow.searches.get_with_targets(search_id), search_id)
             search.query_type = analysis.query_type
-            search.query_analysis = {
-                "query_type": analysis.query_type,
-                "summary": analysis.summary,
-                "search_queries": analysis.search_queries,
-                "needs_clarification": analysis.needs_clarification,
-                "clarification_hint": analysis.clarification_hint,
-            }
+            # разбор храним целиком: он нужен ScorePosts (ScoringHandler.score_results)
+            search.query_analysis = analysis_to_dict(analysis)
             if degraded:
                 search.add_warning("ML недоступен — использованы базовые фразы поиска")
             await self.uow.searches.save(search)
@@ -132,7 +133,7 @@ class Pipeline:
         except Exception as e:
             log.warning("analyze_query failed, degrading", error=str(e))
             return QueryAnalysis(
-                query_type="fallback",
+                query_type=QueryType.TOPIC.value,
                 summary="Базовый поиск по фразе",
                 search_queries=[search.query],
             ), True
@@ -140,7 +141,8 @@ class Pipeline:
     async def _collect(self, search_id: uuid.UUID, analysis: QueryAnalysis) -> list[TargetJob]:
         async with self.uow:
             search = _require(await self.uow.searches.get_with_targets(search_id), search_id)
-            targets = list(search.targets)
+            # при повторе (RetrySearch) завершённые цели не трогаем — только сброшенные в PENDING
+            targets = [t for t in search.targets if not t.is_finished]
 
         jobs: list[TargetJob] = []
         tasks = [self._collect_target(search_id, t, analysis) for t in targets]
@@ -212,10 +214,16 @@ class Pipeline:
     ) -> list[RawPost]:
         async with self.uow:
             search = _require(await self.uow.searches.get_by_id(search_id), search_id)
+            source = (
+                await self.uow.sources.get_by_id(target.source_id) if target.source_id else None
+            )
         if target.kind == "source":
+            if source is None:
+                raise CollectorError("SOURCE_NOT_FOUND", "Источник удалён из каталога")
             res = await self.collector.collect_from_source(
                 platform=target.platform,
-                source_external_id=target.url.split("/")[-1] if target.url else "",
+                # external_id площадки (у VK — числовой id группы), а не хвост ссылки
+                source_external_id=source.external_id,
                 start_utc=search.period.start_utc,
                 end_utc=search.period.end_utc,
                 keywords=analysis.search_queries,

@@ -1,19 +1,20 @@
-"""gRPC-клиент к ml_service: proto ⇄ DTO порта, ошибки → UpstreamError."""
+"""gRPC-клиент к ml_service: proto ⇄ DTO порта, ошибки → UpstreamError.
+
+Реализует порт applications/ports/ml_client.py (им пользуется пайплайн B2).
+"""
+
+from typing import Any
 
 import grpc
 from ml.v1 import ml_service_pb2 as pb
 from ml.v1 import ml_service_pb2_grpc as pb_grpc
 
-from search_service.applications.context import RequestContext
-from search_service.applications.ports.ml import (
-    Entity,
+from search_service.applications.ports.ml_client import (
     MlClient,
-    PostForGrouping,
     PostForScoring,
     PostGroup,
     PostScore,
     QueryAnalysis,
-    TextSpan,
 )
 from search_service.domain.enums import QueryType, Relevance, Sentiment
 from search_service.infra.clients.common import context_to_proto, upstream_error
@@ -62,10 +63,10 @@ class GrpcMlClient(MlClient):
         self._score_timeout = score_timeout
         self._group_timeout = group_timeout
 
-    async def analyze_query(self, ctx: RequestContext, query: str) -> tuple[QueryAnalysis, bool]:
+    async def analyze_query(self, query: str) -> tuple[QueryAnalysis, bool]:
         try:
             response: pb.AnalyzeQueryResponse = await self._stub.AnalyzeQuery(
-                pb.AnalyzeQueryRequest(context=context_to_proto(ctx), query=query),
+                pb.AnalyzeQueryRequest(context=context_to_proto(), query=query),
                 timeout=self._analyze_timeout,
             )
         except grpc.aio.AioRpcError as e:
@@ -73,14 +74,10 @@ class GrpcMlClient(MlClient):
         return analysis_from_proto(response.analysis, query), response.degraded
 
     async def score_posts(
-        self,
-        ctx: RequestContext,
-        query: str,
-        analysis: QueryAnalysis,
-        posts: list[PostForScoring],
+        self, *, query: str, analysis: QueryAnalysis, posts: list[PostForScoring]
     ) -> tuple[list[PostScore], bool]:
         request = pb.ScorePostsRequest(
-            context=context_to_proto(ctx),
+            context=context_to_proto(),
             query=query,
             analysis=analysis_to_proto(analysis),
             posts=[_post_for_scoring(p) for p in posts],
@@ -93,11 +90,10 @@ class GrpcMlClient(MlClient):
             raise upstream_error("ml", e) from e
         return [_score(s) for s in response.scores], response.degraded
 
-    async def group_posts(
-        self, ctx: RequestContext, posts: list[PostForGrouping]
-    ) -> list[PostGroup]:
+    async def group_posts(self, posts: list[dict[str, Any]]) -> list[PostGroup]:
+        """posts — {"id", "text", "title"} (так их собирает ScoringHandler.group_search)."""
         request = pb.GroupPostsRequest(
-            context=context_to_proto(ctx),
+            context=context_to_proto(),
             posts=[_post_for_grouping(p) for p in posts],
         )
         try:
@@ -116,13 +112,20 @@ class GrpcMlClient(MlClient):
         ]
 
 
+def _query_type(value: str) -> QueryType:
+    try:
+        return QueryType(value)
+    except ValueError:
+        return QueryType.TOPIC
+
+
 def analysis_from_proto(a: pb.QueryAnalysis, query: str) -> QueryAnalysis:
     return QueryAnalysis(
-        query_type=QUERY_TYPE_FROM_PROTO.get(a.query_type, QueryType.TOPIC),
+        query_type=QUERY_TYPE_FROM_PROTO.get(a.query_type, QueryType.TOPIC).value,
         summary=a.summary,
         search_queries=list(a.search_queries) or [query],
         entities=[
-            Entity(text=e.text, type=ENTITY_TYPE_FROM_PROTO[e.type])
+            {"text": e.text, "type": ENTITY_TYPE_FROM_PROTO[e.type]}
             for e in a.entities
             if e.type in ENTITY_TYPE_FROM_PROTO
         ],
@@ -135,13 +138,13 @@ def analysis_from_proto(a: pb.QueryAnalysis, query: str) -> QueryAnalysis:
 
 def analysis_to_proto(a: QueryAnalysis) -> pb.QueryAnalysis:
     return pb.QueryAnalysis(
-        query_type=QUERY_TYPE_TO_PROTO[a.query_type],
+        query_type=QUERY_TYPE_TO_PROTO[_query_type(a.query_type)],
         summary=a.summary,
         search_queries=list(a.search_queries),
         entities=[
-            pb.Entity(text=e.text, type=ENTITY_TYPE_TO_PROTO[e.type])
+            pb.Entity(text=str(e.get("text", "")), type=ENTITY_TYPE_TO_PROTO[str(e.get("type"))])
             for e in a.entities
-            if e.type in ENTITY_TYPE_TO_PROTO
+            if str(e.get("type")) in ENTITY_TYPE_TO_PROTO
         ],
         must_concepts=list(a.must_concepts),
         exclude_concepts=list(a.exclude_concepts),
@@ -159,23 +162,25 @@ def _post_for_scoring(p: PostForScoring) -> pb.PostForScoring:
     return message
 
 
-def _post_for_grouping(p: PostForGrouping) -> pb.PostForGrouping:
-    message = pb.PostForGrouping(id=p.id, text=p.text)
-    if p.title is not None:
-        message.title = p.title
+def _post_for_grouping(p: dict[str, Any]) -> pb.PostForGrouping:
+    message = pb.PostForGrouping(id=str(p["id"]), text=str(p.get("text") or ""))
+    if p.get("title") is not None:
+        message.title = str(p["title"])
     return message
 
 
 def _score(s: pb.PostScore) -> PostScore:
-    excerpt = s.excerpt_span if s.HasField("excerpt_span") else None
+    sentiment = SENTIMENT_FROM_PROTO.get(s.sentiment)
     return PostScore(
         id=s.id,
-        relevance=RELEVANCE_FROM_PROTO.get(s.relevance, Relevance.DISPUTED),
+        relevance=RELEVANCE_FROM_PROTO.get(s.relevance, Relevance.DISPUTED).value,
         score=s.score,
         explanation=s.explanation,
         region_by_content=s.region.by_content,
         region_evidence=s.region.evidence,
-        sentiment=SENTIMENT_FROM_PROTO.get(s.sentiment),
-        excerpt_span=TextSpan(excerpt.start, excerpt.end) if excerpt is not None else None,
-        highlight_spans=[TextSpan(h.start, h.end) for h in s.highlight_spans],
+        sentiment=sentiment.value if sentiment is not None else None,
+        excerpt_span=(
+            (s.excerpt_span.start, s.excerpt_span.end) if s.HasField("excerpt_span") else None
+        ),
+        highlight_spans=[(h.start, h.end) for h in s.highlight_spans],
     )

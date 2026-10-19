@@ -1,4 +1,5 @@
-# ml_client.py
+"""Заглушка ML: реализует порт MlClient без сети (ML_MODE=stub, офлайн-разработка)."""
+
 from typing import Any
 
 from search_service.applications.ports.ml_client import (
@@ -10,6 +11,8 @@ from search_service.applications.ports.ml_client import (
 
 
 class StubMl:
+    is_stub = True  # пайплайн по этому флагу добавляет warning «имитация»
+
     async def analyze_query(self, query: str) -> tuple[QueryAnalysis, bool]:
         return QueryAnalysis(
             query_type="topic",

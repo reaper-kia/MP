@@ -38,7 +38,7 @@ class ControlHandler:
             search = await self.uow.searches.get_with_targets(search_id)
             if not search:
                 raise NotFoundError("SEARCH_NOT_FOUND")
-            if search.status == SearchStatus.RUNNING:
+            if not search.status.is_final:  # QUEUED или RUNNING
                 raise SearchNotFinished("Поиск ещё выполняется")
 
             targets_to_retry = []
