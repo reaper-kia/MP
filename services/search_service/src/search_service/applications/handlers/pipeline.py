@@ -12,7 +12,7 @@ from search_service.applications.ports.collector_client import CollectorClient, 
 from search_service.applications.ports.ml_client import MlClient, QueryAnalysis
 from search_service.applications.ports.uow import UnitOfWork
 from search_service.domain.entities import Search, SearchTarget
-from search_service.domain.enums import DateStatus, QueryType, SearchStage, SearchStatus
+from search_service.domain.enums import DateStatus, Platform, QueryType, SearchStage, SearchStatus
 from search_service.domain.errors import CollectorError, NotFoundError
 
 log = structlog.get_logger()
@@ -31,6 +31,13 @@ ERROR_MESSAGES = {
 class TargetJob:
     target: SearchTarget
     posts: list[RawPost]
+
+
+def _platform_title(platform: str) -> str:
+    try:
+        return Platform(platform).display
+    except ValueError:
+        return platform
 
 
 def _require(search: Search | None, search_id: uuid.UUID) -> Search:
@@ -82,14 +89,14 @@ class Pipeline:
             await self.uow.commit()
 
         # 2. analyze query
-        analysis, degraded = await self._analyze(search)
+        analysis, ml_warning = await self._analyze(search)
         async with self.uow:
             search = _require(await self.uow.searches.get_with_targets(search_id), search_id)
             search.query_type = analysis.query_type
             # разбор храним целиком: он нужен ScorePosts (ScoringHandler.score_results)
             search.query_analysis = analysis_to_dict(analysis)
-            if degraded:
-                search.add_warning("ML недоступен — использованы базовые фразы поиска")
+            if ml_warning:
+                search.add_warning(ml_warning)
             await self.uow.searches.save(search)
             await self.uow.commit()
 
@@ -127,16 +134,19 @@ class Pipeline:
             await self.uow.searches.save(search)
             await self.uow.commit()
 
-    async def _analyze(self, search: Search) -> tuple[QueryAnalysis, bool]:
+    async def _analyze(self, search: Search) -> tuple[QueryAnalysis, str | None]:
+        """→ (разбор, warning для поиска или None)."""
         try:
-            return await self.ml.analyze_query(search.query)
+            analysis, degraded = await self.ml.analyze_query(search.query)
         except Exception as e:
             log.warning("analyze_query failed, degrading", error=str(e))
             return QueryAnalysis(
                 query_type=QueryType.TOPIC.value,
                 summary="Базовый поиск по фразе",
                 search_queries=[search.query],
-            ), True
+            ), "ML недоступен — использованы базовые фразы поиска"
+        # degraded: ml_service ответил, но без моделей (эвристики)
+        return analysis, "ML работал в упрощённом режиме" if degraded else None
 
     async def _collect(self, search_id: uuid.UUID, analysis: QueryAnalysis) -> list[TargetJob]:
         async with self.uow:
@@ -157,6 +167,7 @@ class Pipeline:
     async def _collect_target(
         self, search_id: uuid.UUID, target: SearchTarget, analysis: QueryAnalysis
     ) -> TargetJob:
+        platform = _platform_title(target.platform)
         async with self.sem:
             async with self.uow:
                 target = (await self.uow.targets.get_by_ids([target.id]))[0]
@@ -171,13 +182,15 @@ class Pipeline:
                 )
             except TimeoutError:
                 await self._fail_target(
-                    target.id, "TIMEOUT", ERROR_MESSAGES["TIMEOUT"].format(platform=target.platform)
+                    target.id, "TIMEOUT", ERROR_MESSAGES["TIMEOUT"].format(platform=platform)
                 )
                 return TargetJob(target=target, posts=[])
             except Exception as e:
                 code = getattr(e, "code", "PLATFORM_UNAVAILABLE")
-                msg = ERROR_MESSAGES.get(code, f"{target.platform}: {e}").format(
-                    platform=target.platform
+                # у ошибок соседа (UpstreamError) уже есть понятный текст для пользователя
+                upstream_message = getattr(e, "message", "") if code != "TIMEOUT" else ""
+                msg = upstream_message or ERROR_MESSAGES.get(code, f"{platform}: {e}").format(
+                    platform=platform
                 )
                 await self._fail_target(target.id, code, msg)
                 return TargetJob(target=target, posts=[])

@@ -178,6 +178,8 @@ async def test_retry_only_failed_targets(stand: Stand) -> None:
     failed = await wait_final(stub, started.search.id)
     assert failed.status == pb.SEARCH_STATUS_FAILED
     assert failed.targets[0].error.code == "PLATFORM_UNAVAILABLE"
+    # текст ошибки соседа доходит до пользователя как есть
+    assert failed.targets[0].error.message == "тестовая ошибка PLATFORM_UNAVAILABLE"
 
     del stand.collector.failing["-2034"]
     retried = await stub.RetrySearch(pb.RetrySearchRequest(context=CTX, search_id=failed.id))
