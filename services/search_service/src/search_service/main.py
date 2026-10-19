@@ -56,7 +56,7 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     sem = asyncio.Semaphore(settings.collect_concurrency)
 
     async def uow_factory():
-        from search_service.infra.db.uow import UnitOfWork
+        from search_service.infra.database.uow import UnitOfWork
         return UnitOfWork(session_maker())
 
     pipeline = Pipeline(uow_factory, collector, ml, sem, settings.target_timeout_sec)
@@ -111,7 +111,7 @@ def _make_ml(settings: Settings):
 
 async def _mark_interrupted_searches(session_maker: async_sessionmaker[AsyncSession]) -> None:
     """Все RUNNING/QUEUED на старте → FAILED с warning."""
-    from search_service.infra.db.uow import UnitOfWork
+    from search_service.infra.database.uow import UnitOfWork
     try:
         async with session_maker() as session:
             uow = UnitOfWork(session)
@@ -329,7 +329,7 @@ def _register_http_api(app: FastAPI) -> None:
 
     @app.post("/searches")
     async def start_search(req: StartSearchReq):
-        from search_service.applications.handlers.search import SearchHandler, StartSearchRequest
+        from search_service.applications.handlers.searches import SearchHandler, StartSearchRequest
         uow = app.state.uow_factory()
         handler = SearchHandler(uow, app.state.runner)
         try:
@@ -351,7 +351,7 @@ def _register_http_api(app: FastAPI) -> None:
 
     @app.get("/searches")
     async def list_searches(limit: int = 50, offset: int = 0):
-        from search_service.applications.handlers.search import SearchHandler
+        from search_service.applications.handlers.searches import SearchHandler
         uow = app.state.uow_factory()
         handler = SearchHandler(uow, app.state.runner)
         searches, total, has_more = await handler.list(limit=limit, offset=offset)
@@ -359,7 +359,7 @@ def _register_http_api(app: FastAPI) -> None:
 
     @app.get("/searches/{search_id}")
     async def get_search(search_id: uuid.UUID):
-        from search_service.applications.handlers.search import SearchHandler
+        from search_service.applications.handlers.searches import SearchHandler
         uow = app.state.uow_factory()
         handler = SearchHandler(uow, app.state.runner)
         try:

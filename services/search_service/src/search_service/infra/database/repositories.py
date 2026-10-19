@@ -7,7 +7,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from search_service.domain.entities import Source, Search, SearchTarget, Publication, SearchResult
 from search_service.domain.value_objects import Period
-from search_service.infra.db.models import (
+from search_service.infra.database.models import (
     SourceModel, SearchModel, SearchTargetModel, PublicationModel, SearchResultModel,
 )
 
