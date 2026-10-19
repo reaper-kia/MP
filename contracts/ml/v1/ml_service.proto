@@ -1,0 +1,166 @@
+syntax = "proto3";
+
+package ml.v1;
+
+import "common/v1/common.proto";
+
+// Анализ текста. Владелец — ML. Своей БД нет.
+// Никогда не меняет и не придумывает тексты постов: возвращает только оценки и
+// позиции фрагментов внутри переданного текста.
+//
+// Ошибки: ML_UNAVAILABLE (UNAVAILABLE) — LLM/эмбеддинги недоступны и фолбэк выключен.
+service MlService {
+  // Что хотел пользователь: тип запроса, поисковые фразы, сущности
+  rpc AnalyzeQuery(AnalyzeQueryRequest) returns (AnalyzeQueryResponse);
+  // Связь постов с запросом. До 50 постов за вызов.
+  rpc ScorePosts(ScorePostsRequest) returns (ScorePostsResponse);
+  // Группировка одинаковых/пересказанных новостей в сюжеты
+  rpc GroupPosts(GroupPostsRequest) returns (GroupPostsResponse);
+}
+
+enum QueryType {
+  QUERY_TYPE_UNSPECIFIED = 0;
+  // «Безопасность дорожного движения в Красноярском крае»
+  QUERY_TYPE_TOPIC = 1;
+  // «Открытие моста через Енисей 2026, Красноярск»
+  QUERY_TYPE_EVENT = 2;
+  // «Губернатор ... — упоминания»
+  QUERY_TYPE_PERSON = 3;
+  // Вставлен текст исходной новости
+  QUERY_TYPE_NEWS_TEXT = 4;
+}
+
+enum EntityType {
+  ENTITY_TYPE_UNSPECIFIED = 0;
+  ENTITY_TYPE_PERSON = 1;
+  ENTITY_TYPE_ORGANIZATION = 2;
+  ENTITY_TYPE_LOCATION = 3;
+  ENTITY_TYPE_EVENT = 4;
+  ENTITY_TYPE_DATE = 5;
+  ENTITY_TYPE_NUMBER = 6;
+}
+
+message Entity {
+  string text = 1;
+  EntityType type = 2;
+}
+
+message QueryAnalysis {
+  QueryType query_type = 1;
+  // Как система поняла запрос, одной фразой — показывается пользователю
+  string summary = 2;
+  // 3–8 фраз для поиска по площадке (VK newsfeed.search, Яндекс site:ok.ru)
+  repeated string search_queries = 3;
+  repeated Entity entities = 4;
+  // Без чего пост точно не подходит («дорожное движение», а не просто «безопасность»)
+  repeated string must_concepts = 5;
+  // Что часто путают и надо отсекать («пожарная безопасность»)
+  repeated string exclude_concepts = 6;
+  // Запрос слишком общий/короткий — предложить уточнить
+  bool needs_clarification = 7;
+  string clarification_hint = 8;
+}
+
+message AnalyzeQueryRequest {
+  common.v1.RequestContext context = 1;
+  string query = 2;
+}
+
+message AnalyzeQueryResponse {
+  QueryAnalysis analysis = 1;
+  // true — LLM недоступна, ответ построен эвристикой
+  bool degraded = 2;
+}
+
+enum Relevance {
+  RELEVANCE_UNSPECIFIED = 0;
+  // Прямо про тему/событие/человека; для NEWS_TEXT — та же новость (копия, сокращение, пересказ)
+  RELEVANCE_DIRECT = 1;
+  // Связано косвенно: упоминание вскользь, смежная тема
+  RELEVANCE_INDIRECT = 2;
+  // Система не уверена — нужна проверка человеком
+  RELEVANCE_DISPUTED = 3;
+  // Не подходит (в т.ч. похожая новость о другом событии). В подборку не идёт, но хранится.
+  RELEVANCE_IRRELEVANT = 4;
+}
+
+enum Sentiment {
+  SENTIMENT_UNSPECIFIED = 0;
+  SENTIMENT_POSITIVE = 1;
+  SENTIMENT_NEUTRAL = 2;
+  SENTIMENT_NEGATIVE = 3;
+}
+
+// Полуинтервал [start, end) в символах Python-строки text (code points).
+message TextSpan {
+  uint32 start = 1;
+  uint32 end = 2;
+}
+
+message PostForScoring {
+  // id результата в search_service — вернуть как есть
+  string id = 1;
+  optional string title = 2;
+  string text = 3;
+  string source_name = 4;
+  // Источник помечен как региональный в каталоге
+  bool source_is_regional = 5;
+}
+
+message RegionMatch {
+  // В тексте есть привязка к Красноярскому краю (город/район/организация края)
+  bool by_content = 1;
+  // Что именно нашли: «Ачинск», «Красноярская ГЭС». Пусто, если by_content = false.
+  string evidence = 2;
+}
+
+message PostScore {
+  string id = 1;
+  Relevance relevance = 2;
+  // 0..1, для сортировки
+  float score = 3;
+  // Почему так решили, 1 предложение по-русски: «Пост о рейде ГИБДД по пешеходным переходам в Ачинске»
+  string explanation = 4;
+  RegionMatch region = 5;
+  Sentiment sentiment = 6;
+  // Самый релевантный фрагмент текста (для выдержки), ≤ 300 символов
+  TextSpan excerpt_span = 7;
+  // Что подсветить (совпадающие сущности/фразы), позиции в text
+  repeated TextSpan highlight_spans = 8;
+}
+
+message ScorePostsRequest {
+  common.v1.RequestContext context = 1;
+  string query = 2;
+  QueryAnalysis analysis = 3;
+  repeated PostForScoring posts = 4;
+}
+
+message ScorePostsResponse {
+  // По одному на каждый входной пост, в том же порядке
+  repeated PostScore scores = 1;
+  bool degraded = 2;
+}
+
+message PostForGrouping {
+  string id = 1;
+  optional string title = 2;
+  string text = 3;
+}
+
+message PostGroup {
+  string group_id = 1;
+  repeated string post_ids = 2;
+  // Пост, заголовок которого показываем у группы
+  string representative_post_id = 3;
+}
+
+message GroupPostsRequest {
+  common.v1.RequestContext context = 1;
+  repeated PostForGrouping posts = 2;
+}
+
+message GroupPostsResponse {
+  // Каждый входной пост ровно в одной группе (одиночки — группа из одного)
+  repeated PostGroup groups = 1;
+}

@@ -1,0 +1,33 @@
+syntax = "proto3";
+
+package common.v1;
+
+import "google/protobuf/timestamp.proto";
+
+// Площадки. Общий enum для collector, search и ml.
+enum Platform {
+  PLATFORM_UNSPECIFIED = 0;
+  PLATFORM_VK = 1;
+  PLATFORM_OK = 2;
+  PLATFORM_MAX = 3;
+  // Новостные сайты из перечня агентства (доп. возможность)
+  PLATFORM_NEWS = 4;
+}
+
+// Период по дате публикации. Обе границы включительно.
+// Даты пользователь выбирает в часовом поясе Asia/Krasnoyarsk (UTC+7):
+// start = 00:00:00 первого дня, end = 23:59:59 последнего дня, переведённые в UTC.
+// (не from/to: from — ключевое слово Python, в сгенерированном коде неудобно)
+message Period {
+  google.protobuf.Timestamp start = 1;
+  google.protobuf.Timestamp end = 2;
+}
+
+// Ошибка конкретного источника/площадки внутри успешного в целом ответа.
+message ErrorInfo {
+  // Машинный код: PLATFORM_UNAVAILABLE, SOURCE_NOT_FOUND, SOURCE_PRIVATE,
+  // RATE_LIMITED, TIMEOUT, PARSE_ERROR, AUTH_REQUIRED, ML_UNAVAILABLE, INTERNAL
+  string code = 1;
+  // Текст для пользователя, по-русски
+  string message = 2;
+}

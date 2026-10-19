@@ -1,0 +1,508 @@
+syntax = "proto3";
+
+package search.v1;
+
+import "common/v1/common.proto";
+import "common/v1/platform.proto";
+import "google/protobuf/timestamp.proto";
+
+// Ядро: источники, поисковые задачи, подборки, экспорт. Владелец — B2.
+// Своя БД search_db. Ходит в collector_service и ml_service.
+// HTTP-ручки gateway (contracts/http/openapi.yaml) один к одному мапятся на эти RPC.
+//
+// Ошибки (error-code → HTTP):
+//   SOURCE_NOT_FOUND        NOT_FOUND            404
+//   SOURCE_ALREADY_EXISTS   ALREADY_EXISTS       409
+//   UNSUPPORTED_URL         INVALID_ARGUMENT     422  (проброс из collector)
+//   SEARCH_NOT_FOUND        NOT_FOUND            404
+//   SEARCH_INVALID_PARAMS   INVALID_ARGUMENT     422  (пустой запрос, from > to, mode=selected без источников)
+//   SEARCH_NOT_FINISHED     FAILED_PRECONDITION  409  (retry у незавершённого)
+//   RESULT_NOT_FOUND        NOT_FOUND            404
+service SearchService {
+  // ── источники ──
+  rpc ResolveSource(ResolveSourceRequest) returns (ResolveSourceResponse);
+  rpc CreateSource(CreateSourceRequest) returns (CreateSourceResponse);
+  rpc ListSources(ListSourcesRequest) returns (ListSourcesResponse);
+  rpc UpdateSource(UpdateSourceRequest) returns (UpdateSourceResponse);
+  rpc DeleteSource(DeleteSourceRequest) returns (DeleteSourceResponse);
+  rpc ImportSources(ImportSourcesRequest) returns (ImportSourcesResponse);
+
+  // ── поиск ──
+  // Создаёт задачу и сразу возвращает её (status=QUEUED). Выполнение — в фоне внутри search_service.
+  rpc StartSearch(StartSearchRequest) returns (StartSearchResponse);
+  rpc GetSearch(GetSearchRequest) returns (GetSearchResponse);
+  rpc ListSearches(ListSearchesRequest) returns (ListSearchesResponse);
+  // Повторить упавшие цели (или указанные). Уже найденное сохраняется.
+  rpc RetrySearch(RetrySearchRequest) returns (RetrySearchResponse);
+  rpc CancelSearch(CancelSearchRequest) returns (CancelSearchResponse);
+
+  // ── подборка ──
+  rpc ListResults(ListResultsRequest) returns (ListResultsResponse);
+  rpc ListGroups(ListGroupsRequest) returns (ListGroupsResponse);
+  rpc SetExcluded(SetExcludedRequest) returns (SetExcludedResponse);
+  rpc ExportSearch(ExportSearchRequest) returns (ExportSearchResponse);
+}
+
+// ───────────────────────── источники ─────────────────────────
+
+message Source {
+  string id = 1;
+  common.v1.Platform platform = 2;
+  string external_id = 3;
+  string url = 4;
+  string name = 5;
+  optional string city = 6;
+  // Источник относится к Красноярскому краю (регион по источнику)
+  bool is_regional = 7;
+  // Участвует в поиске «без ограничения списком» и предлагается по умолчанию
+  bool is_active = 8;
+  string notes = 9;
+  google.protobuf.Timestamp created_at = 10;
+  google.protobuf.Timestamp updated_at = 11;
+}
+
+message SourcePreview {
+  common.v1.Platform platform = 1;
+  string external_id = 2;
+  string url = 3;
+  string name = 4;
+  optional string city = 5;
+  optional int64 members_count = 6;
+  // Такой источник уже есть в каталоге
+  optional string existing_source_id = 7;
+}
+
+message ResolveSourceRequest {
+  common.v1.RequestContext context = 1;
+  string url = 2;
+}
+message ResolveSourceResponse {
+  SourcePreview preview = 1;
+}
+
+message CreateSourceRequest {
+  common.v1.RequestContext context = 1;
+  string url = 2;
+  // Пусто — взять название с площадки
+  optional string name = 3;
+  bool is_regional = 4;
+  string notes = 5;
+}
+message CreateSourceResponse {
+  Source source = 1;
+}
+
+message ListSourcesRequest {
+  common.v1.RequestContext context = 1;
+  // Пусто — все площадки
+  repeated common.v1.Platform platforms = 2;
+  // Поиск по названию/ссылке
+  string q = 3;
+  optional bool is_active = 4;
+  uint32 limit = 5;
+  uint32 offset = 6;
+}
+message ListSourcesResponse {
+  repeated Source sources = 1;
+  uint32 total = 2;
+  bool has_more = 3;
+}
+
+message UpdateSourceRequest {
+  common.v1.RequestContext context = 1;
+  string source_id = 2;
+  optional string name = 3;
+  optional bool is_regional = 4;
+  optional bool is_active = 5;
+  optional string notes = 6;
+}
+message UpdateSourceResponse {
+  Source source = 1;
+}
+
+// Мягкое удаление: история поисков хранит снимок источника
+message DeleteSourceRequest {
+  common.v1.RequestContext context = 1;
+  string source_id = 2;
+}
+message DeleteSourceResponse {}
+
+message ImportSourcesRequest {
+  common.v1.RequestContext context = 1;
+  // Содержимое .xlsx: колонка A — ссылка, B — название (необяз.), C — «региональный» да/нет (необяз.)
+  bytes xlsx = 2;
+}
+message ImportRowError {
+  uint32 row = 1;
+  string value = 2;
+  common.v1.ErrorInfo error = 3;
+}
+message ImportSourcesResponse {
+  uint32 created = 1;
+  uint32 duplicates = 2;
+  repeated ImportRowError failed = 3;
+}
+
+// ───────────────────────── поиск ─────────────────────────
+
+enum SearchMode {
+  SEARCH_MODE_UNSPECIFIED = 0;
+  // Только по выбранным источникам
+  SEARCH_MODE_SELECTED = 1;
+  // По всей площадке + все активные источники каталога
+  SEARCH_MODE_GLOBAL = 2;
+}
+
+enum SearchStatus {
+  SEARCH_STATUS_UNSPECIFIED = 0;
+  SEARCH_STATUS_QUEUED = 1;
+  SEARCH_STATUS_RUNNING = 2;
+  // Все цели обработаны (результатов может быть 0 — это «ничего не найдено», а не ошибка)
+  SEARCH_STATUS_COMPLETED = 3;
+  // Завершён, но часть целей упала — найденное сохранено
+  SEARCH_STATUS_PARTIAL = 4;
+  // Упали все цели или системная ошибка
+  SEARCH_STATUS_FAILED = 5;
+  SEARCH_STATUS_CANCELLED = 6;
+}
+
+enum SearchStage {
+  SEARCH_STAGE_UNSPECIFIED = 0;
+  SEARCH_STAGE_QUEUED = 1;
+  SEARCH_STAGE_ANALYZING_QUERY = 2;
+  SEARCH_STAGE_COLLECTING = 3;
+  SEARCH_STAGE_SCORING = 4;
+  SEARCH_STAGE_GROUPING = 5;
+  SEARCH_STAGE_DONE = 6;
+}
+
+enum QueryType {
+  QUERY_TYPE_UNSPECIFIED = 0;
+  QUERY_TYPE_TOPIC = 1;
+  QUERY_TYPE_EVENT = 2;
+  QUERY_TYPE_PERSON = 3;
+  QUERY_TYPE_NEWS_TEXT = 4;
+}
+
+message SearchParams {
+  string query = 1;
+  QueryType query_type = 2;
+  // Даты YYYY-MM-DD в Asia/Krasnoyarsk, включительно
+  string period_from = 3;
+  string period_to = 4;
+  SearchMode mode = 5;
+  repeated common.v1.Platform platforms = 6;
+  // Для SELECTED — выбранные; для GLOBAL — пусто
+  repeated string source_ids = 7;
+}
+
+enum TargetKind {
+  TARGET_KIND_UNSPECIFIED = 0;
+  // Конкретный источник (CollectFromSource)
+  TARGET_KIND_SOURCE = 1;
+  // Поиск по всей площадке (SearchPlatform)
+  TARGET_KIND_PLATFORM_SEARCH = 2;
+}
+
+enum TargetStatus {
+  TARGET_STATUS_UNSPECIFIED = 0;
+  TARGET_STATUS_PENDING = 1;
+  TARGET_STATUS_RUNNING = 2;
+  // Обработан, есть посты за период
+  TARGET_STATUS_DONE = 3;
+  // Обработан, постов за период нет
+  TARGET_STATUS_EMPTY = 4;
+  TARGET_STATUS_FAILED = 5;
+  // Пропущен (площадка выключена, поиск отменён)
+  TARGET_STATUS_SKIPPED = 6;
+}
+
+// Где искали: одна строка в блоке «Охват поиска»
+message SearchTarget {
+  string id = 1;
+  TargetKind kind = 2;
+  common.v1.Platform platform = 3;
+  // Для SOURCE; пусто для PLATFORM_SEARCH
+  optional string source_id = 4;
+  // Снимок названия на момент поиска: «Новости Красноярска» / «Поиск по всему VK»
+  string name = 5;
+  optional string url = 6;
+  TargetStatus status = 7;
+  // Сколько постов получено за период
+  uint32 fetched = 8;
+  // Сколько из них попало в подборку (direct+indirect+disputed)
+  uint32 matched = 9;
+  optional common.v1.ErrorInfo error = 10;
+  uint32 attempts = 11;
+  optional google.protobuf.Timestamp finished_at = 12;
+}
+
+message SearchCounts {
+  // В подборке: direct + indirect + disputed, без исключённых
+  uint32 total = 1;
+  uint32 direct = 2;
+  uint32 indirect = 3;
+  uint32 disputed = 4;
+  // Отсеяны системой как нерелевантные (не в total)
+  uint32 rejected = 5;
+  // Исключены пользователем (не в total)
+  uint32 excluded = 6;
+  // Из total — без даты публикации
+  uint32 unknown_date = 7;
+  // Сюжетов (групп) среди total
+  uint32 groups = 8;
+}
+
+message SearchProgress {
+  uint32 targets_total = 1;
+  uint32 targets_finished = 2;
+  // 0..100
+  uint32 percent = 3;
+}
+
+message QueryAnalysisView {
+  QueryType query_type = 1;
+  string summary = 2;
+  repeated string search_queries = 3;
+  bool needs_clarification = 4;
+  string clarification_hint = 5;
+}
+
+message Search {
+  string id = 1;
+  SearchStatus status = 2;
+  SearchStage stage = 3;
+  SearchProgress progress = 4;
+  SearchParams params = 5;
+  optional QueryAnalysisView query_analysis = 6;
+  repeated SearchTarget targets = 7;
+  SearchCounts counts = 8;
+  // «ML работал в упрощённом режиме», «у VK обрезано до 300 постов на источник»
+  repeated string warnings = 9;
+  google.protobuf.Timestamp created_at = 10;
+  optional google.protobuf.Timestamp started_at = 11;
+  optional google.protobuf.Timestamp finished_at = 12;
+}
+
+message StartSearchRequest {
+  common.v1.RequestContext context = 1;
+  string query = 2;
+  string period_from = 3;
+  string period_to = 4;
+  SearchMode mode = 5;
+  repeated common.v1.Platform platforms = 6;
+  repeated string source_ids = 7;
+}
+message StartSearchResponse {
+  Search search = 1;
+}
+
+message GetSearchRequest {
+  common.v1.RequestContext context = 1;
+  string search_id = 2;
+}
+message GetSearchResponse {
+  Search search = 1;
+}
+
+message ListSearchesRequest {
+  common.v1.RequestContext context = 1;
+  uint32 limit = 2;
+  uint32 offset = 3;
+}
+message ListSearchesResponse {
+  // targets в списке не заполняются
+  repeated Search searches = 1;
+  bool has_more = 2;
+}
+
+message RetrySearchRequest {
+  common.v1.RequestContext context = 1;
+  string search_id = 2;
+  // Пусто — все FAILED цели
+  repeated string target_ids = 3;
+}
+message RetrySearchResponse {
+  Search search = 1;
+}
+
+message CancelSearchRequest {
+  common.v1.RequestContext context = 1;
+  string search_id = 2;
+}
+message CancelSearchResponse {
+  Search search = 1;
+}
+
+// ───────────────────────── подборка ─────────────────────────
+
+enum Relevance {
+  RELEVANCE_UNSPECIFIED = 0;
+  RELEVANCE_DIRECT = 1;
+  RELEVANCE_INDIRECT = 2;
+  RELEVANCE_DISPUTED = 3;
+  RELEVANCE_IRRELEVANT = 4;
+}
+
+enum Sentiment {
+  SENTIMENT_UNSPECIFIED = 0;
+  SENTIMENT_POSITIVE = 1;
+  SENTIMENT_NEUTRAL = 2;
+  SENTIMENT_NEGATIVE = 3;
+}
+
+enum TitleSource {
+  TITLE_SOURCE_UNSPECIFIED = 0;
+  // Заголовок с площадки
+  TITLE_SOURCE_TITLE = 1;
+  // Заголовка нет — первые ~120 символов поста
+  TITLE_SOURCE_POST_START = 2;
+}
+
+enum DateStatus {
+  DATE_STATUS_UNSPECIFIED = 0;
+  DATE_STATUS_IN_PERIOD = 1;
+  // Площадка не отдала дату — нельзя утверждать, что пост в периоде
+  DATE_STATUS_UNKNOWN = 2;
+}
+
+enum ResultSort {
+  RESULT_SORT_UNSPECIFIED = 0;
+  // по умолчанию: direct → indirect → disputed, внутри по score
+  RESULT_SORT_RELEVANCE = 1;
+  RESULT_SORT_DATE_DESC = 2;
+  RESULT_SORT_DATE_ASC = 3;
+}
+
+message ResultSourceRef {
+  optional string source_id = 1;
+  string name = 2;
+  string url = 3;
+  bool is_regional = 4;
+}
+
+message ExcerptPart {
+  string text = 1;
+  bool highlight = 2;
+}
+
+message ResultRegion {
+  bool by_source = 1;
+  bool by_content = 2;
+  string evidence = 3;
+}
+
+message ResultMetrics {
+  optional int64 views = 1;
+  optional int64 likes = 2;
+  optional int64 reposts = 3;
+  optional int64 comments = 4;
+}
+
+// Публикация в контексте конкретного поиска
+message Result {
+  string id = 1;
+  // Глобальный id публикации (одинаков в разных поисках)
+  string publication_id = 2;
+  common.v1.Platform platform = 3;
+  ResultSourceRef source = 4;
+  string url = 5;
+  string title = 6;
+  TitleSource title_source = 7;
+  // Дословный фрагмент исходного текста, ≤ 300 символов
+  string excerpt = 8;
+  // Тот же excerpt, порезанный на куски для подсветки
+  repeated ExcerptPart excerpt_parts = 9;
+  optional google.protobuf.Timestamp published_at = 10;
+  DateStatus date_status = 11;
+  Relevance relevance = 12;
+  float score = 13;
+  string explanation = 14;
+  ResultRegion region = 15;
+  Sentiment sentiment = 16;
+  optional string group_id = 17;
+  uint32 group_size = 18;
+  ResultMetrics metrics = 19;
+  bool excluded = 20;
+  // Какая цель первой нашла пост
+  string found_by_target_id = 21;
+}
+
+message ResultFilter {
+  // Пусто = DIRECT+INDIRECT+DISPUTED. IRRELEVANT — только если явно запросили («отсеянные»).
+  repeated Relevance relevance = 1;
+  repeated common.v1.Platform platforms = 2;
+  repeated string target_ids = 3;
+  // Пусто = любые
+  repeated DateStatus date_status = 4;
+  bool include_excluded = 5;
+}
+
+message ListResultsRequest {
+  common.v1.RequestContext context = 1;
+  string search_id = 2;
+  ResultFilter filter = 3;
+  ResultSort sort = 4;
+  uint32 limit = 5;
+  uint32 offset = 6;
+}
+message ListResultsResponse {
+  repeated Result results = 1;
+  uint32 total = 2;
+  bool has_more = 3;
+}
+
+message ResultGroup {
+  string group_id = 1;
+  string title = 2;
+  uint32 size = 3;
+  repeated common.v1.Platform platforms = 4;
+  optional google.protobuf.Timestamp earliest_published_at = 5;
+  // ВСЕ размещения группы — у каждого своя ссылка
+  repeated Result results = 6;
+}
+
+message ListGroupsRequest {
+  common.v1.RequestContext context = 1;
+  string search_id = 2;
+  ResultFilter filter = 3;
+  uint32 limit = 4;
+  uint32 offset = 5;
+}
+message ListGroupsResponse {
+  repeated ResultGroup groups = 1;
+  uint32 total = 2;
+  bool has_more = 3;
+}
+
+message SetExcludedRequest {
+  common.v1.RequestContext context = 1;
+  string search_id = 2;
+  repeated string result_ids = 3;
+  bool excluded = 4;
+}
+message SetExcludedResponse {
+  // Пересчитанные счётчики
+  SearchCounts counts = 1;
+}
+
+enum ExportFormat {
+  EXPORT_FORMAT_UNSPECIFIED = 0;
+  EXPORT_FORMAT_XLSX = 1;
+  EXPORT_FORMAT_DOCX = 2;
+}
+
+message ExportSearchRequest {
+  common.v1.RequestContext context = 1;
+  string search_id = 2;
+  ExportFormat format = 3;
+  // Тот же фильтр и сортировка, что сейчас на экране — файл совпадает с подборкой
+  ResultFilter filter = 4;
+  ResultSort sort = 5;
+}
+message ExportSearchResponse {
+  bytes content = 1;
+  // «podborka_2026-10-19_bdd.xlsx»
+  string filename = 2;
+  string mime_type = 3;
+}
