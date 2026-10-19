@@ -63,8 +63,9 @@ src/collector_service/
 `_synthetic`). Они проверяют нашу логику, но не то, что VK отвечает именно так. Настоящие ответы:
 
 ```
-VK_SERVICE_TOKEN=... python scripts/record_vk_fixtures.py krsk_news "ДТП Красноярск"
-pytest tests/test_vk_real_fixtures.py
+cd services/collector_service
+VK_SERVICE_TOKEN=... python scripts/record_vk_fixtures.py krsk_news "ДТП Красноярск"   # только stdlib
+uv run pytest tests/test_vk_real_fixtures.py
 ```
 
 Скрипт кладёт ответы в `tests/fixtures/vk/real/` (без токена); пока их нет, этот тест пропускается.

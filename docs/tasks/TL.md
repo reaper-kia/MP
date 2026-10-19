@@ -4,138 +4,169 @@
 `README.md`, `docs/**`. Твоя главная работа — **чтобы все остальные не ждали**: контракты, стабы,
 интеграция, доступы, демо.
 
+## Старт после pull
+
+```bash
+git pull && make install                 # .env + uv sync во всех сервисах
+make check                               # ruff + mypy --strict + pytest в 4 сервисах — как job «python» в CI
+make proto && git diff --stat -- packages/platform_contracts docs/API.md docs/GRPC.md docs/api-types.ts
+                                         # пусто = как job «contracts»
+(cd frontend && npm install && npm run typecheck && npm run build)
+```
+
+Стенд — вариант Б из [README → «Быстрый старт после pull»](../../README.md#быстрый-старт-после-pull)
+(4 терминала без Docker), затем:
+
+```bash
+curl http://127.0.0.1:8000/health/ready  # "status": "ok", search / collector / ml — "up"
+make smoke URL=http://127.0.0.1:8000     # в конце «All good»
+```
+
+Что должно получиться: smoke зелёный на `COLLECTOR_FAKE=true`; Swagger http://127.0.0.1:8000/docs
+показывает все 17 ручек. Вариант А (`make up`) — твоя первая задача ниже (TL-11), в сборке `main` он
+не проверялся.
+
+## Что изменилось при сборке `main`
+
+- `main` = ветка `integ-main`: слиты `b1/layers-and-vk-connector`, `searcher` (B2), `feat/ml-02-eval-dataset`,
+  `fe-01-base` и исправления интеграции. До этого `main` был красным: не было сгенерированного
+  `platform_contracts`.
+- search_service отдаёт gRPC по `contracts/search/v1/search_service.proto` на 50053 (решение владельца
+  проекта): ветка B2 была переписана на FastAPI, её сценарии оставлены, поверх — хэндлеры медиатора.
+  Gateway менять не пришлось.
+- CI зелёный: 4 сервиса + `contracts` + `frontend` (сборка) + `compose config`.
+- Сквозной прогон через gateway без Docker пройден руками и `make smoke` (список проверок — в
+  [`docs/STATUS.md`](../STATUS.md)).
+
 ---
 
 ### [x] TL-01 · P0 · к H+1 · каркас сервисов
 > Сделано: auth и example удалены; search / collector / ml созданы по шаблону, проведены в compose, CI,
-> gateway, env, ansible. Осталось у тебя: `make proto && make install && make check && make up`.
-**Цель.** Три новых сервиса существуют, поднимаются в compose и видны в `/health/ready`.
-
-**Сделать.**
-1. ~~`make new-service`~~ — сервисы созданы вручную по шаблону, скрипт удалён вместе с example_service.
-2. У collector и ml нет БД:
-   `migrations/`, `alembic.ini`, `infra/database`, `infra/repositories`, `infra/uow`, alembic из Dockerfile
-   и из `make run` (в Makefile: запускать `alembic upgrade head`, только если есть `alembic.ini`).
-3. Убрать `auth_client` из collector/ml (README §8, последний абзац).
-4. `compose.yaml`: `search_service`+`search_db`, `collector_service`, `ml_service`; gateway —
-   `SEARCH_GRPC_TARGET`, `COLLECTOR_GRPC_TARGET`, `ML_GRPC_TARGET`; search_service — адреса collector и ml.
-   Профиль `llm-local` с контейнером `ollama` (для ML без ключей Яндекса).
-5. CI matrix — три новых сервиса. `.env.example` — `SEARCH_DB_PASSWORD`, `VK_SERVICE_TOKEN`,
-   `YC_FOLDER_ID`, `YC_API_KEY`, `YC_SEARCH_API_KEY`, `LLM_PROVIDER`, `COLLECTOR_FAKE`.
-6. Удалить `example_service` (README §18) — **после** создания сервисов.
-7. Запушить в main, написать в чат «каркас готов, тянем».
-
-**DoD.** `make up` → все контейнеры healthy; `curl :8000/health/ready` показывает search/collector/ml;
-`make check` зелёный.
+> gateway, env, ansible; `make check` зелёный. **Не проверено:** `make up` → все контейнеры healthy —
+> вынесено в TL-11.
 
 ### [ ] TL-02 · P0 · к H+2 · контракты v1 — заморозка
-**Цель.** Все пишут код по одному контракту с первого часа.
+> Сделано: proto и `openapi.yaml` сверены между собой; сгенерированный код и справочники свежие (CI job
+> `contracts` зелёный); Prism поднимали (`npm run mock`), FE-01…05 сверстаны по типам из `openapi.yaml`.
+> Осталось: п. 3.
 
 **Сделать.**
-1. 30 минут с командой пройти `contracts/http/openapi.yaml` (с FE), `search_service.proto` (с B2),
-   `collector_service.proto` (с B1), `ml_service.proto` (с ML). Правки — сразу.
-2. `make proto`, коммит сгенерированного кода. Перегенерировать справочники:
-   `make docs` (входит в `make proto`) → `docs/API.md`, `docs/api-types.ts`,
-   `docs/GRPC.md` (делать после **каждой** правки контракта; можно добавить в `make proto`).
-3. Поднять у себя Prism (`npx @stoplight/prism-cli@5 mock contracts/http/openapi.yaml -p 4010`) — проверить,
-   что FE реально может на нём работать.
-4. Объявить «контракт v1 заморожен». Дальше правки только через тебя: правка → `make proto` → сообщение
-   в чат, что изменилось.
+1. ~~Пройти контракты с командой~~ — сделано по ходу интеграции; новые расхождения не найдены.
+2. ~~`make proto`, коммит сгенерированного кода~~ — сделано.
+3. Объявить в чате «контракт v1 заморожен». Дальше правки только через тебя: правка → `make proto` →
+   коммит `packages/` и `docs/` → сообщение в чат, что изменилось.
 
-**DoD.** Сгенерированный код в `packages/platform_contracts` свежий (CI проверяет); FE получил ответы от Prism.
+**DoD.** Сообщение о заморозке в чате; `make proto` после pull не даёт diff.
 
 ### [x] TL-03 · P0 · к H+6 · роутеры gateway
-> Сделано: все 17 ручек, схемы 1:1 с openapi (сверено скриптом), enum'ы — `schemas/enums.py`,
-> `UNIMPLEMENTED` → 501, `details` для `SEARCH_INVALID_PARAMS`, тесты на фейковых стабах.
-**Цель.** Каждая ручка из `openapi.yaml` существует и проксирует в search_service (а `/platforms` — в collector
-через search или напрямую — реши; проще напрямую в collector, `/query/analyze` — напрямую в ml).
+> Сделано: все 17 ручек, схемы 1:1 с openapi, enum'ы — `schemas/enums.py`, `UNIMPLEMENTED` → 501,
+> `details` для `SEARCH_INVALID_PARAMS`, тесты на фейковых стабах (зелёные в CI). Проверено вживую через
+> настоящий search_service: площадки, resolve, источники (409 на дубль, PATCH, DELETE), поиск selected и
+> global, results, groups, exclusion, XLSX, retry, cancel, 422 с `details`, 404, `/health/ready`.
+> Не проверено: импорт (search_service отвечает 501, B2-10).
 
-**Сделать.**
-1. `grpc_clients.py`: `search`, `collector`, `ml`. Таймауты: по умолчанию 5 с; `ExportSearch` 60 с;
-   `ResolveSource`/`CreateSource` 20 с; `AnalyzeQuery` 20 с.
-2. Роутеры `routers/meta.py`, `sources.py`, `searches.py`, `results.py`; схемы pydantic в `schemas/`
-   **один к одному с openapi.yaml** (имена полей, enum'ы, `null`).
-3. Маппинг enum proto ⇄ HTTP в одном месте (`schemas/enums.py`), в т.ч. `RELEVANCE_IRRELEVANT` ⇄ `"rejected"`,
-   `optional` поля proto → `null`.
-4. Ручки анонимные (`Ctx` — только request_id). CORS: `http://localhost:5173` + `chrome-extension://*` (для FE-10).
-5. Экспорт: `StreamingResponse`/`Response` с `Content-Disposition: attachment; filename*=UTF-8''…`.
-6. Импорт: `UploadFile` → `bytes` → `ImportSources`.
-7. Ошибки новых кодов — в таблицу маппинга gateway (`RESOURCE_EXHAUSTED` → 429). Для
-   `SEARCH_INVALID_PARAMS` сообщение вида `"period_from: …"` разложить в `details: [{field, message}]`.
-8. Тесты gateway с подменёнными стабами (как в шаблоне) — хотя бы по одному на роутер.
-
-**Контракт: HTTP → gRPC** (поля HTTP — [`docs/API.md`](../API.md), поля gRPC — [`docs/GRPC.md`](../GRPC.md)).
+Справка по маппингу (поля HTTP — [`docs/API.md`](../API.md), поля gRPC — [`docs/GRPC.md`](../GRPC.md)):
 
 | HTTP (operationId) | gRPC | Маппинг, на что смотреть |
 |---|---|---|
 | `GET /platforms` (listPlatforms) | `collector.v1.CollectorService/GetPlatforms` | `PlatformInfo`: `code`←`platform`, `source_mode`←`source_mode_supported`, `global_mode`←`global_mode_supported`, `status`←`health`, `note` пусто → `null` |
-| `POST /query/analyze` (analyzeQuery) | `ml.v1.MlService/AnalyzeQuery` | отдаём подмножество `QueryAnalysis`: `query_type, summary, search_queries, needs_clarification, clarification_hint` (пусто → `null`) |
+| `POST /query/analyze` (analyzeQuery) | `ml.v1.MlService/AnalyzeQuery` | подмножество `QueryAnalysis`: `query_type, summary, search_queries, needs_clarification, clarification_hint` (пусто → `null`) |
 | `GET /sources` (listSources) | `search.v1.SearchService/ListSources` | `platform[]`→`platforms`, `items`←`sources` |
 | `POST /sources/resolve` | `SearchService/ResolveSource` | `SourcePreview` 1:1, `optional` → `null` |
-| `POST /sources` (createSource) | `SearchService/CreateSource` | `is_regional` по умолчанию `true` (в proto bool, по умолчанию false — подставить в gateway!) |
-| `PATCH /sources/{id}` | `SearchService/UpdateSource` | ставить в proto только присланные поля (`model_fields_set`) |
+| `POST /sources` (createSource) | `SearchService/CreateSource` | `is_regional` по умолчанию `true` (в proto bool, по умолчанию false — подставляет gateway) |
+| `PATCH /sources/{id}` | `SearchService/UpdateSource` | в proto только присланные поля (`model_fields_set`) |
 | `DELETE /sources/{id}` | `SearchService/DeleteSource` | 204 |
 | `POST /sources/import` | `SearchService/ImportSources` | `UploadFile.read()` → `xlsx`; `failed[]`: `{row, value, code←error.code, message←error.message}` |
 | `POST /searches` (startSearch) | `SearchService/StartSearch` | **202**; `mode`, `platforms` → enum |
-| `GET /searches` (listSearches) | `SearchService/ListSearches` | `Search` → `SearchSummary` (`id, status, params, counts, created_at, finished_at`) |
+| `GET /searches` (listSearches) | `SearchService/ListSearches` | `Search` → `SearchSummary` |
 | `GET /searches/{id}` | `SearchService/GetSearch` | `Search` целиком |
 | `POST /searches/{id}/retry` | `SearchService/RetrySearch` | **202**; тело необязательно |
 | `POST /searches/{id}/cancel` | `SearchService/CancelSearch` | |
-| `GET /searches/{id}/results` | `SearchService/ListResults` | query → `ResultFilter{relevance, platforms, target_ids, date_status, include_excluded}` + `ResultSort`; `items`←`results` |
+| `GET /searches/{id}/results` | `SearchService/ListResults` | query → `ResultFilter` + `ResultSort`; `items`←`results` |
 | `GET /searches/{id}/groups` | `SearchService/ListGroups` | `items`←`groups`, `ResultGroup.items`←`results` |
 | `POST /searches/{id}/results/exclusion` | `SearchService/SetExcluded` | `{counts}` |
-| `GET /searches/{id}/export` | `SearchService/ExportSearch` | `Response(content, media_type=mime_type, headers=Content-Disposition(filename))` |
+| `GET /searches/{id}/export` | `SearchService/ExportSearch` | `Response(content, media_type=mime_type, Content-Disposition(filename))` |
 
-**Enum'ы proto → HTTP** (один модуль `schemas/enums.py`): общее правило — убрать префикс и в нижний
-регистр (`PLATFORM_VK`→`vk`, `SEARCH_STATUS_PARTIAL`→`partial`, `SEARCH_STAGE_ANALYZING_QUERY`→
-`analyzing_query`, `TARGET_KIND_PLATFORM_SEARCH`→`platform_search`, `TITLE_SOURCE_POST_START`→
-`post_start`, `DATE_STATUS_IN_PERIOD`→`in_period`, `RESULT_SORT_DATE_DESC`→`date_desc`). Исключения:
-`RELEVANCE_IRRELEVANT` ⇄ `"rejected"`; `SENTIMENT_UNSPECIFIED` → `null`; `QUERY_TYPE_UNSPECIFIED` → `null`;
-`PLATFORM_HEALTH_*` → `ok|degraded|unavailable`. `Timestamp` → ISO UTC (`ts()` из `schemas/common.py`);
-`optional` без значения → `null`; `optional ErrorInfo error` без значения → `null`.
+Enum'ы: префикс убрать, нижний регистр; исключения `RELEVANCE_IRRELEVANT` ⇄ `"rejected"`,
+`SENTIMENT_UNSPECIFIED` / `QUERY_TYPE_UNSPECIFIED` → `null`, `PLATFORM_HEALTH_*` → `ok|degraded|unavailable`.
 
-**DoD.** Swagger `/docs` совпадает с `openapi.yaml` (сверить глазами по списку путей и полям `Search`, `Result`);
-FE переключает proxy с Prism на gateway и ничего не ломается.
+### [ ] TL-11 · P0 · сразу после merge · стенд в Docker (`make up`)
+**Цель.** Общий DoD («работает в `make up`») и деплой (TL-07) опираются на Docker, а в сборке `main` он
+ни разу не поднимался. Риски: образ `search_service` новый (Dockerfile по шаблону: python 3.13, uv,
+`alembic upgrade head && search-service`) и не собирался; `COLLECTOR_FAKE` приходит из `.env`.
 
-### [ ] TL-04 · P0 · к H+4 · доступы
-**Цель.** Ключи есть у тех, кому нужны, до того как они упрутся.
+**Сделать.**
+1. `make reset && make up` (или `bash scripts/diagnose.sh --docker` — соберёт, проверит health, прогонит
+   smoke и сложит логи в `.diagnose/`).
+2. `make ps` — все running; `make logs s=search_service` — миграция применилась, сервер слушает 50053.
+3. `curl localhost:8000/health/ready` — все `up`; `make smoke` → `All good`.
+4. http://localhost — фронт из nginx открывается, поиск «Безопасность дорожного движения» в режиме
+   «Только мои источники» доходит до подборки (после smoke в каталоге есть источник).
+5. Что сломалось — починить (compose, Dockerfile) или отдать владельцу сервиса с логом.
 
-**Сделать.** VK ID приложение → сервисный ключ (B1). Yandex Cloud: каталог, сервисный аккаунт, API-ключ,
-роли `ai.languageModels.user` и для Search API (ML, B1) — проверь грант/бюджет. Сервер для демо.
-Стартовые материалы кейса (список источников, сайтов, «согласованные доступы») — как придут, в
-`docs/ARCHITECTURE.md §7` и в `.env` на сервере.
+**DoD.** На чистой машине `make install && make up && make smoke` → `All good`; строка в `docs/STATUS.md`
+«стенд в Docker» переведена в ✔ с датой.
 
-**DoD.** Таблица §7 в ARCHITECTURE заполнена, у каждого рабочий ключ в локальном `.env`.
+### [ ] TL-12 · P0 · сразу после merge · все на новом `main`
+**Сделать.**
+1. Сообщение в чат: «main собран из всех веток; каждый — `git pull` и раздел «Старт после pull» в своём
+   файле `docs/tasks/<роль>.md`; новые ветки — только от свежего `main`».
+2. Слитые ветки (`b1/layers-and-vk-connector`, `searcher`, `feat/ml-02-eval-dataset`, `fe-01-base`) закрыть,
+   чтобы в них не продолжали работу. У FE есть незалитая ветка с FE-06 — ребейз на `main` (FE-06).
+3. B2: отдельно объяснить, что сервис теперь gRPC, а не FastAPI (раздел «Что изменилось» в B2-search.md).
 
-### [ ] TL-05 · P0 · к H+12 и H+24 · интеграционный прогон
-**Цель.** Ловить несостыковки на вехах, а не на демо.
+**DoD.** Каждый подтвердил в чате, что у него проходит «Старт после pull» своей роли.
 
-**Сделать.** На H+6, H+12, H+24, H+34 пройти 5 сценариев ТЗ руками по чек-листу `docs/demo/checklist.md`
-(создай его: сценарий → действия → ожидаемое). Баги — в чат с ID задачи владельца.
-Обновить `scripts/smoke.py`: создать источник → поиск → дождаться финального статуса → results → export
-(проверить, что XLSX открывается openpyxl и число строк = `counts.total`).
+### [ ] TL-04 · P0 · к H+4 · доступы — **блокирует реальные данные**
+**Цель.** Без ключей весь продукт работает только на тестовых постах и эвристиках.
 
-**DoD.** `make smoke` проходит на стенде; чек-лист с отметками по каждой вехе.
+**Сделать.** VK ID приложение → сервисный ключ → B1 (`VK_SERVICE_TOKEN`; без него VK отвечает 503
+«не настроен доступ»). Yandex Cloud: каталог, сервисный аккаунт, API-ключ, роли `ai.languageModels.user`
+(ML: `YC_FOLDER_ID`, `YC_API_KEY`) и для Search API (B1: `YC_SEARCH_API_KEY`) — проверь грант/бюджет.
+Сервер для демо. Стартовые материалы кейса (список источников, сайтов, «согласованные доступы») — как
+придут, в `docs/ARCHITECTURE.md §7` и в `.env` на сервере.
+
+**DoD.** Таблица §7 в ARCHITECTURE заполнена, у B1 и ML рабочий ключ в локальном `.env`.
+
+### [ ] TL-05 · P0 · на H+12, H+24, H+34 · интеграционный прогон
+> Сделано: чек-лист `docs/demo/checklist.md`; `scripts/smoke.py` (источник → поиск → финальный статус →
+> results → groups → XLSX, строк со ссылками = `counts.total` → 404) проходит локально без Docker на
+> тестовых данных.
+
+**Сделать.** На каждой вехе: `make smoke` на стенде + 5 сценариев ТЗ руками по чек-листу, отметки в
+таблице чек-листа. Баги — в чат с ID задачи владельца. Как только у B1 есть ключ VK — первый прогон с
+`COLLECTOR_FAKE=false` (smoke сам возьмёт `vk.com/krsk_news`).
+
+**DoD.** Чек-лист с отметками по каждой вехе; `make smoke` проходит на Docker-стенде и на сервере.
 
 ### [ ] TL-06 · P0 · к H+14 · каталог источников (seed)
 **Цель.** Режим «везде» и демо работают на реальных региональных источниках.
 
-**Сделать.** Из стартовых материалов (или вручную, если их нет — 30–50 источников: крупные СМИ края,
-правительство, ГИБДД/МЧС края, мэрии крупных городов в VK, OK, MAX) → `seed/sources.xlsx`
-(A — ссылка, B — название, C — региональный). Загрузка через `POST /sources/import` (B2-10) или скриптом
-`scripts/seed_sources.py`, который дёргает `POST /sources` по строкам (это P0-путь, импорт — P2).
+**Сейчас:** нет ни `seed/`, ни скрипта, ни цели `make seed` (на неё ссылаются TL-08 и DoD ниже).
 
-**DoD.** После `make reset && make up && make seed` в каталоге ≥ 30 источников, у всех `name` с площадки.
+**Сделать.**
+1. Из стартовых материалов (или вручную: 30–50 источников — крупные СМИ края, правительство,
+   ГИБДД/МЧС края, мэрии крупных городов в VK, OK, MAX) → `seed/sources.xlsx` (A — ссылка, B — название,
+   C — региональный).
+2. `scripts/seed_sources.py URL` — по строкам `POST /api/v1/sources` (409 = уже есть, не ошибка), в конце
+   отчёт «добавлено / уже были / ошибки со строкой». Цель `make seed [URL=...]`. Импорт через
+   `POST /sources/import` (B2-10, P2) — не ждать.
+3. Учесть: имена берутся с площадки, поэтому seed осмыслен только с ключом VK (TL-04, B1-03); на
+   `COLLECTOR_FAKE=true` получатся тестовые имена. Строки OK и MAX до B1-04/B1-05 дадут 501 — оставить
+   в файле, скрипт их просто отчитает как ошибки.
+
+**DoD.** После `make reset && make up && make seed` в каталоге ≥ 30 источников VK, у всех `name` с площадки.
 
 ### [ ] TL-07 · P0 · к H+30 · деплой
-**Сделать.** `make deploy HOST=…`; `.env` на сервере с ключами; `COLLECTOR_FAKE=false`, проверка в
-`/health/ready`; фронт и расширение смотрят на адрес сервера. Ежедневный (ежечасный перед демо)
-`make smoke URL=…`.
+**Сделать.** После TL-11: `make deploy HOST=…` (`infra/ansible`, ещё не запускали); `.env` на сервере с
+ключами; `COLLECTOR_FAKE=false`, проверка в `/health/ready` и `/platforms`; фронт и расширение смотрят на
+адрес сервера. Ежедневный (ежечасный перед демо) `make smoke URL=http://<ip>`.
 
 **DoD.** Эксперт открывает `http://<ip>` и проходит сценарий 1 без нас.
 
 ### [ ] TL-08 · P0 · к H+38 · README по требованиям ТЗ
-**Цель.** Критерий «Документация» (2) + условия сдачи. Эксперт по README запускает и проверяет.
+> Сделано: «Быстрый старт после pull» (зависимости, Docker / без Docker, Windows, фронт, проверки, smoke,
+> какие ключи что включают). Остальные разделы — нет.
 
 **Сделать.** Разделы (каждый — коротко, по делу):
 1. Что это и для кого; 5 шагов пользователя со скриншотами.
@@ -162,4 +193,29 @@ XLSX → открыть файл. Отдельно: сценарий 2 (текс
 
 ### [ ] TL-10 · P1 · по ходу · ревью и «проверенное vs предположения»
 Ревьюить PR в `main` (приоритет: контрактные и B2). Вести `docs/STATUS.md` — что реально проверено,
-что предположение (критерий «Выступление и ответы»).
+что предположение (критерий «Выступление и ответы»). Последнее обновление — после сборки `main`.
+
+### [ ] TL-13 · P1 · по ходу · мелочи CI и Makefile, найденные при сборке
+1. Job `frontend` делает только `npm run build` (это `vite build`, типы не проверяет) — добавить
+   `npm run typecheck`.
+2. `make front-dev`: подпись «проксирует /api на localhost:8000» неверна — по умолчанию прокси идёт в
+   Prism (127.0.0.1:4010). Поправить подпись или передавать `VITE_API_TARGET=http://127.0.0.1:8000`.
+3. `make install` не создаёт `services/<сервис>/.env`, а без него `make run s=collector_service`
+   стартует с `COLLECTOR_FAKE=false` (по умолчанию в коде). Решить: копировать `.env.example` в `make env`
+   или оставить шаг в README.
+4. В корне лежит папка `outputs/` — старая копия `docs/` из первого коммита; её никто не обновляет.
+   Удалить после согласования с владельцем проекта.
+5. Цель `make seed` — в TL-06.
+
+---
+
+## Кто от кого ждёт (интеграция)
+
+| Что | Кто ждёт | От кого | Чем закрывается |
+|---|---|---|---|
+| Реальные посты VK | все сценарии, демо, eval ML | TL-04 (ключ) → B1-03 | `COLLECTOR_FAKE=false` + `VK_SERVICE_TOKEN`, smoke на `krsk_news` |
+| Каталог источников | режим «везде», демо | B1-03 → TL-06 | `make seed` |
+| OK / MAX | 5 баллов «Площадки» | B1-01 → B1-04 / B1-05 / B1-06 | сейчас 501 |
+| Отбор по смыслу | сценарии 1–2, «Качество» | TL-04 (ключи Яндекса) → ML-03…ML-06 → B2-06 (боевой прогон) | сейчас эвристики, `degraded=true` |
+| Фронт на живых данных | демо | FE-12 (прогон на gateway) | сейчас FE проверен на MSW |
+| Docker и сервер | деплой, эксперты | TL-11 → TL-07 | сейчас только локальный стенд без Docker |
