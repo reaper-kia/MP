@@ -17,7 +17,10 @@ info:
     - Время (`*_at`) — ISO 8601 в UTC; показывать в Asia/Krasnoyarsk.
     - Поле `null` = «недоступно». Фронт показывает «нет данных», а не пустоту и не 0.
     - Ошибка всегда `{"error": {"code", "message", "request_id", "details"}}`; фронт решает по `code`.
-    - Пагинация: `limit` + `offset` → `{items, total, has_more}`.
+    - Пагинация: `limit` + `offset` → `{items, total, has_more}`. Исключение — история поисков
+      `GET /searches`: `{items, has_more}` без `total`.
+    - Любая ручка может ответить `429 RATE_LIMITED` (площадка ограничила частоту запросов — повторить позже)
+      и `501 NOT_IMPLEMENTED` (возможность ещё не включена, например DOCX). Показывать `message` как есть.
 
     Изменения контракта — только через TL, с поднятием version и сообщением в чат.
 servers:
@@ -107,6 +110,7 @@ paths:
               schema: { $ref: "#/components/schemas/Source" }
         "409": { $ref: "#/components/responses/Conflict" }
         "422": { $ref: "#/components/responses/ValidationError" }
+        "429": { $ref: "#/components/responses/RateLimited" }
         "503": { $ref: "#/components/responses/Unavailable" }
 
   /api/v1/sources/resolve:
@@ -129,6 +133,7 @@ paths:
               schema: { $ref: "#/components/schemas/SourcePreview" }
         "404": { $ref: "#/components/responses/NotFound" }
         "422": { $ref: "#/components/responses/ValidationError" }
+        "429": { $ref: "#/components/responses/RateLimited" }
         "503": { $ref: "#/components/responses/Unavailable" }
 
   /api/v1/sources/import:
@@ -190,6 +195,10 @@ paths:
         Возвращает задачу сразу (`status=queued`). Дальше фронт опрашивает `GET /searches/{id}`
         каждые 1.5 с, пока `status` не станет одним из `completed | partial | failed | cancelled`.
         id текущего поиска держать в URL (`/search/<id>`) — так подборка всегда привязана к своим параметрам.
+
+        `mode=selected`: ищем только по `source_ids`, площадки берутся из самих источников, а `platforms`
+        игнорируется (передавайте площадки этих источников). `mode=global`: `source_ids` пустой, ищем по
+        всей площадке из `platforms` и по активным источникам каталога.
       requestBody:
         required: true
         content:
@@ -306,6 +315,7 @@ paths:
       tags: [searches]
       operationId: cancelSearch
       summary: Остановить поиск (незавершённые источники → skipped)
+      description: Если поиск уже завершён (`completed | partial | failed | cancelled`) — ничего не меняет, отвечает 200 с текущим состоянием, не ошибкой.
       responses:
         "200":
           description: OK
@@ -350,6 +360,8 @@ paths:
       parameters:
         - { $ref: "#/components/parameters/RelevanceFilter" }
         - { $ref: "#/components/parameters/PlatformFilter" }
+        - { $ref: "#/components/parameters/TargetFilter" }
+        - { $ref: "#/components/parameters/DateStatusFilter" }
         - { $ref: "#/components/parameters/IncludeExcluded" }
         - { $ref: "#/components/parameters/Limit" }
         - { $ref: "#/components/parameters/Offset" }
@@ -398,6 +410,8 @@ paths:
         - { name: format, in: query, required: true, schema: { type: string, enum: [xlsx, docx] } }
         - { $ref: "#/components/parameters/RelevanceFilter" }
         - { $ref: "#/components/parameters/PlatformFilter" }
+        - { $ref: "#/components/parameters/TargetFilter" }
+        - { $ref: "#/components/parameters/DateStatusFilter" }
         - { $ref: "#/components/parameters/Sort" }
       responses:
         "200":
@@ -412,6 +426,7 @@ paths:
             application/vnd.openxmlformats-officedocument.wordprocessingml.document:
               schema: { type: string, format: binary }
         "404": { $ref: "#/components/responses/NotFound" }
+        "501": { $ref: "#/components/responses/NotImplemented" }
 
 components:
   parameters:
@@ -469,6 +484,20 @@ components:
           schema: { $ref: "#/components/schemas/ErrorResponse" }
           example:
             error: { code: SOURCE_ALREADY_EXISTS, message: Источник уже есть в списке, request_id: 7f3c2a, details: [] }
+    RateLimited:
+      description: Площадка ограничила частоту запросов (RATE_LIMITED) — повторить позже
+      content:
+        application/json:
+          schema: { $ref: "#/components/schemas/ErrorResponse" }
+          example:
+            error: { code: RATE_LIMITED, message: Превышен лимит запросов к площадке, request_id: 7f3c2a, details: [] }
+    NotImplemented:
+      description: Возможность ещё не включена (NOT_IMPLEMENTED), например выгрузка в DOCX
+      content:
+        application/json:
+          schema: { $ref: "#/components/schemas/ErrorResponse" }
+          example:
+            error: { code: NOT_IMPLEMENTED, message: Выгрузка в DOCX пока недоступна, request_id: 7f3c2a, details: [] }
     Unavailable:
       description: Площадка или сервис недоступны (PLATFORM_UNAVAILABLE, SERVICE_UNAVAILABLE)
       content:
@@ -525,7 +554,7 @@ components:
       type: object
       required: [query_type, summary, search_queries, needs_clarification, clarification_hint]
       properties:
-        query_type: { $ref: "#/components/schemas/QueryType" }
+        query_type: { oneOf: [{ $ref: "#/components/schemas/QueryType" }, { type: "null" }], description: "null — тип не определён (ML в упрощённом режиме): показать «тип запроса не определён»" }
         summary: { type: string }
         search_queries: { type: array, items: { type: string } }
         needs_clarification: { type: boolean }

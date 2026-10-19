@@ -43,7 +43,7 @@
 <a id="commonv1period"></a>
 ### message `common.v1.Period`
 
-Период по дате публикации. Обе границы включительно. Даты пользователь выбирает в часовом поясе Asia/Krasnoyarsk (UTC+7): start = 00:00:00 первого дня, end = 23:59:59 последнего дня, переведённые в UTC. (не from/to: from — ключевое слово Python, в сгенерированном коде неудобно)
+Период по дате публикации. Обе границы включительно. Даты пользователь выбирает в часовом поясе Asia/Krasnoyarsk (UTC+7): start = 00:00:00 первого дня, end = 23:59:59.999999999 последнего дня, переведённые в UTC. Доли секунды в end обязательны: MAX и часть страниц отдают время с миллисекундами, и пост, опубликованный в последнюю секунду дня, иначе выпал бы из периода. (не from/to: from — ключевое слово Python, в сгенерированном коде неудобно)
 
 | № | Поле | Тип | Метка | Описание |
 |---|---|---|---|---|
@@ -202,7 +202,7 @@
 | 2 | `platform` | [`common.v1.Platform`](#commonv1platform) |  |  |
 | 3 | `queries` | string (str) | repeated | Поисковые фразы от ML (AnalyzeQuery.search_queries). Каждая ищется отдельно, результаты объединяются. |
 | 4 | `period` | [`common.v1.Period`](#commonv1period) |  |  |
-| 5 | `region_terms` | string (str) | repeated | Термины региона для сужения: «Красноярск», «Красноярский край», «Норильск», ... |
+| 5 | `region_terms` | string (str) | repeated | Подсказка: термины региона («Красноярск», «Красноярский край», «Норильск», ...). Как keywords, коннектор может её игнорировать и искать по фразам queries как есть: привязку к региону и отбор по смыслу делают ml_service и search_service. |
 | 6 | `max_posts` | uint32 (int ≥ 0) |  | 0 = по умолчанию (500) |
 
 <a id="collectorv1searchplatformresponse"></a>
@@ -423,7 +423,7 @@
 | `GetSearch` | [`GetSearchRequest`](#searchv1getsearchrequest) → [`GetSearchResponse`](#searchv1getsearchresponse) |  |
 | `ListSearches` | [`ListSearchesRequest`](#searchv1listsearchesrequest) → [`ListSearchesResponse`](#searchv1listsearchesresponse) |  |
 | `RetrySearch` | [`RetrySearchRequest`](#searchv1retrysearchrequest) → [`RetrySearchResponse`](#searchv1retrysearchresponse) | Повторить упавшие цели (или указанные). Уже найденное сохраняется. |
-| `CancelSearch` | [`CancelSearchRequest`](#searchv1cancelsearchrequest) → [`CancelSearchResponse`](#searchv1cancelsearchresponse) |  |
+| `CancelSearch` | [`CancelSearchRequest`](#searchv1cancelsearchrequest) → [`CancelSearchResponse`](#searchv1cancelsearchresponse) | Для уже завершённого поиска (completed/partial/failed/cancelled) ничего не меняет: отвечает текущим состоянием, без ошибки. |
 | `ListResults` | [`ListResultsRequest`](#searchv1listresultsrequest) → [`ListResultsResponse`](#searchv1listresultsresponse) | ── подборка ── |
 | `ListGroups` | [`ListGroupsRequest`](#searchv1listgroupsrequest) → [`ListGroupsResponse`](#searchv1listgroupsresponse) |  |
 | `SetExcluded` | [`SetExcludedRequest`](#searchv1setexcludedrequest) → [`SetExcludedResponse`](#searchv1setexcludedresponse) |  |
@@ -740,7 +740,7 @@ _Пустое сообщение._
 | 3 | `period_from` | string (str) |  |  |
 | 4 | `period_to` | string (str) |  |  |
 | 5 | `mode` | [`SearchMode`](#searchv1searchmode) |  |  |
-| 6 | `platforms` | [`common.v1.Platform`](#commonv1platform) | repeated |  |
+| 6 | `platforms` | [`common.v1.Platform`](#commonv1platform) | repeated | GLOBAL — площадки, по которым ищем. SELECTED — игнорируется: площадки берутся из source_ids. |
 | 7 | `source_ids` | string (str) | repeated |  |
 
 <a id="searchv1startsearchresponse"></a>

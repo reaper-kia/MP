@@ -15,22 +15,21 @@ import hashlib
 from collections.abc import Sequence
 from datetime import datetime, timedelta
 
-from collector_service.errors import (
+from collector_service.domain.enums import Health, Platform
+from collector_service.domain.exceptions import (
     PlatformUnavailableError,
     SourcePrivateError,
     UnsupportedUrlError,
 )
-from collector_service.models import (
+from collector_service.domain.urls import path_parts
+from collector_service.domain.value_objects import (
     CollectResult,
-    Health,
     Period,
-    Platform,
     PlatformInfo,
     PostMetrics,
     RawPost,
     SourceInfo,
 )
-from collector_service.urls import path_parts
 
 HOSTS: dict[Platform, tuple[str, ...]] = {
     Platform.VK: ("vk.com", "vk.ru"),
@@ -101,7 +100,8 @@ class FakeConnector:
             raise SourcePrivateError("Группа закрыта")
         if source_external_id == "empty":
             return CollectResult()
-        # обрезку до max_posts и truncated делает CollectorService — коннектор отдаёт всё
+        # обрезку до max_posts и truncated делает finalize_result (domain/services.py):
+        # коннектор отдаёт всё
         return CollectResult(posts=self._posts(source_external_id, period))
 
     async def search(

@@ -37,7 +37,7 @@ class QueryAnalyzeIn(BaseModel):
 
 
 class QueryAnalysisOut(BaseModel):
-    query_type: QueryType
+    query_type: QueryType | None  # null — ML не определил тип (упрощённый режим)
     summary: str
     search_queries: list[str]
     needs_clarification: bool
@@ -49,7 +49,7 @@ class QueryAnalysisOut(BaseModel):
     ) -> "QueryAnalysisOut":
         mapping = query_type_map or ML_QUERY_TYPE_FROM_PROTO
         return cls(
-            query_type=mapping.get(a.query_type, "topic"),
+            query_type=mapping.get(a.query_type),
             summary=a.summary,
             search_queries=list(a.search_queries),
             needs_clarification=a.needs_clarification,

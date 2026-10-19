@@ -1,12 +1,12 @@
-"""Ошибки сервиса. Маппинг в gRPC-статус и публичный код — transport/grpc/errors.py."""
+"""Ошибки, которые возникают при работе с площадкой.
+
+Ошибки уровня приложения (кривой запрос, не реализовано) — в applications/exceptions.py.
+Маппинг в gRPC-статус и публичный код — transport/grpc/errors.py.
+"""
 
 
 class CollectorError(Exception):
     pass
-
-
-class InvalidRequestError(CollectorError):
-    """Кривой запрос: нет периода, неизвестная площадка, start > end."""
 
 
 class UnsupportedUrlError(CollectorError):
@@ -27,7 +27,3 @@ class PlatformUnavailableError(CollectorError):
 
 class RateLimitedError(CollectorError):
     pass
-
-
-class NotImplementedYetError(CollectorError):
-    """Коннектор ещё не написан — честно отвечаем UNIMPLEMENTED."""

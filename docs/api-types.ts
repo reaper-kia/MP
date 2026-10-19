@@ -30,7 +30,8 @@ export interface QueryAnalyzeIn {
 }
 
 export interface QueryAnalysis {
-  query_type: QueryType;
+  /** null — тип не определён (ML в упрощённом режиме): показать «тип запроса не определён» */
+  query_type: QueryType | null;
   summary: string;
   search_queries: string[];
   needs_clarification: boolean;

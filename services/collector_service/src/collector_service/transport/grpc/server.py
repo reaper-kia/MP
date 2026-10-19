@@ -6,9 +6,9 @@ from grpc import aio
 from grpc_health.v1 import health, health_pb2, health_pb2_grpc
 from grpc_reflection.v1alpha import reflection
 
-from collector_service.config import get_settings
+from collector_service.applications.mediator import Mediator
 from collector_service.dependencies import build_container
-from collector_service.service import CollectorService
+from collector_service.infra.config import get_settings
 from collector_service.transport.grpc.servicer import CollectorServicer
 
 logger = logging.getLogger(__name__)
@@ -20,10 +20,10 @@ SERVICE_NAMES = (
 )
 
 
-async def create_server(service: CollectorService, address: str) -> tuple[aio.Server, int]:
+async def create_server(mediator: Mediator, address: str) -> tuple[aio.Server, int]:
     server = aio.server()
 
-    pb_grpc.add_CollectorServiceServicer_to_server(CollectorServicer(service), server)
+    pb_grpc.add_CollectorServiceServicer_to_server(CollectorServicer(mediator), server)
 
     health_service = health.aio.HealthServicer()  # type: ignore[attr-defined]
     health_pb2_grpc.add_HealthServicer_to_server(health_service, server)
@@ -42,7 +42,7 @@ async def serve() -> None:
     settings = get_settings()
     container = build_container(settings)
 
-    server, _ = await create_server(container.service, settings.grpc_address)
+    server, _ = await create_server(container.mediator, settings.grpc_address)
     await server.start()
     if settings.collector_fake:
         logger.warning("COLLECTOR_FAKE=true — отдаются ТЕСТОВЫЕ посты, не для демо")

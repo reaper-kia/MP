@@ -1,0 +1,62 @@
+{
+  "_synthetic": "СИНТЕТИКА: составлено вручную по документации VK API, это НЕ записанный ответ площадки. Настоящие ответы кладутся в tests/fixtures/vk/real/ скриптом scripts/record_vk_fixtures.py.",
+  "response": {
+    "count": 6,
+    "total_count": 6,
+    "next_from": "2/synthetic-cursor",
+    "items": [
+      {
+        "id": 9008,
+        "owner_id": -100001,
+        "from_id": -100001,
+        "date": 1792353900,
+        "post_type": "post",
+        "text": "На ул. Ленина в Красноярске открыли новый пешеходный переход со светофором.",
+        "views": {
+          "count": 1200
+        },
+        "likes": {
+          "count": 35
+        }
+      },
+      {
+        "id": 5001,
+        "owner_id": -100002,
+        "from_id": -100002,
+        "date": 1792200000,
+        "post_type": "post",
+        "text": "В Норильске прошли учения МЧС по пожарной безопасности.",
+        "likes": {
+          "count": 9
+        },
+        "comments": {
+          "count": 1
+        }
+      },
+      {
+        "id": 31,
+        "owner_id": 555,
+        "from_id": 555,
+        "date": 1792100000,
+        "post_type": "post",
+        "text": "Видела сегодня ДТП у моста, будьте осторожны!",
+        "likes": {
+          "count": 2
+        }
+      },
+      {
+        "id": 5002,
+        "owner_id": -100002,
+        "from_id": -100002,
+        "date": 1792000000,
+        "post_type": "post",
+        "text": "",
+        "attachments": [
+          {
+            "type": "video"
+          }
+        ]
+      }
+    ]
+  }
+}

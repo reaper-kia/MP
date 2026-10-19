@@ -1,12 +1,13 @@
 from collections.abc import Iterable
 
-from collector_service.connectors.base import PlatformConnector
-from collector_service.errors import InvalidRequestError, UnsupportedUrlError
-from collector_service.models import Platform
-from collector_service.urls import host_of
+from collector_service.applications.exceptions import InvalidRequestError
+from collector_service.applications.ports.connectors import PlatformConnector
+from collector_service.domain.enums import Platform
+from collector_service.domain.exceptions import UnsupportedUrlError
+from collector_service.domain.urls import host_of
 
 
-class ConnectorRegistry:
+class InMemoryConnectorRegistry:
     def __init__(self, connectors: Iterable[PlatformConnector]) -> None:
         self._by_platform: dict[Platform, PlatformConnector] = {}
         for connector in connectors:

@@ -1,6 +1,6 @@
 from urllib.parse import urlsplit
 
-from collector_service.errors import UnsupportedUrlError
+from collector_service.domain.exceptions import UnsupportedUrlError
 
 
 def normalize_url(raw: str) -> str:

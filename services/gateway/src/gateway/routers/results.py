@@ -96,6 +96,8 @@ async def list_groups(
     clients: Clients,
     relevance: RelevanceQ = None,
     platform: PlatformQ = None,
+    target_id: TargetQ = None,
+    date_status: DateStatusQ = None,
     include_excluded: bool = False,
     limit: Annotated[int, Query(ge=1, le=200)] = 50,
     offset: Annotated[int, Query(ge=0)] = 0,
@@ -104,7 +106,7 @@ async def list_groups(
         pb.ListGroupsRequest(
             context=ctx,
             search_id=str(search_id),
-            filter=build_filter(relevance, platform, include_excluded=include_excluded),
+            filter=build_filter(relevance, platform, target_id, date_status, include_excluded),
             limit=limit,
             offset=offset,
         )
@@ -145,6 +147,8 @@ async def export_search(
     format: ExportFormat,
     relevance: RelevanceQ = None,
     platform: PlatformQ = None,
+    target_id: TargetQ = None,
+    date_status: DateStatusQ = None,
     sort: ResultSort = "relevance",
 ) -> Response:
     result = await clients.search.ExportSearch(
@@ -152,7 +156,7 @@ async def export_search(
             context=ctx,
             search_id=str(search_id),
             format=FORMAT_TO_PROTO[format],
-            filter=build_filter(relevance, platform),
+            filter=build_filter(relevance, platform, target_id, date_status),
             sort=SORT_TO_PROTO[sort],
         ),
         timeout=settings.export_timeout_seconds,

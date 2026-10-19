@@ -1,0 +1,13 @@
+{
+  "_synthetic": "СИНТЕТИКА: составлено вручную по документации VK API, это НЕ записанный ответ площадки. Настоящие ответы кладутся в tests/fixtures/vk/real/ скриптом scripts/record_vk_fixtures.py.",
+  "response": [
+    {
+      "id": 555,
+      "first_name": "Ольга",
+      "last_name": "Тестова",
+      "screen_name": "olga_test",
+      "can_access_closed": true,
+      "is_closed": false
+    }
+  ]
+}

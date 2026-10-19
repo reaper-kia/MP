@@ -2,24 +2,12 @@
 
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
-from enum import StrEnum
+
+from collector_service.domain.enums import Health, Platform
 
 
 def utc_now() -> datetime:
     return datetime.now(UTC)
-
-
-class Platform(StrEnum):
-    VK = "vk"
-    OK = "ok"
-    MAX = "max"
-    NEWS = "news"
-
-
-class Health(StrEnum):
-    OK = "ok"
-    DEGRADED = "degraded"
-    UNAVAILABLE = "unavailable"
 
 
 @dataclass(frozen=True, slots=True)

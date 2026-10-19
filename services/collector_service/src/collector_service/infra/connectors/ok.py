@@ -5,9 +5,9 @@
 
 import httpx
 
-from collector_service.config import Settings
-from collector_service.connectors.base import NotImplementedConnector
-from collector_service.models import Platform
+from collector_service.domain.enums import Platform
+from collector_service.infra.config import Settings
+from collector_service.infra.connectors.base import NotImplementedConnector
 
 
 class OkConnector(NotImplementedConnector):

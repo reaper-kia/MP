@@ -10,9 +10,8 @@ from typing import Any
 
 import grpc
 
-from collector_service.errors import (
-    InvalidRequestError,
-    NotImplementedYetError,
+from collector_service.applications.exceptions import InvalidRequestError, NotImplementedYetError
+from collector_service.domain.exceptions import (
     PlatformUnavailableError,
     RateLimitedError,
     SourceNotFoundError,
