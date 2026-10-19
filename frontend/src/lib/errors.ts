@@ -12,10 +12,23 @@ const BY_CODE: Record<string, string> = {
   UPSTREAM_ERROR: "Сервис временно недоступен. Повторите попытку",
 };
 
+/** Где случилась ошибка — от этого зависит текст для 501 NOT_IMPLEMENTED. */
+export type ErrorContext = "source" | "export" | "import";
+
+// 501 — «ещё не сделано», а не «сломалось». Временные тексты до UI-04.
+const NOT_IMPLEMENTED: Record<ErrorContext | "default", string> = {
+  source: "Эта площадка пока не подключена — сейчас можно добавлять только группы ВКонтакте",
+  export: "Выгрузка в этом формате пока недоступна",
+  import: "Загрузка списка из Excel пока недоступна",
+  default: "Эта возможность пока недоступна",
+};
+
 /** Текст для уведомления. Для неизвестных кодов — message с сервера (он по-русски). */
-export function errorText(err: unknown): string {
+export function errorText(err: unknown, context?: ErrorContext): string {
   if (err instanceof ApiError) {
-    // PLATFORM_UNAVAILABLE и прочие: сервер уже пишет «{Площадка} сейчас недоступна…» по-русски
+    if (err.code === "NOT_IMPLEMENTED") return NOT_IMPLEMENTED[context ?? "default"];
+    // 503 PLATFORM_UNAVAILABLE: сервер пишет причину сам («ВКонтакте: не настроен доступ…») — показываем её
+    if (err.code === "PLATFORM_UNAVAILABLE") return err.message || "Площадка сейчас недоступна, попробуйте позже";
     if (err.status >= 500 && !BY_CODE[err.code]) return BY_CODE.SERVICE_UNAVAILABLE;
     return BY_CODE[err.code] ?? err.message;
   }

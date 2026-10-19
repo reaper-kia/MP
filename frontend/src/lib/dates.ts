@@ -31,3 +31,11 @@ export function fmtDate(ymd: string): string {
 export function todayYmd(): string {
   return dayjs().tz(TZ).format("YYYY-MM-DD");
 }
+
+/** Период подборки: «19.10.2026» или «12.10–19.10.2026» (годы разные — «28.12.2025–03.01.2026»). */
+export function fmtPeriod(from: string, to: string): string {
+  const f = dayjs(from, "YYYY-MM-DD", true);
+  const t = dayjs(to, "YYYY-MM-DD", true);
+  if (from === to) return t.format("DD.MM.YYYY");
+  return `${f.format(f.year() === t.year() ? "DD.MM" : "DD.MM.YYYY")}–${t.format("DD.MM.YYYY")}`;
+}

@@ -22,12 +22,30 @@ export function stageText(search: S["Search"]): string {
   }
 }
 
-// Цвета статусов — одни во всём приложении (токены дизайнера подтянем в FE-11)
+// Цвета статусов — одни во всём приложении (токены дизайнера подтянем в FE-11):
+// идёт — синий, готово — зелёный, частично — жёлтый, ошибка — красный, остановлен / пусто — серый.
+export const STATUS_COLOR = {
+  running: "blue",
+  ok: "green",
+  partial: "yellow",
+  failed: "red",
+  neutral: "gray",
+} as const;
+
+export const SEARCH_STATUS: Record<S["SearchStatus"], { label: string; color: string }> = {
+  queued: { label: "В очереди", color: STATUS_COLOR.neutral },
+  running: { label: "Идёт", color: STATUS_COLOR.running },
+  completed: { label: "Готово", color: STATUS_COLOR.ok },
+  partial: { label: "Частично", color: STATUS_COLOR.partial },
+  failed: { label: "Не выполнен", color: STATUS_COLOR.failed },
+  cancelled: { label: "Остановлен", color: STATUS_COLOR.neutral },
+};
+
 export const TARGET_STATUS: Record<S["TargetStatus"], { label: string; color: string }> = {
-  pending: { label: "В очереди", color: "gray" },
-  running: { label: "Обрабатывается", color: "blue" },
-  done: { label: "Готово", color: "green" },
-  empty: { label: "Нет публикаций", color: "gray" },
-  failed: { label: "Не удалось", color: "red" },
-  skipped: { label: "Пропущен", color: "gray" },
+  pending: { label: "В очереди", color: STATUS_COLOR.neutral },
+  running: { label: "Обрабатывается", color: STATUS_COLOR.running },
+  done: { label: "Готово", color: STATUS_COLOR.ok },
+  empty: { label: "Нет публикаций", color: STATUS_COLOR.neutral },
+  failed: { label: "Не удалось", color: STATUS_COLOR.failed },
+  skipped: { label: "Пропущен", color: STATUS_COLOR.neutral },
 };

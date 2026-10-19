@@ -3,18 +3,24 @@ import { useState } from "react";
 import { Link, useParams } from "react-router";
 
 import { ApiError } from "../api/client";
+import { useResultFilters } from "../features/results/filters";
 import { ResultsView } from "../features/results/ResultsView";
 import { ParamsBar } from "../features/search/ParamsBar";
 import { SearchForm } from "../features/search/SearchForm";
+import { SearchOutcome } from "../features/search/SearchOutcome";
 import { SearchProgress } from "../features/search/SearchProgress";
 import { TargetsPanel } from "../features/search/TargetsPanel";
 import { useSearch } from "../features/search/useSearch";
+import { showsResults } from "../features/search/viewState";
 import { errorText } from "../lib/errors";
+import { useConnectionNotice } from "../lib/useConnectionNotice";
 
 export function SearchPage() {
   const { searchId } = useParams();
   const search = useSearch(searchId);
   const [dirty, setDirty] = useState(false);
+  const { filters } = useResultFilters();
+  useConnectionNotice(search);
 
   if (!searchId) {
     return (
@@ -53,8 +59,10 @@ export function SearchPage() {
       <SearchForm key={`form-${data.id}`} initial={data.params} onDirtyChange={setDirty} />
       <ParamsBar search={data} dirty={dirty} />
       <SearchProgress search={data} />
+      <SearchOutcome search={data} />
       <TargetsPanel search={data} />
-      <ResultsView key={`results-${data.id}`} search={data} />
+      {/* пусто / ошибка без результатов — вкладки с нулями не показываем; «Отсеянные» открываются по ссылке */}
+      {(showsResults(data) || filters.tab === "rejected") && <ResultsView key={`results-${data.id}`} search={data} />}
     </Stack>
   );
 }

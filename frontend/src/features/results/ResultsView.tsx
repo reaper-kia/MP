@@ -5,20 +5,23 @@ import {
   Center,
   Chip,
   Group,
-  Loader,
   Paper,
   Select,
+  Skeleton,
   Stack,
   Switch,
   Tabs,
   Text,
 } from "@mantine/core";
+import { useQueryClient } from "@tanstack/react-query";
 import { useEffect, useState } from "react";
 
 import type { S } from "../../api/client";
 import { PLATFORM_TITLE } from "../../lib/platforms";
 import { fmtNumber, publications } from "../../lib/format";
+import { useConnectionNotice } from "../../lib/useConnectionNotice";
 import { isFinal } from "../search/status";
+import { ExportBar } from "./ExportBar";
 import { useResultFilters, type Sort, type Tab } from "./filters";
 import { GroupCard } from "./GroupCard";
 import { ResultCard } from "./ResultCard";
@@ -39,6 +42,14 @@ export function ResultsView({ search }: { search: S["Search"] }) {
   const list = useResultList(search.id, f, running, !grouped);
   const groups = useGroupList(search.id, f, running, grouped);
   const active = grouped ? groups : list;
+  useConnectionNotice(active);
+
+  // Поиск завершился (или повтор добавил публикации) — перечитать списки один раз: опрос раз в 3 с
+  // останавливается на финальном статусе, и последний ответ мог прийти раньше, чем бэкенд дописал подборку.
+  const queryClient = useQueryClient();
+  useEffect(() => {
+    queryClient.invalidateQueries({ queryKey: ["results", search.id] });
+  }, [queryClient, search.id, search.status, c.total, c.rejected]);
 
   const exclusion = useExclusion(search.id);
   const [selected, setSelected] = useState<Set<string>>(new Set());
@@ -66,6 +77,7 @@ export function ResultsView({ search }: { search: S["Search"] }) {
 
   return (
     <Stack gap="sm">
+      <ExportBar search={search} filters={f} grouped={grouped} />
       <Tabs value={f.tab} onChange={(v) => update({ tab: (v ?? "all") as Tab })}>
         <Tabs.List>
           <Tabs.Tab value="all">Все {fmtNumber(c.total)}</Tabs.Tab>
@@ -180,16 +192,13 @@ export function ResultsView({ search }: { search: S["Search"] }) {
       )}
 
       {/* список */}
-      {active.isPending && (
-        <Center py="xl">
-          <Loader />
-        </Center>
-      )}
       {active.isSuccess && total === 0 && (
-        <Text c="dimmed" py="md">
+        <Text c="dimmed" py="xs">
           {running ? "Публикации появятся по мере обработки источников…" : "Под эти фильтры ничего не подходит."}
         </Text>
       )}
+      {/* скелетон, пока список грузится или поиск идёт, а публикаций ещё нет */}
+      {(active.isPending || (running && active.isSuccess && total === 0)) && <ListSkeleton />}
       {grouped
         ? (groups.data?.pages ?? []).flatMap((p) =>
             p.items.map((g) => (
@@ -220,6 +229,21 @@ export function ResultsView({ search }: { search: S["Search"] }) {
           {grouped ? `Сюжетов и одиночных публикаций: ${fmtNumber(total)}` : `Показано ${publications(pages.reduce((n, p) => n + p.items.length, 0))} из ${fmtNumber(total)}`}
         </Text>
       )}
+    </Stack>
+  );
+}
+
+function ListSkeleton() {
+  return (
+    <Stack gap="sm" aria-busy="true" aria-label="Загрузка подборки">
+      {[0, 1, 2].map((i) => (
+        <Paper key={i} withBorder radius="md" p="md">
+          <Skeleton height={12} width="30%" mb="sm" />
+          <Skeleton height={10} mb={6} />
+          <Skeleton height={10} width="85%" mb={6} />
+          <Skeleton height={10} width="60%" />
+        </Paper>
+      ))}
     </Stack>
   );
 }

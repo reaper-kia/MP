@@ -288,6 +288,12 @@ export function SearchForm({ initial, onDirtyChange }: Props) {
                 })}
               </Group>
             </Checkbox.Group>
+            {/* без ключей (COLLECTOR_FAKE=false) все площадки unavailable — объясняем, почему искать негде */}
+            {platformInfo.length > 0 && platformInfo.every((p) => p.status === "unavailable") && (
+              <Text size="xs" c="orange.8">
+                Сейчас ни одна площадка не подключена, поиск недоступен. Причина — в подсказке у названия площадки.
+              </Text>
+            )}
           </Stack>
         </Group>
 

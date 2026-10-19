@@ -1,7 +1,7 @@
 import { Alert, Button, Group, Paper, Text } from "@mantine/core";
 
 import type { S } from "../../api/client";
-import { dayjs } from "../../lib/dates";
+import { fmtPeriod } from "../../lib/dates";
 import { publications } from "../../lib/format";
 import { PLATFORM_TITLE } from "../../lib/platforms";
 import classes from "./ParamsBar.module.css";
@@ -11,10 +11,7 @@ const cut = (s: string, n: number) => (s.length > n ? `${s.slice(0, n - 1).trimE
 /** К каким условиям относится показанная подборка. Липнет под шапкой при прокрутке. */
 export function ParamsBar({ search, dirty }: { search: S["Search"]; dirty: boolean }) {
   const p = search.params;
-  const from = dayjs(p.period_from);
-  const to = dayjs(p.period_to);
-  const period =
-    p.period_from === p.period_to ? to.format("DD.MM.YYYY") : `${from.format("DD.MM")}–${to.format("DD.MM.YYYY")}`;
+  const period = fmtPeriod(p.period_from, p.period_to);
 
   return (
     <div className={classes.sticky}>
