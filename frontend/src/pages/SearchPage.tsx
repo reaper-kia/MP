@@ -1,19 +1,16 @@
 import { Button, Center, Loader, Stack, Text, Title } from "@mantine/core";
-import { useQuery } from "@tanstack/react-query";
 import { Link, useParams } from "react-router";
 
-import { api, ApiError, unwrap } from "../api/client";
+import { ApiError } from "../api/client";
 import { SearchForm } from "../features/search/SearchForm";
+import { SearchProgress } from "../features/search/SearchProgress";
+import { TargetsPanel } from "../features/search/TargetsPanel";
+import { useSearch } from "../features/search/useSearch";
 import { errorText } from "../lib/errors";
 
 export function SearchPage() {
   const { searchId } = useParams();
-
-  const search = useQuery({
-    queryKey: ["search", searchId],
-    queryFn: () => unwrap(api.GET("/api/v1/searches/{search_id}", { params: { path: { search_id: searchId! } } })),
-    enabled: !!searchId,
-  });
+  const search = useSearch(searchId);
 
   if (!searchId) {
     return (
@@ -32,8 +29,8 @@ export function SearchPage() {
     );
   }
 
-  if (search.isError) {
-    const notFound = search.error instanceof ApiError && search.error.status === 404;
+  if (search.isError && !search.data) {
+    const notFound = search.error instanceof ApiError && search.error.code === "SEARCH_NOT_FOUND";
     return (
       <Stack align="flex-start">
         <Title order={2}>{notFound ? "Поиск не найден" : "Не удалось открыть поиск"}</Title>
@@ -45,12 +42,14 @@ export function SearchPage() {
     );
   }
 
+  const data = search.data!;
   return (
     <Stack>
       {/* key — чтобы при переходе на другой поиск форма заполнилась его параметрами */}
-      <SearchForm key={search.data.id} initial={search.data.params} />
-      {/* Ход поиска и подборка — FE-04…FE-07 */}
-      <Text c="dimmed">Статус поиска: {search.data.status}. Подборка появится в FE-04…FE-07.</Text>
+      <SearchForm key={data.id} initial={data.params} />
+      <SearchProgress search={data} />
+      <TargetsPanel search={data} />
+      {/* Подборка — FE-05…FE-07 */}
     </Stack>
   );
 }
