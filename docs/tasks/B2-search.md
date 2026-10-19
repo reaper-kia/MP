@@ -148,6 +148,8 @@ ml.GroupPosts({context, posts: [{id, optional title, text}]}) -> {groups: [{grou
 **DoD.** Все в `uv run pytest -q`, CI зелёный.
 
 ### [ ] B2-14 · P0 · вместе с TL-11 · сервис в Docker
+> 2026-10-19: образ собирается, `docker compose up` поднимает стенд, миграции при старте проходят, `make smoke` → All good
+> (`COLLECTOR_FAKE=true`). Осталось: прогон на сервере (TL-11) и с реальными ключами.
 Dockerfile не собирали. Вместе с TL: `make reset && make up`, в `make logs s=search_service` —
 `alembic upgrade head` прошёл на пустой `search_db`, сервер слушает 50053; `make smoke` → `All good`.
 Если миграция падает на старте контейнера — поиск по `DATABASE_URL` в compose (`search_db:5432`).

@@ -8,7 +8,7 @@
 Последнее обновление: 2026-10-19, после сборки `main` из всех веток и доработок B2 / TL (ветка `feat/b2-tl-batch`). Заполнены строки TL, B1, B2; в разделах
 ML и FE — только то, что проверили при сборке, остальное дописывают владельцы.
 
-**Как проверены доработки B2 / TL-13.** Юнит-тестами на in-memory фейках (pytest без плагина pytest-asyncio, async-тесты запускались подменой), `ruff` и `mypy` — по модулям `applications/` и `domain/`. Полный `make check` (mypy --strict по всему сервису, `tests/test_grpc.py` с настоящим gRPC-сервером) и запуск на Postgres в этой среде не делали: нет сети для установки зависимостей. Поэтому такие строки — ◐, пока владелец не прогонит `make check` и `make smoke`.
+**Как проверены доработки B2 / TL-13.** 2026-10-19 на машине TL: стенд в Docker с `COLLECTOR_FAKE=true`, `LLM_PROVIDER=stub` (`.diagnose/verify.sh`): `make smoke` → All good; живые проверки через gateway (импорт, `matched`, исключение, XLSX, DOCX, «везде», `request_id` в логах); ruff, mypy --strict, pytest всех четырёх сервисов и typecheck + build фронта — зелёные. С реальными VK / YandexGPT не проверяли — нет ключей.
 
 **Как проверяли сквозной путь.** Локально, без Docker: Postgres 16 на 5435, четыре сервиса из README
 (вариант Б), запросы через gateway руками и `scripts/smoke.py` (`make smoke`) → `All good`. Данные —
@@ -22,11 +22,11 @@ ML и FE — только то, что проверили при сборке, �
 | Контракты v1: proto + `openapi.yaml` согласованы между собой | ◐ | Прочитаны целиком, расхождения исправлены (period end, `region_terms`, `CancelSearch`, 429/501, фильтры в `listGroups`/`exportSearch`, `query_type: null`); вся цепочка работает по ним. «Заморожен» **не объявлен** (TL-02) |
 | Справочники `docs/API.md`, `docs/GRPC.md`, `docs/api-types.ts` свежие | ✔ | CI job `contracts` перегенерирует и сравнивает с репо — зелёный |
 | Сгенерированный код `packages/platform_contracts` свежий | ✔ | CI job `contracts`: `generate_proto.py` + `git diff --exit-code` — зелёный (до сборки `main` кода не было, CI был красным) |
-| CI: 4 сервиса (ruff, mypy --strict, pytest) + контракты + сборка фронта + `compose config` | ✔ | Зелёный на ветке, ставшей `main`. В job `frontend` добавлен `npm run typecheck` (TL-13) — ◐, в CI ещё не запускался |
+| CI: 4 сервиса (ruff, mypy --strict, pytest) + контракты + сборка фронта + `compose config` | ✔ | Зелёный на ветке, ставшей `main`. В job `frontend` добавлен `npm run typecheck` (TL-13): локально проходит, в CI — после push |
 | Gateway: все 17 ручек, маппинг enum'ов и ошибок | ✔ | Тесты gateway зелёные в CI; вживую через настоящий search_service: площадки, resolve, источники (409 на дубль, PATCH, DELETE), поиск selected и global, results, groups, exclusion, XLSX, retry, cancel, 422 с `details`, 404, `/health/ready`. Импорт — 501 (B2-10) |
 | Prism-мок отдаёт ответы по `openapi.yaml` | ✔ | Поднимали `npm run mock` (:4010) при FE-01, ответы 200 по примерам |
 | `make smoke` (источник → поиск → статус → results → группы → XLSX → 404) | ✔ на тестовых данных | Локально без Docker, `COLLECTOR_FAKE=true` → `All good`; строк со ссылками в XLSX = `counts.total`. С реальным VK — ⌛ (нет ключа) |
-| Стенд в Docker (`make up`) | ✘ | Не поднимали: в среде сборки нет Docker-демона; образ search_service ни разу не собирался (TL-11) |
+| Стенд в Docker (`make up`) | ✔ на тестовых данных | 2026-10-19: все 5 образов собираются, `/health/ready` ok, `make smoke` → All good (`COLLECTOR_FAKE=true`). С реальными ключами — ⌛ |
 | Деплой на сервер (`make deploy`) | ✘ | Сервер не выбран |
 | Каталог источников (seed ≥ 30) | ◐ | `make seed` и `scripts/seed_sources.py` написаны, проверены на заглушке HTTP-сервера (201 / 409 / 501 / неверное значение в колонке C); `seed/sources.xlsx` содержит только шапку — стартовый список источников ещё не пришёл (TL-06) |
 
@@ -63,14 +63,14 @@ ML и FE — только то, что проверили при сборке, �
 | Повтор не дублирует подборку; одинаковый текст в трёх группах = три записи | ✔ на in-memory БД | Тесты из ТЗ `test_retry_does_not_duplicate`, `test_same_text_in_three_groups_is_three_records` (B2-13); на Postgres держат unique `(search_id, publication_id)` и `PostKey` |
 | Неизвестная дата ≠ «в периоде»; вне периода в подборку не попадает | ✔ | Тесты `test_unknown_date_not_marked_in_period`, `test_out_of_period_post_not_saved` |
 | Выдача: вкладки, фильтры, сортировки, группы; исключение пересчитывает счётчики | ✔ на тестовых данных | Через gateway |
-| `matched` у цели = «сколько в подборке» | ◐ | Считается после оценки и пересчитывается после исключения (`recount_matched`): direct + indirect + disputed без исключённых. Тесты `test_matched_*` (in-memory); на Postgres и в «Где искали» через gateway не смотрели (B2-07) |
-| Регион в режиме «везде»: без привязки к краю → отсеяно | ◐ | `ScoringHandler`: нет `region_by_source` и `region.by_content` → `irrelevant` с объяснением; при сбое ML остаётся «спорно». Тесты `test_global_mode_*`; на живом поиске «везде» не проверяли (B2-06) |
+| `matched` у цели = «сколько в подборке» | ✔ на тестовых данных | Через gateway на Postgres: сумма `matched` по целям = `counts.total`; исключение −1, возврат +1 (B2-07) |
+| Регион в режиме «везде»: без привязки к краю → отсеяно | ◐ | Поиск «везде» через gateway завершается (`completed`, часть отсеяна); правило на тестовых постах и эвристиках ML — смысл проверится только с реальным VK и YandexGPT (B2-06) |
 | Отбор ML в поиске | ◐ имитация | Работает на эвристиках `ml_service` (`degraded=true`), поиск получает warning «ML работал в упрощённом режиме»; упавший батч → «спорно — проверьте вручную» |
-| XLSX: строки = экран, ссылки кликабельные, лист «Охват» | ✔ на тестовых данных | Smoke: строк со ссылками = `counts.total`. Тест `tests/test_export.py`: число строк и порядок ссылок = ListResults; в файле слова («ВКонтакте», «Готово», «позитивная»), даты и «Сформировано» — по Красноярску. Внешний вид — согласовать с дизайнером (UI-07) |
-| Сервис в Docker | ✘ | Dockerfile есть, образ не собирали (B2-14, TL-11) |
-| Импорт источников из XLSX, выгрузка DOCX | ◐ | Написаны (B2-10): отчёт created / duplicates / failed с номером строки; DOCX собран без python-docx, открывается в python-docx и LibreOffice. Тесты `test_import.py`, `test_export.py`, `test_grpc.py` (последний не запускали). Через gateway не гоняли |
-| `request_id` до collector и ml | ◐ | Передаётся из входящего запроса в вызовы соседей и в логи, в том числе из фонового пайплайна (B2-12). Тест `test_request_id.py` на фейках; цепочку в логах трёх сервисов вживую не смотрели |
-| Время поиска по стадиям | ◐ | Пишется в лог строкой `search stage finished` (стадии, цели, `total`). Цифр на реальном VK нет — они осмысленны только после B1-03 (B2-11) |
+| XLSX: строки = экран, ссылки кликабельные, лист «Охват» | ✔ на тестовых данных | Smoke: строк со ссылками = `counts.total`; через gateway в файле нет кодов (`vk`, `done`, `positive`…), есть «ВКонтакте» и «Сформировано». Внешний вид — согласовать с дизайнером (UI-07) |
+| Сервис в Docker | ✔ | Образ search_service собирается, миграции при старте проходят, сервис отвечает (B2-14) |
+| Импорт источников из XLSX, выгрузка DOCX | ✔ на тестовых данных | Через gateway: импорт — created / duplicates / failed с номером строки, не-Excel → 422; DOCX отдаётся и открывается как документ Word (B2-10). Вид DOCX — с дизайнером |
+| `request_id` до collector и ml | ✔ search, collector · ✘ ml | Заданный `X-Request-ID` виден в логах search_service и collector_service; ml_service получает его в контексте, но сам `request_id` не логирует (задача ML). Gateway лог запросов не пишет (B2-12) |
+| Время поиска по стадиям | ✔ на тестовых данных | В логе `search stage finished` по стадиям и целям (тестовый поиск: total 0.58 с). Цифры на реальном VK — после ключей (B2-11) |
 
 ## Отбор (ML)
 
