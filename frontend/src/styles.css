@@ -1,42 +1,4 @@
-:root {
-  --bg: #f6f7f9;
-  --card: #fff;
-  --text: #1c1f24;
-  --muted: #6b7280;
-  --accent: #2563eb;
-  --danger: #dc2626;
-  --border: #e5e7eb;
-  font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
-  color: var(--text);
-  background: var(--bg);
+/* Глобальные стили поверх Mantine. Основное оформление — через theme.ts. */
+body {
+  margin: 0;
 }
-@media (prefers-color-scheme: dark) {
-  :root {
-    --bg: #111317;
-    --card: #1a1d23;
-    --text: #e6e8eb;
-    --muted: #9aa1ab;
-    --border: #2a2f37;
-  }
-}
-* { box-sizing: border-box; }
-body { margin: 0; }
-.center { min-height: 100vh; display: grid; place-items: center; padding: 16px; }
-.layout { max-width: 720px; margin: 0 auto; padding: 16px; }
-.header { display: flex; gap: 12px; align-items: center; margin-bottom: 16px; }
-.header .muted { margin-left: auto; }
-.card { background: var(--card); border: 1px solid var(--border); border-radius: 12px; padding: 16px; margin-bottom: 16px; }
-.auth { width: min(360px, 100%); display: flex; flex-direction: column; gap: 10px; }
-.row { display: flex; gap: 8px; }
-.row input { flex: 1; }
-input { padding: 10px 12px; border: 1px solid var(--border); border-radius: 8px; background: transparent; color: inherit; font: inherit; }
-button { padding: 10px 14px; border: 0; border-radius: 8px; background: var(--accent); color: #fff; font: inherit; cursor: pointer; }
-button:disabled { opacity: 0.6; }
-button.ghost { background: transparent; color: var(--muted); }
-.list { list-style: none; padding: 0; margin: 12px 0 0; }
-.list li { display: flex; justify-content: space-between; align-items: center; padding: 8px 0; border-bottom: 1px solid var(--border); }
-.list li.done label { text-decoration: line-through; color: var(--muted); }
-.list label { display: flex; gap: 8px; align-items: center; }
-.muted { color: var(--muted); }
-.error { color: var(--danger); margin: 8px 0; }
-.event { font-size: 12px; white-space: pre-wrap; word-break: break-all; margin: 4px 0; color: var(--muted); }
