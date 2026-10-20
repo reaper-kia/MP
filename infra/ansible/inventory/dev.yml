@@ -1,12 +1,14 @@
-# Сервер, на который деплоим. Можно не править, а передать: make deploy HOST=1.2.3.4 SSH_USER=ubuntu
+# Сервер, на который деплоим (make deploy без HOST=). Можно и разово: make deploy HOST=1.2.3.4 SSH_USER=ubuntu
 all:
   children:
     mp:
       hosts:
         server:
-          ansible_host: CHANGE_ME_IP
-          ansible_user: ubuntu
-          # ansible_ssh_private_key_file: ~/.ssh/id_ed25519
+          ansible_host: 109.196.167.204
+          ansible_user: team-04
+          ansible_ssh_private_key_file: ~/.ssh/id_ed25519_juice_lab
+          # порт 80 на сервере занят системным nginx — наш сайт на 8080
+          http_port: 8080
 
         # развернуть на этой же машине:
         # local:

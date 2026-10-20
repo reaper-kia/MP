@@ -1,8 +1,19 @@
 ---
+# если на сервере включён ufw — открыть порт сайта (облачный файрвол провайдера так не открыть)
+- name: Open HTTP port in ufw (if active)
+  ansible.builtin.shell: |
+    if ufw status 2>/dev/null | grep -q "Status: active"; then ufw allow {{ http_port }}/tcp; else echo "ufw off"; fi
+  args:
+    executable: /bin/bash
+  changed_when: false
+
 - name: Build and start containers
   ansible.builtin.command:
     cmd: docker compose up -d --build --remove-orphans
     chdir: "{{ deploy_dir }}"
+  environment:
+    DOCKER_BUILDKIT: "{{ '0' if docker_classic_builder else '1' }}"
+    COMPOSE_BAKE: "false"
   changed_when: true
 
 - name: Wait until all services are ready

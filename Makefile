@@ -7,10 +7,17 @@ COMPOSE := docker compose
 
 ANSIBLE_DIR := infra/ansible
 comma := ,
-ANSIBLE_ARGS := $(if $(HOST),-i "$(HOST)$(comma)" -e target=all) $(if $(SSH_USER),-e ansible_user=$(SSH_USER))
+ANSIBLE_ARGS := $(if $(HOST),-i "$(HOST)$(comma)" -e target=all) $(if $(SSH_USER),-e ansible_user=$(SSH_USER)) \
+                $(if $(HTTP_PORT),-e http_port=$(HTTP_PORT))
+# Ключи API для сервера: из окружения, а если не заданы — из локального .env.
+# LLM_PROVIDER из .env НЕ берём: локально там ollama, а на сервере модели нет (stub из group_vars).
+DEPLOY_KEYS := VK_SERVICE_TOKEN YC_FOLDER_ID YC_API_KEY YC_SEARCH_API_KEY
+deploy_env = $(foreach k,$(DEPLOY_KEYS),$(k)="$${$(k):-$$(grep -s '^$(k)=' .env | cut -d= -f2-)}")
+# Адрес сайта на сервере из inventory (для seed/smoke после деплоя)
+SERVER_URL ?= http://109.196.167.204:8080
 
 .PHONY: help env install lock proto docs mock up down reset ps logs db run migration \
-        lint fmt typecheck test check smoke seed front-dev deploy vk-login
+        lint fmt typecheck test check smoke seed front-dev deploy release vk-login
 
 help: ## список команд
 	@grep -E '^[a-zA-Z_-]+:.*?## ' $(MAKEFILE_LIST) | awk 'BEGIN{FS=":.*?## "}{printf "  \033[36m%-12s\033[0m %s\n", $$1, $$2}'
@@ -94,8 +101,13 @@ seed: ## каталог источников из seed/sources.xlsx: make seed [
 	python3 scripts/seed_sources.py $(or $(URL),http://localhost:8000)
 
 # ───────── деплой ─────────
-deploy: ## выкатить на сервер: make deploy HOST=1.2.3.4 SSH_USER=ubuntu
-	cd $(ANSIBLE_DIR) && ansible-playbook playbooks/deploy.yml $(ANSIBLE_ARGS)
+deploy: ## выкатить на сервер из inventory (или HOST=1.2.3.4 SSH_USER=ubuntu [HTTP_PORT=8080])
+	$(deploy_env) bash -c 'cd $(ANSIBLE_DIR) && ansible-playbook playbooks/deploy.yml $(ANSIBLE_ARGS)'
+
+release: ## деплой + каталог источников + smoke: make release [SERVER_URL=http://1.2.3.4:8080]
+	$(MAKE) deploy
+	$(MAKE) seed URL=$(SERVER_URL)
+	$(MAKE) smoke URL=$(SERVER_URL)
 
 vk-login: ## вход VK ID для сервера (свой токен, обновляется сам): make vk-login HOST=1.2.3.4 SSH_USER=ubuntu
 	@test -n "$(HOST)" || (echo "укажи HOST=…" && exit 1)

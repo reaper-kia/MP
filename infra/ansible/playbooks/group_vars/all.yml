@@ -1,7 +1,12 @@
 # Куда кладём проект на сервере
 deploy_dir: /opt/mp
 
-# Порт фронта (nginx), единственный порт, который нужен снаружи
+# Временные файлы копирования (роль sync): архив на машине деплоя и распаковка на сервере
+sync_archive: /tmp/mp-deploy.tgz
+sync_staging: /tmp/mp-deploy-src
+
+# Порт фронта (nginx), единственный порт, который нужен снаружи.
+# Можно переопределить в inventory (у сервера) или make deploy HTTP_PORT=8080
 http_port: 80
 
 # На демо — ВСЕГДА false: только реальные публикации
@@ -13,6 +18,17 @@ llm_provider: stub
 # Docker Hub из РФ бывает недоступен — зеркала. [] — без зеркал.
 docker_registry_mirrors:
   - https://mirror.gcr.io
+
+# Базовые образы Dockerfile'ов и compose — скачиваются заранее (с зеркала, если Hub недоступен)
+docker_base_images:
+  - node:22-alpine
+  - nginx:1.27-alpine
+  - python:3.13-slim-trixie
+  - postgres:17-alpine
+
+# Классический сборщик: берёт базовые образы из локального кэша и не ходит в Docker Hub за
+# метаданными (BuildKit ходит всегда — и падает, если Hub недоступен)
+docker_classic_builder: true
 
 # Пароль БД генерируется при первом деплое и лежит тут (в .gitignore).
 # Не удаляй, иначе на сервере поменяется пароль БД.

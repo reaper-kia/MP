@@ -1,16 +1,30 @@
 ---
-# Docker из репозиториев Ubuntu/Debian — без внешних репозиториев, работает и из РФ
+# Docker: если на сервере уже есть — не трогаем (ни пакеты, ни чужой daemon.json).
+# Нет — ставим из репозиториев Ubuntu/Debian (без внешних репозиториев, работает и из РФ).
+- name: Check existing Docker
+  ansible.builtin.command: docker compose version
+  register: docker_present
+  changed_when: false
+  failed_when: false
+
 - name: Install Docker
   ansible.builtin.apt:
     name: [docker.io, docker-compose-v2, docker-buildx]
     state: present
+  when: docker_present.rc != 0
 
+- name: Check daemon.json
+  ansible.builtin.stat:
+    path: /etc/docker/daemon.json
+  register: daemon_json
+
+# зеркала пишем только в свежий Docker: чужие настройки демона не перезаписываем
 - name: Registry mirrors
   ansible.builtin.copy:
     dest: /etc/docker/daemon.json
     content: "{{ {'registry-mirrors': docker_registry_mirrors} | to_nice_json }}"
     mode: "0644"
-  when: docker_registry_mirrors | length > 0
+  when: docker_registry_mirrors | length > 0 and not daemon_json.stat.exists
   notify: Restart docker
 
 - name: Ensure Docker service is running
@@ -28,3 +42,25 @@
 
 - name: Apply handlers now (mirrors before first pull)
   ansible.builtin.meta: flush_handlers
+
+# Базовые образы Dockerfile'ов: Docker Hub из РФ бывает недоступен — тогда берём с зеркала
+# и ставим тег, будто скачали с Hub. Уже скачанные не трогаем.
+- name: Base images (Docker Hub or mirror)
+  ansible.builtin.shell: |
+    set -u
+    status=ok
+    for img in {{ docker_base_images | join(' ') }}; do
+      docker image inspect "$img" >/dev/null 2>&1 && continue
+      status=changed
+      timeout 300 docker pull "$img" && continue
+      for m in {{ docker_registry_mirrors | map('regex_replace', '^https?://', '') | join(' ') }}; do
+        timeout 300 docker pull "$m/library/$img" && docker tag "$m/library/$img" "$img" && continue 2
+      done
+      echo "не удалось скачать $img ни с Docker Hub, ни с зеркал" >&2
+      exit 1
+    done
+    echo "$status"
+  args:
+    executable: /bin/bash
+  register: base_images
+  changed_when: "'changed' in base_images.stdout"

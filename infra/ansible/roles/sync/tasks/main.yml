@@ -1,31 +1,65 @@
 ---
-# Копируем текущую папку проекта (включая незакоммиченное) — git на сервере не нужен
+# Копируем текущую папку проекта (включая незакоммиченное) — git на сервере не нужен.
+# Через архив, а не ansible.posix.synchronize: тот открывает своё ssh-подключение и не умеет
+# вход по паролю (ANSIBLE_ASK_PASS). Архив едет обычным подключением Ansible — работает и с ключом, и с паролем.
+- name: Pack project (locally)
+  ansible.builtin.shell: >
+    tar -czf "{{ sync_archive }}" -C "{{ playbook_dir }}/../../.."
+    --exclude=.git --exclude=.venv --exclude=__pycache__ --exclude='*.pyc'
+    --exclude=.pytest_cache --exclude=.mypy_cache --exclude=.ruff_cache
+    --exclude=node_modules --exclude=frontend/dist
+    --exclude=infra/ansible/.secrets --exclude=.env --exclude='services/*/.env'
+    --exclude=Claude_outputs --exclude=.diagnose --exclude=.ml_check
+    --exclude=.vk/token.json --exclude=.vk/token.tmp --exclude=.vk/token.json.bak --exclude=.vk_token.json
+    .
+  args:
+    executable: /bin/bash
+  delegate_to: localhost
+  become: false
+  run_once: true
+  changed_when: false
+
+- name: Clean staging dir
+  ansible.builtin.file:
+    path: "{{ sync_staging }}"
+    state: absent
+
+- name: Create staging dir
+  ansible.builtin.file:
+    path: "{{ sync_staging }}"
+    state: directory
+    mode: "0755"
+
+- name: Upload and unpack
+  ansible.builtin.unarchive:
+    src: "{{ sync_archive }}"
+    dest: "{{ sync_staging }}"
+
 - name: Ensure deploy dir
   ansible.builtin.file:
     path: "{{ deploy_dir }}"
     state: directory
     mode: "0755"
 
-- name: Sync project
-  ansible.posix.synchronize:
-    src: "{{ playbook_dir }}/../../../"
-    dest: "{{ deploy_dir }}/"
-    delete: true
-    rsync_opts:
-      - "--exclude=.git"
-      - "--exclude=.venv"
-      - "--exclude=__pycache__"
-      - "--exclude=.pytest_cache"
-      - "--exclude=.mypy_cache"
-      - "--exclude=.ruff_cache"
-      - "--exclude=node_modules"
-      - "--exclude=frontend/dist"
-      - "--exclude=infra/ansible/.secrets"
-      - "--exclude=.env"
-      # токен VK ID у сервера свой (make vk-login): refresh_token одноразовый, общий файл с
-      # локальным стендом ломал бы вход обоим — кто обновил первым, у другого вход пропадает
-      - "--exclude=.vk/token.json"
-      - "--exclude=.vk/token.tmp"
-      - "--exclude=.vk_token.json"
-      - "--exclude=.diagnose"
-      - "--exclude=.ml_check"
+# --delete убирает удалённые из проекта файлы; то, что живёт только на сервере
+# (.env, токен VK ID), исключено — rsync его не трогает
+- name: Sync into deploy dir
+  ansible.builtin.command: >
+    rsync -a --delete --itemize-changes
+    --exclude=/.env --exclude=/.vk/token.json --exclude=/.vk/token.tmp
+    {{ sync_staging }}/ {{ deploy_dir }}/
+  register: sync_result
+  changed_when: sync_result.stdout | length > 0
+
+- name: Remove staging dir
+  ansible.builtin.file:
+    path: "{{ sync_staging }}"
+    state: absent
+
+- name: Remove local archive
+  ansible.builtin.file:
+    path: "{{ sync_archive }}"
+    state: absent
+  delegate_to: localhost
+  become: false
+  run_once: true

@@ -3,8 +3,23 @@
 Нужно у себя: `ansible` и `rsync` (Arch: `pacman -S ansible rsync`).
 На сервере: Ubuntu 22.04+/Debian 12+, SSH-доступ пользователем с sudo.
 
+Сервер команды уже прописан в `inventory/dev.yml` (IP, пользователь, ключ, порт 8080), ключи API
+берутся из локального `.env` — поэтому всё одной командой:
+
 ```bash
-make deploy HOST=1.2.3.4 SSH_USER=ubuntu     # из корня проекта
+make release        # деплой + каталог источников + smoke (= make deploy && make seed && make smoke)
+make deploy         # только выкатить
+```
+
+Плейбук не трогает уже установленный Docker и чужой `daemon.json`; базовые образы качает с
+Docker Hub, а если он недоступен — с зеркала (`docker_base_images`, `docker_registry_mirrors`);
+собирает классическим сборщиком (`docker_classic_builder`), чтобы не ходить в Hub за метаданными.
+На сервере LLM_PROVIDER=stub (нет GPU и памяти под модель), если не задать его в окружении явно.
+
+Разово на другой сервер:
+
+```bash
+make deploy HOST=1.2.3.4 SSH_USER=ubuntu [HTTP_PORT=8080]
 make vk-login HOST=1.2.3.4 SSH_USER=ubuntu   # один раз: вход VK ID для сервера (ссылка → адрес)
 make seed URL=http://1.2.3.4                 # каталог источников из seed/sources.xlsx
 make smoke URL=http://1.2.3.4                # проверка снаружи
