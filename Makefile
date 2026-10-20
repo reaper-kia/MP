@@ -10,7 +10,7 @@ comma := ,
 ANSIBLE_ARGS := $(if $(HOST),-i "$(HOST)$(comma)" -e target=all) $(if $(SSH_USER),-e ansible_user=$(SSH_USER))
 
 .PHONY: help env install lock proto docs mock up down reset ps logs db run migration \
-        lint fmt typecheck test check smoke seed front-dev deploy
+        lint fmt typecheck test check smoke seed front-dev deploy vk-login
 
 help: ## список команд
 	@grep -E '^[a-zA-Z_-]+:.*?## ' $(MAKEFILE_LIST) | awk 'BEGIN{FS=":.*?## "}{printf "  \033[36m%-12s\033[0m %s\n", $$1, $$2}'
@@ -96,3 +96,8 @@ seed: ## каталог источников из seed/sources.xlsx: make seed [
 # ───────── деплой ─────────
 deploy: ## выкатить на сервер: make deploy HOST=1.2.3.4 SSH_USER=ubuntu
 	cd $(ANSIBLE_DIR) && ansible-playbook playbooks/deploy.yml $(ANSIBLE_ARGS)
+
+vk-login: ## вход VK ID для сервера (свой токен, обновляется сам): make vk-login HOST=1.2.3.4 SSH_USER=ubuntu
+	@test -n "$(HOST)" || (echo "укажи HOST=…" && exit 1)
+	ssh -t $(or $(SSH_USER),ubuntu)@$(HOST) 'cd /opt/mp && sudo python3 scripts/vk_token.py && sudo docker compose restart collector_service'
+

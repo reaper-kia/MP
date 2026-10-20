@@ -1,12 +1,13 @@
-import { Anchor, Badge, Button, Checkbox, Group, Paper, Stack, Text, Tooltip } from "@mantine/core";
+import { Anchor, Checkbox, Tooltip } from "@mantine/core";
 import { useState } from "react";
 
 import type { S } from "../../api/client";
-import { PlatformBadge } from "../../components/PlatformBadge";
+import { Icon } from "../../components/Icon";
+import { PlatformLogo } from "../../components/PlatformLogo";
 import { fmtDateTime } from "../../lib/dates";
 import { fmtNumber } from "../../lib/format";
-import { RELEVANCE, SENTIMENT } from "./relevance";
 import classes from "./ResultCard.module.css";
+import { RELEVANCE, SENTIMENT } from "./relevance";
 
 interface Props {
   result: S["Result"];
@@ -22,115 +23,131 @@ export function ResultCard({ result: r, selected, onSelect, onExclude, compact }
   const rel = RELEVANCE[r.relevance];
   const date = fmtDateTime(r.published_at);
   const metrics = [
-    r.metrics.views !== null && `👁 ${fmtNumber(r.metrics.views)}`,
+    r.metrics.views !== null && `${fmtNumber(r.metrics.views)} просмотров`,
     r.metrics.likes !== null && `♥ ${fmtNumber(r.metrics.likes)}`,
     r.metrics.reposts !== null && `↻ ${fmtNumber(r.metrics.reposts)}`,
     r.metrics.comments !== null && `💬 ${fmtNumber(r.metrics.comments)}`,
   ].filter(Boolean);
+  const long = r.excerpt.length > 200;
 
   return (
-    <Paper
-      withBorder={!compact}
-      p={compact ? "xs" : "md"}
-      radius="md"
-      className={r.excluded ? classes.excluded : undefined}
+    <article
+      className={classes.card}
+      data-compact={compact || undefined}
+      data-excluded={r.excluded || undefined}
       data-selected={selected || undefined}
     >
-      <Group align="flex-start" wrap="nowrap" gap="sm">
-        <Checkbox
-          mt={4}
-          checked={selected}
-          onChange={(e) => onSelect(e.currentTarget.checked)}
-          aria-label="Выбрать публикацию"
-        />
-        <Stack gap={6} style={{ flex: 1, minWidth: 0 }}>
-          {/* источник */}
-          <Group gap="xs" wrap="wrap">
-            <PlatformBadge platform={r.platform} />
-            <Anchor href={r.source.url} target="_blank" rel="noopener noreferrer" size="sm" fw={500}>
-              {r.source.name}
-            </Anchor>
-            {r.source.is_regional && (
-              <Badge size="sm" variant="light" color="grape">
-                Региональный источник
-              </Badge>
-            )}
-            {r.region.by_content && r.region.evidence && (
-              <Badge size="sm" variant="light" color="grape">
-                {r.region.evidence}
-              </Badge>
-            )}
-            <Text size="sm" c={date ? "dimmed" : "orange"} ml="auto">
-              {date ?? (
-                <Tooltip label="Площадка не отдала дату — публикация может быть вне выбранного периода" multiline w={260}>
-                  <span style={{ cursor: "help" }}>Дата недоступна ⓘ</span>
-                </Tooltip>
-              )}
-            </Text>
-          </Group>
+      <Checkbox
+        size="xs"
+        mt={compact ? 4 : 12}
+        checked={selected}
+        onChange={(e) => onSelect(e.currentTarget.checked)}
+        aria-label="Выбрать публикацию"
+      />
+      <PlatformLogo platform={r.platform} size={compact ? "sm" : "md"} />
 
-          {/* заголовок */}
-          <Text fw={600} size={compact ? "sm" : "md"}>
+      <div className={classes.body}>
+        {/* заголовок */}
+        <div className={classes.titleRow}>
+          <h3 className={classes.title}>
             {r.title}
-            {r.title_source === "post_start" && (
-              <Text span size="xs" c="dimmed" fw={400} ml={6}>
-                начало поста
-              </Text>
-            )}
-          </Text>
+            {r.title_source === "post_start" && <span className={classes.titleNote}>начало поста</span>}
+          </h3>
+          {r.source.is_regional && (
+            <span className={classes.regional}>
+              <Icon name="check" size={14} /> Региональный
+            </span>
+          )}
+          <Tooltip label="Насколько публикация близка к запросу" withArrow>
+            <span className={classes.score}>{Math.round(r.score * 100)}%</span>
+          </Tooltip>
+        </div>
 
-          {/* выдержка — дословно из источника */}
-          <div>
-            <Text size="sm" lineClamp={expanded ? undefined : 3} className={classes.excerpt}>
-              {r.excerpt_parts.map((p, i) => (p.highlight ? <mark key={i}>{p.text}</mark> : <span key={i}>{p.text}</span>))}
-            </Text>
-            {r.excerpt.length > 200 && (
-              <Anchor component="button" type="button" size="xs" onClick={() => setExpanded((x) => !x)}>
-                {expanded ? "Свернуть" : "Показать полностью"}
-              </Anchor>
+        {/* источник · дата · регион */}
+        <div className={classes.meta}>
+          <Anchor href={r.source.url} target="_blank" rel="noopener noreferrer" className={classes.source}>
+            {r.source.name}
+          </Anchor>
+          <span>·</span>
+          {date ? (
+            <span>{date}</span>
+          ) : (
+            <Tooltip label="Площадка не отдала дату — публикация может быть вне выбранного периода" multiline w={260}>
+              <span className={classes.noDate}>Дата недоступна ⓘ</span>
+            </Tooltip>
+          )}
+          {r.region.by_content && r.region.evidence && (
+            <>
+              <span>·</span>
+              <span className={classes.evidence}>
+                <Icon name="location" size={13} />
+                {r.region.evidence}
+              </span>
+            </>
+          )}
+        </div>
+
+        {/* выдержка — дословно из источника */}
+        <p className={classes.excerpt} data-clamped={(!expanded && long) || undefined}>
+          {r.excerpt_parts.map((p, i) => (p.highlight ? <mark key={i}>{p.text}</mark> : <span key={i}>{p.text}</span>))}
+        </p>
+
+        {expanded && (
+          <div className={classes.details}>
+            <p className={classes.explanation}>
+              <Icon name="sparkles" size={14} />
+              {r.explanation}
+            </p>
+            {(metrics.length > 0 || r.sentiment) && (
+              <p className={classes.metrics}>
+                {[...metrics, r.sentiment ? `тональность: ${SENTIMENT[r.sentiment].label}` : null]
+                  .filter(Boolean)
+                  .join(" · ")}
+              </p>
             )}
           </div>
+        )}
 
-          {/* оценка и действия */}
-          <Group gap="xs" wrap="wrap">
-            <Tooltip label={r.explanation} multiline w={300}>
-              <Badge color={rel.color} variant="light" style={{ cursor: "help" }}>
-                {rel.label}
-              </Badge>
-            </Tooltip>
-            {r.sentiment && (
-              <Badge color={SENTIMENT[r.sentiment].color} variant="dot">
-                {SENTIMENT[r.sentiment].label}
-              </Badge>
+        {/* оценка и действия */}
+        <div className={classes.footer}>
+          <Tooltip label={r.explanation} multiline w={300} disabled={expanded}>
+            <span className={classes.relevance} data-rel={r.relevance}>
+              {rel.label}
+            </span>
+          </Tooltip>
+          {!expanded && r.sentiment && r.sentiment !== "neutral" && (
+            <span className={classes.sentiment} data-sentiment={r.sentiment}>
+              {SENTIMENT[r.sentiment].label}
+            </span>
+          )}
+
+          <div className={classes.actions}>
+            <button type="button" className="mp-text-action" onClick={() => setExpanded((x) => !x)}>
+              {expanded ? "Свернуть" : "Читать подробнее"}
+              <Icon name="chevron" size={14} className={expanded ? classes.flip : undefined} />
+            </button>
+            <a href={r.url} target="_blank" rel="noopener noreferrer" className="mp-text-action">
+              Открыть оригинал <Icon name="external" />
+            </a>
+            {r.excluded ? (
+              <button type="button" className="mp-text-action" onClick={() => onExclude(false)}>
+                <Icon name="undo" /> Вернуть
+              </button>
+            ) : (
+              <Tooltip label="Исключить из подборки">
+                <button
+                  type="button"
+                  className={classes.trash}
+                  onClick={() => onExclude(true)}
+                  aria-label="Исключить из подборки"
+                >
+                  <Icon name="trash" />
+                </button>
+              </Tooltip>
             )}
-            {metrics.length > 0 && (
-              <Text size="xs" c="dimmed">
-                {metrics.join(" · ")}
-              </Text>
-            )}
-            <Group gap="xs" ml="auto">
-              <Button
-                size="compact-sm"
-                variant="subtle"
-                color={r.excluded ? "blue" : "gray"}
-                onClick={() => onExclude(!r.excluded)}
-              >
-                {r.excluded ? "Вернуть в подборку" : "Исключить"}
-              </Button>
-              <Button
-                size="compact-sm"
-                variant="light"
-                component="a"
-                href={r.url}
-                target="_blank"
-                rel="noopener noreferrer"
-              >
-                Открыть пост
-              </Button>
-            </Group>
-          </Group>
-        </Stack>
-      </Group>
-    </Paper>
+          </div>
+        </div>
+      </div>
+    </article>
   );
 }

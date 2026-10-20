@@ -1,25 +1,26 @@
 import {
   Anchor,
-  Badge,
   Button,
   Checkbox,
   Drawer,
   Group,
   Loader,
-  Pill,
   ScrollArea,
   SegmentedControl,
   Stack,
   Text,
   TextInput,
 } from "@mantine/core";
-import { useDebouncedValue, useDisclosure } from "@mantine/hooks";
+import { useDebouncedValue } from "@mantine/hooks";
 import { useQuery } from "@tanstack/react-query";
 import { useState } from "react";
 import { Link } from "react-router";
 
 import { api, unwrap, type S } from "../../api/client";
+import { Icon } from "../../components/Icon";
+import { PlatformLogo } from "../../components/PlatformLogo";
 import { PLATFORM_TITLE } from "../../lib/platforms";
+import classes from "./SourcePicker.module.css";
 
 const VISIBLE_CHIPS = 8;
 
@@ -29,43 +30,48 @@ interface Props {
   platforms: S["Platform"][]; // выбранные в форме площадки
   catalog: S["Source"][];
   error?: string;
+  opened: boolean;
+  onOpen: () => void;
+  onClose: () => void;
 }
 
-/** Чипы выбранных источников + Drawer «Изменить список». */
-export function SourcePicker({ value, onChange, platforms, catalog, error }: Props) {
-  const [opened, { open, close }] = useDisclosure(false);
+/** Чипы выбранных источников + шторка «Изменить список». */
+export function SourcePicker({ value, onChange, platforms, catalog, error, opened, onOpen, onClose }: Props) {
   const byId = new Map(catalog.map((s) => [s.id, s]));
   const chosen = value.map((id) => byId.get(id)).filter((s): s is S["Source"] => !!s);
 
   return (
-    <Stack gap={6}>
-      <Group gap={6}>
-        {chosen.length === 0 && (
-          <Text size="sm" c={error ? "red" : "dimmed"}>
-            Источники не выбраны
-          </Text>
-        )}
-        {chosen.slice(0, VISIBLE_CHIPS).map((s) => (
-          <Pill key={s.id} withRemoveButton onRemove={() => onChange(value.filter((id) => id !== s.id))}>
-            {PLATFORM_TITLE[s.platform]} · {s.name}
-          </Pill>
-        ))}
-        {chosen.length > VISIBLE_CHIPS && (
-          <Badge variant="light" color="gray" onClick={open} style={{ cursor: "pointer" }}>
-            +{chosen.length - VISIBLE_CHIPS}
-          </Badge>
-        )}
-        <Button variant="subtle" size="compact-sm" onClick={open}>
-          Изменить список
-        </Button>
-      </Group>
-      {error && (
-        <Text size="xs" c="red">
-          {error}
-        </Text>
+    <div className={classes.row}>
+      <span className={classes.label}>Источники</span>
+      {chosen.length === 0 && (
+        <span className={classes.empty} data-error={!!error || undefined}>
+          не выбраны
+        </span>
       )}
-      <SourceDrawer opened={opened} onClose={close} value={value} onChange={onChange} platforms={platforms} catalog={catalog} />
-    </Stack>
+      {chosen.slice(0, VISIBLE_CHIPS).map((s) => (
+        <span key={s.id} className={classes.chip}>
+          <PlatformLogo platform={s.platform} size="sm" />
+          <span className={classes.chipName}>{s.name}</span>
+          <button
+            type="button"
+            className={classes.chipRemove}
+            onClick={() => onChange(value.filter((id) => id !== s.id))}
+            aria-label={`Убрать ${s.name}`}
+          >
+            <Icon name="close" size={12} />
+          </button>
+        </span>
+      ))}
+      {chosen.length > VISIBLE_CHIPS && (
+        <button type="button" className={classes.more} onClick={onOpen}>
+          +{chosen.length - VISIBLE_CHIPS}
+        </button>
+      )}
+      <button type="button" className={classes.edit} onClick={onOpen}>
+        Изменить список
+      </button>
+      <SourceDrawer opened={opened} onClose={onClose} value={value} onChange={onChange} platforms={platforms} catalog={catalog} />
+    </div>
   );
 }
 
@@ -76,7 +82,7 @@ function SourceDrawer({
   onChange,
   platforms,
   catalog,
-}: Omit<Props, "error"> & { opened: boolean; onClose: () => void }) {
+}: Omit<Props, "error" | "onOpen">) {
   const [q, setQ] = useState("");
   const [debouncedQ] = useDebouncedValue(q, 300);
   const [platform, setPlatform] = useState<"all" | S["Platform"]>("all");
@@ -103,9 +109,31 @@ function SourceDrawer({
   const items = list.data?.items ?? [];
 
   return (
-    <Drawer opened={opened} onClose={onClose} position="right" size="md" title="Источники для поиска">
+    <Drawer
+      opened={opened}
+      onClose={onClose}
+      position="right"
+      size="md"
+      padding={24}
+      title={
+        <div>
+          <Text fw={700} size="lg">
+            Источники для поиска
+          </Text>
+          <Text size="xs" c="dimmed">
+            Группы, сообщества и каналы
+          </Text>
+        </div>
+      }
+      overlayProps={{ backgroundOpacity: 0.3, blur: 3, color: "#171914" }}
+    >
       <Stack gap="sm">
-        <TextInput placeholder="Найти по названию или ссылке" value={q} onChange={(e) => setQ(e.currentTarget.value)} />
+        <TextInput
+          placeholder="Найти по названию или ссылке"
+          leftSection={<Icon name="search" />}
+          value={q}
+          onChange={(e) => setQ(e.currentTarget.value)}
+        />
         <SegmentedControl
           size="xs"
           value={platform}
@@ -126,8 +154,8 @@ function SourceDrawer({
           </Text>
         </Group>
 
-        <ScrollArea.Autosize mah="calc(100vh - 260px)">
-          <Stack gap={8}>
+        <ScrollArea.Autosize mah="calc(100vh - 290px)">
+          <Stack gap={4}>
             {list.isPending && <Loader size="sm" />}
             {list.isSuccess && items.length === 0 && (
               <Text size="sm" c="dimmed">
@@ -135,26 +163,27 @@ function SourceDrawer({
               </Text>
             )}
             {items.map((s) => (
-              <Checkbox
-                key={s.id}
-                checked={selected.has(s.id)}
-                onChange={(e) => toggle(s.id, e.currentTarget.checked)}
-                label={
-                  <Group gap={6} wrap="nowrap">
-                    <Text size="sm">{s.name}</Text>
-                    <Text size="xs" c="dimmed">
-                      {PLATFORM_TITLE[s.platform]}
-                      {s.city ? ` · ${s.city}` : ""}
-                      {s.is_active ? "" : " · не активен"}
-                    </Text>
-                  </Group>
-                }
-              />
+              <label key={s.id} className={classes.option} data-checked={selected.has(s.id) || undefined}>
+                <Checkbox
+                  checked={selected.has(s.id)}
+                  onChange={(e) => toggle(s.id, e.currentTarget.checked)}
+                  aria-label={s.name}
+                />
+                <PlatformLogo platform={s.platform} size="sm" />
+                <span className={classes.optionText}>
+                  <span className={classes.optionName}>{s.name}</span>
+                  <span className={classes.optionMeta}>
+                    {PLATFORM_TITLE[s.platform]}
+                    {s.city ? ` · ${s.city}` : ""}
+                    {s.is_active ? "" : " · не активен"}
+                  </span>
+                </span>
+              </label>
             ))}
           </Stack>
         </ScrollArea.Autosize>
         <Group justify="space-between">
-          <Anchor component={Link} to="/sources" size="sm">
+          <Anchor component={Link} to="/sources" size="sm" fw={700}>
             Управление источниками
           </Anchor>
           <Button onClick={onClose}>Готово</Button>

@@ -1,37 +1,29 @@
-import {
-  Alert,
-  Box,
-  Button,
-  Checkbox,
-  Group,
-  Kbd,
-  Paper,
-  SegmentedControl,
-  Stack,
-  Text,
-  Textarea,
-  Tooltip,
-} from "@mantine/core";
+import { Alert, SegmentedControl, Textarea, Tooltip } from "@mantine/core";
 import { DatePickerInput } from "@mantine/dates";
-import { useDebouncedValue } from "@mantine/hooks";
+import { useDebouncedValue, useDisclosure } from "@mantine/hooks";
 import { notifications } from "@mantine/notifications";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useEffect, useState } from "react";
 import { useNavigate } from "react-router";
 
 import { api, unwrap, type S } from "../../api/client";
-import { errorText, fieldErrors } from "../../lib/errors";
+import { Icon } from "../../components/Icon";
+import { PlatformLogo } from "../../components/PlatformLogo";
 import { todayYmd } from "../../lib/dates";
+import { errorText, fieldErrors } from "../../lib/errors";
+import { sourcesCount } from "../../lib/format";
+import { PLATFORM_NAME } from "../../lib/platforms";
 import { detectPreset, presetPeriod, type Period, type PeriodPreset } from "./period";
+import classes from "./SearchForm.module.css";
 import { loadSelection, saveSelection } from "./sourceSelection";
 import { SourcePicker } from "./SourcePicker";
 import { useAllSources, usePlatforms } from "./useCatalog";
 
 const QUERY_TYPE_TEXT: Record<S["QueryType"], string> = {
-  topic: "тема",
-  event: "событие",
-  person: "человек",
-  news_text: "текст новости — ищем её размещения",
+  topic: "Тема",
+  event: "Событие",
+  person: "Человек",
+  news_text: "Текст новости — ищем её размещения",
 };
 
 type Errors = Partial<Record<"query" | "period" | "platforms" | "sources" | "mode", string>>;
@@ -60,6 +52,7 @@ export function SearchForm({ initial, onDirtyChange }: Props) {
   const queryClient = useQueryClient();
   const platformsQ = usePlatforms();
   const sourcesQ = useAllSources();
+  const [pickerOpened, picker] = useDisclosure(false);
 
   const [query, setQuery] = useState(initial?.query ?? "");
   const [preset, setPreset] = useState<PeriodPreset>(() =>
@@ -126,7 +119,7 @@ export function SearchForm({ initial, onDirtyChange }: Props) {
   function validate(): Errors {
     const e: Errors = {};
     const q = query.trim();
-    if (q.length < 3) e.query = "Опишите, что ищем, — хотя бы 3 символа";
+    if (q.length < 3) e.query = "Опишите тему, событие, человека или вставьте текст новости — хотя бы 3 символа";
     else if (q.length > 20000) e.query = "Слишком длинный текст — не больше 20 000 символов";
     const [from, to] = period;
     if (!from || !to) e.period = "Выберите начало и конец периода";
@@ -156,188 +149,221 @@ export function SearchForm({ initial, onDirtyChange }: Props) {
     setErrors((e) => ({ ...e, sources: undefined }));
   };
 
+  const togglePlatform = (code: S["Platform"]) => {
+    setPlatformsSel(platforms.includes(code) ? platforms.filter((p) => p !== code) : [...platforms, code]);
+    setErrors((x) => ({ ...x, platforms: undefined }));
+  };
+
+  const paramErrors = [errors.period, errors.platforms, errors.sources, errors.mode].filter(Boolean);
+  const allUnavailable = platformInfo.length > 0 && platformInfo.every((p) => p.status === "unavailable");
+  const showAnalysis = analysis.isSuccess && debounced === query.trim();
+
   return (
-    <Paper
-      withBorder
-      p="md"
-      radius="md"
-      component="form"
+    <form
+      className={classes.hero}
       id="search-form"
-      onSubmit={(ev: React.FormEvent) => {
+      data-compact={!!initial || undefined}
+      onSubmit={(ev) => {
         ev.preventDefault();
         submit();
       }}
-      onKeyDown={(ev: React.KeyboardEvent) => {
+      onKeyDown={(ev) => {
         if ((ev.ctrlKey || ev.metaKey) && ev.key === "Enter") {
           ev.preventDefault();
           submit();
         }
       }}
     >
-      <Stack gap="md">
-        {/* 1. Запрос */}
-        <Box>
-          <Textarea
-            label="Что ищем?"
-            description="Тема, событие, человек или текст новости целиком"
-            placeholder="Например: безопасность дорожного движения в Красноярском крае"
-            autosize
-            minRows={2}
-            maxRows={12}
-            value={query}
-            onChange={(e) => {
-              setQuery(e.currentTarget.value);
-              setErrors((x) => ({ ...x, query: undefined }));
-            }}
-            error={errors.query}
-          />
-          {analysis.isSuccess && debounced === query.trim() && (
-            <Stack gap={4} mt={6}>
-              <Text size="sm" c="dimmed">
-                Понято как: <b>{QUERY_TYPE_TEXT[analysis.data.query_type]}</b> — {analysis.data.summary}
-              </Text>
-              {analysis.data.needs_clarification && analysis.data.clarification_hint && (
-                <Alert color="yellow" variant="light" p="xs">
-                  {analysis.data.clarification_hint}
-                </Alert>
-              )}
-            </Stack>
+      <div className="mp-eyebrow">
+        <Icon name="sparkles" />
+        Умный поиск по смыслу
+      </div>
+      <h1 className={classes.title}>Что будем искать?</h1>
+      {!initial && (
+        <p className={classes.lead}>
+          Опишите тему, событие или человека своими словами. Также можно вставить полный текст исходной новости.
+        </p>
+      )}
+
+      {/* 1. Запрос */}
+      <div className={classes.queryBox} data-error={!!errors.query || undefined}>
+        <Textarea
+          variant="unstyled"
+          autosize
+          minRows={initial ? 2 : 3}
+          maxRows={12}
+          placeholder="Например: безопасность дорожного движения в Красноярском крае…"
+          value={query}
+          onChange={(e) => {
+            setQuery(e.currentTarget.value);
+            setErrors((x) => ({ ...x, query: undefined }));
+          }}
+          classNames={{ input: classes.queryInput }}
+          aria-label="Что ищем"
+          aria-invalid={!!errors.query}
+        />
+        <div className={classes.queryFooter}>
+          <span className={classes.queryHint}>
+            <Icon name="info" />
+            Поиск учитывает контекст, сокращения и пересказы
+          </span>
+          <span className={classes.kbd}>Ctrl + Enter</span>
+          <button type="submit" className="mp-ink-button" disabled={start.isPending}>
+            <Icon name="search" className={start.isPending ? "mp-spin" : undefined} />
+            {start.isPending ? "Ищем…" : "Найти публикации"}
+          </button>
+        </div>
+      </div>
+      {errors.query && <p className={classes.error}>{errors.query}</p>}
+
+      {showAnalysis && (
+        <div className={classes.analysis}>
+          <div className={classes.chipRow}>
+            <span className={classes.chipLabel}>Как понят запрос</span>
+            <span className={`${classes.chip} ${classes.chipActive}`}>{QUERY_TYPE_TEXT[analysis.data.query_type]}</span>
+            <span className={classes.summary}>{analysis.data.summary}</span>
+          </div>
+          {analysis.data.search_queries.length > 0 && (
+            <div className={classes.chipRow}>
+              <span className={classes.chipLabel}>Ищем по формулировкам</span>
+              {analysis.data.search_queries.slice(0, 8).map((q) => (
+                <span key={q} className={classes.chip}>
+                  {q}
+                </span>
+              ))}
+            </div>
           )}
-        </Box>
+          {analysis.data.needs_clarification && analysis.data.clarification_hint && (
+            <Alert color="yellow" variant="light" p="xs" mt={4} icon={<Icon name="info" />}>
+              {analysis.data.clarification_hint}
+            </Alert>
+          )}
+        </div>
+      )}
 
-        {/* 2. Период и режим */}
-        <Group align="flex-start" gap="xl" wrap="wrap">
-          <Stack gap={6}>
-            <Text size="sm" fw={500}>
-              Период{" "}
-              <Text span size="xs" c="dimmed" fw={400}>
-                по дате публикации
-              </Text>
-            </Text>
-            <SegmentedControl
-              value={preset}
-              onChange={(v) => {
-                const p = v as PeriodPreset;
-                setPreset(p);
-                if (p !== "custom") setPeriod(presetPeriod(p));
-                setErrors((x) => ({ ...x, period: undefined }));
-              }}
-              data={[
-                { value: "today", label: "Сегодня" },
-                { value: "7d", label: "7 дней" },
-                { value: "30d", label: "30 дней" },
-                { value: "custom", label: "Свой" },
-              ]}
-            />
-            <DatePickerInput
-              type="range"
-              value={period}
-              onChange={(v) => {
-                setPeriod([v[0], v[1]]);
-                setPreset("custom");
-                setErrors((x) => ({ ...x, period: undefined }));
-              }}
-              maxDate={todayYmd()}
-              allowSingleDateInRange
-              valueFormat="DD.MM.YYYY"
-              placeholder="Выберите даты"
-              error={errors.period}
-              w={260}
-            />
-          </Stack>
+      {/* 2. Параметры: период · режим · площадки · источники */}
+      <div className={classes.params}>
+        <div className={classes.paramGroup}>
+          <Icon name="calendar" className={classes.paramIcon} />
+          <span className={classes.paramLabel}>Период</span>
+          <SegmentedControl
+            size="xs"
+            radius="md"
+            value={preset}
+            onChange={(v) => {
+              const p = v as PeriodPreset;
+              setPreset(p);
+              if (p !== "custom") setPeriod(presetPeriod(p));
+              setErrors((x) => ({ ...x, period: undefined }));
+            }}
+            data={[
+              { value: "today", label: "Сегодня" },
+              { value: "7d", label: "7 дней" },
+              { value: "30d", label: "30 дней" },
+              { value: "custom", label: "Свой" },
+            ]}
+            classNames={{ root: classes.segment }}
+          />
+          <DatePickerInput
+            type="range"
+            size="xs"
+            value={period}
+            onChange={(v) => {
+              setPeriod([v[0], v[1]]);
+              setPreset("custom");
+              setErrors((x) => ({ ...x, period: undefined }));
+            }}
+            maxDate={todayYmd()}
+            allowSingleDateInRange
+            valueFormat="DD.MM.YYYY"
+            placeholder="Выберите даты"
+            error={!!errors.period}
+            aria-label="Период публикации"
+            w={184}
+            classNames={{ input: classes.dateInput }}
+          />
+        </div>
 
-          <Stack gap={6}>
-            <Text size="sm" fw={500}>
-              Где искать
-            </Text>
-            <SegmentedControl
-              value={mode}
-              onChange={(v) => setMode(v as typeof mode)}
-              data={[
-                { value: "selected", label: "Только мои источники" },
-                { value: "global", label: "Везде" },
-              ]}
-            />
-            <Checkbox.Group
-              value={platforms}
-              onChange={(v) => {
-                setPlatformsSel(v as S["Platform"][]);
-                setErrors((x) => ({ ...x, platforms: undefined }));
-              }}
-              error={errors.platforms}
-            >
-              <Group gap="md" mt={4}>
-                {platformInfo.map((p) => {
-                  const box = (
-                    <Checkbox
-                      value={p.code}
-                      label={p.title}
-                      disabled={p.status === "unavailable"}
-                      description={
-                        mode === "global" && !p.global_mode ? "здесь — только по источникам из списка" : undefined
-                      }
-                    />
-                  );
-                  return p.note ? (
-                    <Tooltip key={p.code} label={p.note} multiline w={240}>
-                      <div>{box}</div>
-                    </Tooltip>
-                  ) : (
-                    <div key={p.code}>{box}</div>
-                  );
-                })}
-              </Group>
-            </Checkbox.Group>
-            {/* без ключей (COLLECTOR_FAKE=false) все площадки unavailable — объясняем, почему искать негде */}
-            {platformInfo.length > 0 && platformInfo.every((p) => p.status === "unavailable") && (
-              <Text size="xs" c="orange.8">
-                Сейчас ни одна площадка не подключена, поиск недоступен. Причина — в подсказке у названия площадки.
-              </Text>
-            )}
-          </Stack>
-        </Group>
+        <span className={classes.divider} />
 
-        {/* 3. Источники */}
+        <SegmentedControl
+          size="xs"
+          radius="md"
+          value={mode}
+          onChange={(v) => setMode(v as typeof mode)}
+          data={[
+            { value: "selected", label: "Мои источники" },
+            { value: "global", label: "Везде" },
+          ]}
+          classNames={{ root: classes.segment }}
+        />
+
+        <span className={classes.divider} />
+
+        <div className={classes.platforms} role="group" aria-label="Площадки">
+          {platformInfo.map((p) => {
+            const on = platforms.includes(p.code);
+            const disabled = p.status === "unavailable";
+            const hints = [
+              PLATFORM_NAME[p.code],
+              p.note,
+              mode === "global" && !p.global_mode ? "В режиме «Везде» — только по источникам из списка" : null,
+            ].filter(Boolean);
+            return (
+              <Tooltip key={p.code} label={hints.join(" · ")} multiline maw={280}>
+                <button
+                  type="button"
+                  className={classes.platformToggle}
+                  data-on={on || undefined}
+                  disabled={disabled}
+                  aria-pressed={on}
+                  aria-label={PLATFORM_NAME[p.code]}
+                  onClick={() => togglePlatform(p.code)}
+                >
+                  <PlatformLogo platform={p.code} size="sm" />
+                </button>
+              </Tooltip>
+            );
+          })}
+        </div>
+
         {mode === "selected" && (
-          <Stack gap={4}>
-            <Text size="sm" fw={500}>
-              Источники
-            </Text>
-            <SourcePicker
-              value={sourceIds}
-              onChange={changeSources}
-              platforms={platforms}
-              catalog={catalog}
-              error={errors.sources}
-            />
-          </Stack>
+          <button type="button" className={classes.sourcesLink} onClick={picker.open}>
+            {sourcesCount(sourceIds.length)} <Icon name="arrow" size={14} />
+          </button>
         )}
+      </div>
 
-        <Group justify="space-between" wrap="wrap">
-          <Group gap={6}>
-            <Text size="sm" c="dimmed">
-              Регион: Красноярский край
-            </Text>
-            <Tooltip
-              multiline
-              w={300}
-              label="Публикация попадает в подборку, если она из регионального источника или в тексте упоминается край (город, район)"
-            >
-              <Text size="sm" c="dimmed" style={{ cursor: "help" }}>
-                ⓘ
-              </Text>
-            </Tooltip>
-          </Group>
-          <Group gap="sm">
-            <Text size="xs" c="dimmed">
-              <Kbd size="xs">Ctrl</Kbd> + <Kbd size="xs">Enter</Kbd>
-            </Text>
-            <Button type="submit" loading={start.isPending} size="md">
-              Найти
-            </Button>
-          </Group>
-        </Group>
-      </Stack>
-    </Paper>
+      {paramErrors.length > 0 && (
+        <div className={classes.paramErrors}>
+          {paramErrors.map((e) => (
+            <p key={e} className={classes.error}>
+              {e}
+            </p>
+          ))}
+        </div>
+      )}
+
+      {/* без ключей (COLLECTOR_FAKE=false) все площадки unavailable — объясняем, почему искать негде */}
+      {allUnavailable && (
+        <p className={classes.warning}>
+          Сейчас ни одна площадка не подключена, поиск недоступен. Причина — в подсказке у логотипа площадки.
+        </p>
+      )}
+
+      {/* 3. Источники */}
+      {mode === "selected" && (
+        <SourcePicker
+          value={sourceIds}
+          onChange={changeSources}
+          platforms={platforms}
+          catalog={catalog}
+          error={errors.sources}
+          opened={pickerOpened}
+          onOpen={picker.open}
+          onClose={picker.close}
+        />
+      )}
+    </form>
   );
 }

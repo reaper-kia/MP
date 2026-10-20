@@ -1,13 +1,16 @@
 // Итог поиска (FE-06): баннеры partial / failed / cancelled и экран «ничего не найдено».
 // Какой из них показать, решает только viewState().
-import { Alert, Anchor, Button, Group, List, Paper, Stack, Text, Title } from "@mantine/core";
+import { Button } from "@mantine/core";
+import type { ReactNode } from "react";
 
 import type { S } from "../../api/client";
+import { Icon } from "../../components/Icon";
+import { PlatformLogo } from "../../components/PlatformLogo";
 import { fmtPeriod } from "../../lib/dates";
 import { plural, publications, sourcesCount } from "../../lib/format";
 import { PLATFORM_TITLE } from "../../lib/platforms";
 import { useResultFilters } from "../results/filters";
-import { STATUS_COLOR } from "./status";
+import classes from "./SearchOutcome.module.css";
 import { useRetry } from "./useSearch";
 import { failedTargets, failureReason, foundCount, viewState } from "./viewState";
 
@@ -18,10 +21,10 @@ export function SearchOutcome({ search }: { search: S["Search"] }) {
       return <PartialBanner search={search} />;
     case "empty":
       return (
-        <Stack gap="sm">
+        <>
           {search.status === "partial" && <PartialBanner search={search} />}
           <EmptyResult search={search} />
-        </Stack>
+        </>
       );
     case "failed":
     case "failed_with_results":
@@ -33,11 +36,30 @@ export function SearchOutcome({ search }: { search: S["Search"] }) {
   }
 }
 
-function RetryButton({ search, color }: { search: S["Search"]; color: string }) {
+function Banner({ tone, title, children, action }: { tone: "amber" | "red" | "gray"; title: string; children: ReactNode; action?: ReactNode }) {
+  return (
+    <div className={classes.banner} data-tone={tone}>
+      <Icon name="info" size={18} className={classes.bannerIcon} />
+      <div className={classes.bannerBody}>
+        <p className={classes.bannerTitle}>{title}</p>
+        {children}
+      </div>
+      {action && <div className={classes.bannerAction}>{action}</div>}
+    </div>
+  );
+}
+
+function RetryButton({ search }: { search: S["Search"] }) {
   const retry = useRetry(search.id);
   if (failedTargets(search).length === 0) return null;
   return (
-    <Button size="compact-sm" color={color} loading={retry.isPending} onClick={() => retry.mutate(undefined)}>
+    <Button
+      size="compact-sm"
+      variant="default"
+      leftSection={<Icon name="refresh" size={14} />}
+      loading={retry.isPending}
+      onClick={() => retry.mutate(undefined)}
+    >
       Повторить
     </Button>
   );
@@ -47,19 +69,20 @@ function RetryButton({ search, color }: { search: S["Search"]; color: string }) 
 function FailedList({ targets }: { targets: S["SearchTarget"][] }) {
   const shown = targets.slice(0, 3);
   return (
-    <Stack gap={2} mt={4}>
+    <div className={classes.failedList}>
       {shown.map((t) => (
-        <Text key={t.id} size="sm">
-          {PLATFORM_TITLE[t.platform]} · {t.name}
-          {t.error?.message ? ` — ${t.error.message}` : ""}
-        </Text>
+        <p key={t.id} className={classes.failedItem}>
+          <PlatformLogo platform={t.platform} size="sm" />
+          <span>
+            <b>{t.name}</b>
+            {t.error?.message ? ` — ${t.error.message}` : ""}
+          </span>
+        </p>
       ))}
       {targets.length > shown.length && (
-        <Text size="sm" c="dimmed">
-          и ещё {sourcesCount(targets.length - shown.length)} — список в «Где искали»
-        </Text>
+        <p className={classes.text}>и ещё {sourcesCount(targets.length - shown.length)} — список в «Где искали»</p>
       )}
-    </Stack>
+    </div>
   );
 }
 
@@ -67,51 +90,46 @@ function PartialBanner({ search }: { search: S["Search"] }) {
   const failed = failedTargets(search);
   const n = failed.length;
   return (
-    <Alert color={STATUS_COLOR.partial} variant="light" title={`Не удалось обработать ${n} ${plural(n, ["источник", "источника", "источников"])}`}>
-      <Group justify="space-between" align="flex-end" wrap="nowrap">
-        <div>
-          <Text size="sm">Подборка собрана по остальным источникам. Можно попробовать ещё раз.</Text>
-          <FailedList targets={failed} />
-        </div>
-        <RetryButton search={search} color={STATUS_COLOR.partial} />
-      </Group>
-    </Alert>
+    <Banner
+      tone="amber"
+      title={`Не удалось обработать ${n} ${plural(n, ["источник", "источника", "источников"])}`}
+      action={<RetryButton search={search} />}
+    >
+      <p className={classes.text}>Подборка собрана по остальным источникам. Можно попробовать ещё раз.</p>
+      <FailedList targets={failed} />
+    </Banner>
   );
 }
 
 function FailedBanner({ search, withResults }: { search: S["Search"]; withResults: boolean }) {
   const reason = failureReason(search);
   return (
-    <Alert color={STATUS_COLOR.failed} variant="light" title="Поиск не выполнен">
-      <Group justify="space-between" align="flex-end" wrap="nowrap">
-        <div>
-          <Text size="sm">{reason ?? "Ни один источник не удалось обработать."}</Text>
-          {withResults && (
-            <Text size="sm" mt={4}>
-              Ниже — что успели найти до ошибки: {publications(foundCount(search))}.
-            </Text>
-          )}
-        </div>
-        <RetryButton search={search} color={STATUS_COLOR.failed} />
-      </Group>
-    </Alert>
+    <Banner tone="red" title="Поиск не выполнен" action={<RetryButton search={search} />}>
+      <p className={classes.text}>{reason ?? "Ни один источник не удалось обработать."}</p>
+      {withResults && (
+        <p className={classes.text}>Ниже — что успели найти до ошибки: {publications(foundCount(search))}.</p>
+      )}
+    </Banner>
   );
 }
 
 function CancelledBanner({ search }: { search: S["Search"] }) {
   const found = foundCount(search);
   return (
-    <Alert color={STATUS_COLOR.neutral} variant="light" title="Поиск остановлен">
-      <Group justify="space-between" align="flex-end" wrap="nowrap">
-        <Text size="sm">
-          {found > 0 ? `Ниже — что успели найти до остановки: ${publications(found)}.` : "До остановки ничего не нашлось."}
-        </Text>
-        {/* сабмит формы поиска сверху — запустит поиск с теми же (или изменёнными) параметрами */}
-        <Button size="compact-sm" variant="default" type="submit" form="search-form">
+    <Banner
+      tone="gray"
+      title="Поиск остановлен"
+      action={
+        // сабмит формы поиска сверху — запустит поиск с теми же (или изменёнными) параметрами
+        <Button size="compact-sm" variant="default" type="submit" form="search-form" leftSection={<Icon name="refresh" size={14} />}>
           Запустить заново
         </Button>
-      </Group>
-    </Alert>
+      }
+    >
+      <p className={classes.text}>
+        {found > 0 ? `Ниже — что успели найти до остановки: ${publications(found)}.` : "До остановки ничего не нашлось."}
+      </p>
+    </Banner>
   );
 }
 
@@ -129,27 +147,22 @@ function EmptyResult({ search }: { search: S["Search"] }) {
   const { update } = useResultFilters();
   const rejected = search.counts.rejected;
   return (
-    <Paper withBorder radius="md" p="xl">
-      <Stack gap="sm" maw={640}>
-        <Title order={3}>Подходящие публикации не найдены</Title>
-        <Text>Искали: {searchedWhere(search)}.</Text>
-        <Text size="sm" c="dimmed">
-          Что можно сделать:
-        </Text>
-        <List size="sm" spacing={4}>
-          <List.Item>Расширьте период</List.Item>
-          {search.params.mode === "selected" && <List.Item>Попробуйте режим «Везде»</List.Item>}
-          <List.Item>Переформулируйте запрос — опишите тему другими словами</List.Item>
-        </List>
-        {rejected > 0 && (
-          <Text size="sm" c="dimmed">
-            Система отсеяла {publications(rejected)} как не относящиеся к запросу.{" "}
-            <Anchor component="button" type="button" size="sm" onClick={() => update({ tab: "rejected" })}>
-              Посмотреть отсеянные
-            </Anchor>
-          </Text>
-        )}
-      </Stack>
-    </Paper>
+    <div className={classes.empty}>
+      <p className={classes.emptyTitle}>Подходящие публикации не найдены</p>
+      <p className={classes.emptyText}>Искали: {searchedWhere(search)}.</p>
+      <ul className={classes.tips}>
+        <li>Расширьте период</li>
+        {search.params.mode === "selected" && <li>Попробуйте режим «Везде»</li>}
+        <li>Переформулируйте запрос — опишите тему другими словами</li>
+      </ul>
+      {rejected > 0 && (
+        <p className={classes.emptyText}>
+          Система отсеяла {publications(rejected)} как не относящиеся к запросу.{" "}
+          <button type="button" className={classes.link} onClick={() => update({ tab: "rejected" })}>
+            Посмотреть отсеянные
+          </button>
+        </p>
+      )}
+    </div>
   );
 }

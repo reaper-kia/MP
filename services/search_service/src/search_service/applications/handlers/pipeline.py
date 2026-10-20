@@ -267,7 +267,7 @@ class Pipeline:
                 start_utc=search.period.start_utc,
                 end_utc=search.period.end_utc,
                 keywords=analysis.search_queries,
-                max_posts=300,
+                max_posts=0,  # 0 — лимит сборщика (DEFAULT_MAX_POSTS_SOURCE в compose)
             )
         else:
             res = await self.collector.search_platform(
@@ -276,7 +276,7 @@ class Pipeline:
                 start_utc=search.period.start_utc,
                 end_utc=search.period.end_utc,
                 region_terms=["Красноярск", "Красноярский край"],
-                max_posts=500,
+                max_posts=0,  # 0 — лимит сборщика (DEFAULT_MAX_POSTS_SEARCH в compose)
             )
         return res.posts
 

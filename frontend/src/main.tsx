@@ -12,7 +12,7 @@ import { createRoot } from "react-dom/client";
 
 import { App } from "./App";
 import "./lib/dates";
-import { theme } from "./theme";
+import { cssVariablesResolver, theme } from "./theme";
 
 const queryClient = new QueryClient({
   defaultOptions: { queries: { retry: 1, refetchOnWindowFocus: false } },
@@ -28,7 +28,8 @@ async function enableMocks() {
 enableMocks().then(() => {
   createRoot(document.getElementById("root")!).render(
     <StrictMode>
-      <MantineProvider theme={theme}>
+      {/* тема: как в системе, переключатель в шапке запоминает выбор */}
+      <MantineProvider theme={theme} cssVariablesResolver={cssVariablesResolver} defaultColorScheme="auto">
         <DatesProvider settings={{ locale: "ru", firstDayOfWeek: 1 }}>
           <Notifications position="top-right" />
           <QueryClientProvider client={queryClient}>

@@ -1,6 +1,8 @@
 """Вызов методов VK API. Знает про сеть и ошибки VK, но не про посты и группы.
 
 Токен уходит только в теле POST: в URL его нет, значит и в логах httpx он не появится.
+Токен берётся у TokenSource на каждый вызов: токен VK ID живёт час и обновляется сам (tokens.py);
+на ошибку 5 клиент один раз просит новый токен и повторяет запрос.
 Ошибки VK превращаются в ошибки сервиса (domain/exceptions.py), коды — по задаче B1-03.
 """
 
@@ -11,12 +13,14 @@ from typing import Any
 
 from collector_service.domain.exceptions import (
     CollectorError,
+    MethodUnavailableError,
     PlatformUnavailableError,
     RateLimitedError,
     SourceNotFoundError,
     SourcePrivateError,
 )
 from collector_service.infra.vk_api.limiter import RateLimiter
+from collector_service.infra.vk_api.tokens import StaticToken, TokenSource
 from collector_service.infra.vk_api.transport import FormPoster, TransportError
 
 logger = logging.getLogger(__name__)
@@ -27,6 +31,8 @@ RETRY_CODES = frozenset({6, 10})  # 6 — слишком много запрос
 FLOOD_CODES = frozenset({6, 9, 29})  # лимиты: после ретраев → RATE_LIMITED
 NO_ACCESS_CODES = frozenset({15, 18, 30})  # доступ запрещён / страница удалена / профиль закрыт
 NOT_FOUND_CODES = frozenset({100, 113})  # неверный параметр / неверный id
+INVALID_TOKEN = 5
+METHOD_UNAVAILABLE = 1051  # «Method is not available for this profile type» (newsfeed.search)
 
 type Param = str | int
 
@@ -36,7 +42,8 @@ class VkApiClient:
         self,
         poster: FormPoster,
         *,
-        token: str,
+        token: str = "",
+        tokens: TokenSource | None = None,
         version: str,
         limiter: RateLimiter,
         max_attempts: int = 4,
@@ -44,7 +51,7 @@ class VkApiClient:
         sleep: Callable[[float], Awaitable[None]] = asyncio.sleep,
     ) -> None:
         self._poster = poster
-        self._token = token
+        self._tokens: TokenSource = tokens if tokens is not None else StaticToken(token)
         self._version = version
         self._limiter = limiter
         self._max_attempts = max_attempts
@@ -53,17 +60,20 @@ class VkApiClient:
 
     @property
     def configured(self) -> bool:
-        return bool(self._token)
+        return self._tokens.configured
 
     async def call(self, method: str, **params: Param) -> Any:
         """Поле `response` ответа VK. Любая неудача — исключение из domain/exceptions.py."""
         if not self.configured:
             raise PlatformUnavailableError("ВКонтакте: не настроен доступ (VK_SERVICE_TOKEN)")
         form = {k: str(v) for k, v in params.items()}
-        form["access_token"] = self._token
+        form["access_token"] = await self._tokens.token()
         form["v"] = self._version
+        refreshed = False
+        attempt = 0
 
-        for attempt in range(1, self._max_attempts + 1):
+        while attempt < self._max_attempts:
+            attempt += 1
             last = attempt == self._max_attempts
             await self._limiter.wait()
             try:
@@ -81,6 +91,12 @@ class VkApiClient:
                 raise PlatformUnavailableError(f"ВКонтакте: неожиданный ответ на {method}")
 
             code = _error_code(error)
+            if code == INVALID_TOKEN and self._tokens.refreshable and not refreshed:
+                refreshed = True  # токен истёк раньше срока / отозван: один раз обновляем
+                logger.warning("VK %s: ключ недействителен, обновляю токен VK ID", method)
+                form["access_token"] = await self._tokens.refresh()
+                attempt -= 1  # повтор после обновления токена не тратит попытку
+                continue
             if code in RETRY_CODES and not last:
                 await self._retry_pause(method, attempt, f"ошибка VK {code}")
                 continue
@@ -107,8 +123,10 @@ def _error_code(error: Any) -> int:
 
 
 def _to_domain_error(method: str, code: int) -> CollectorError:
-    if code == 5:
+    if code == INVALID_TOKEN:
         return PlatformUnavailableError("ВКонтакте: ключ доступа недействителен (ошибка 5)")
+    if code == METHOD_UNAVAILABLE:
+        return MethodUnavailableError(f"ВКонтакте: метод {method} недоступен для этого ключа")
     if code in NO_ACCESS_CODES:
         return SourcePrivateError(f"ВКонтакте: страница закрыта, удалена или недоступна ({code})")
     if code in NOT_FOUND_CODES:

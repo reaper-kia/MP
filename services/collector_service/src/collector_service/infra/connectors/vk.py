@@ -4,6 +4,8 @@ resolve  → groups.getById(group_id, fields=city,members_count,is_closed)
 collect  → wall.get(owner_id, count=100, offset) пока посты новее period.start
            (закреплённый пост идёт первым и может быть старым — на нём не останавливаемся)
 search   → newsfeed.search(q, start_time, end_time, count=200, start_from) по каждой фразе
+read_post→ wall.getById(posts, extended=1): PostReader для «везде» через Яндекс (site:vk.com),
+           когда newsfeed.search ключу закрыт (токен пользователя VK ID — ошибка 1051)
 
 Чего коннектор НЕ делает (это работа соседей):
 - `keywords` в collect игнорируются: отдаём все посты за период, отбор по смыслу — ML (ScorePosts);
@@ -20,6 +22,7 @@ from typing import Any
 from collector_service.domain.enums import Health, Platform
 from collector_service.domain.exceptions import (
     CollectorError,
+    MethodUnavailableError,
     RateLimitedError,
     SourceNotFoundError,
 )
@@ -43,6 +46,7 @@ from collector_service.infra.vk_api.mapping import (
     post_from_item,
     source_from_group,
     user_items,
+    wall_ref_from_url,
 )
 
 logger = logging.getLogger(__name__)
@@ -175,6 +179,8 @@ class VkConnector:
         for query in queries:
             try:
                 items = await self._search_phrase(query, period)
+            except MethodUnavailableError:
+                raise  # поиск закрыт ключу целиком: остальные фразы упадут так же
             except CollectorError as exc:
                 first_error = first_error or exc
                 pending.append(f"Фраза «{query}» не обработана: {exc}")
@@ -220,6 +226,30 @@ class VkConnector:
             params["start_from"] = str(next_from)
         return found
 
+    # ---------- PostReader: открыть пост по ссылке из поисковика (B1-06) ----------
+
+    def accepts(self, url: str) -> bool:
+        return wall_ref_from_url(url) is not None
+
+    async def read_post(self, url: str) -> RawPost | None:
+        """Пост, который VK отдал по ссылке; удалён / закрыт / не пост — None."""
+        ref = wall_ref_from_url(url)
+        if ref is None:
+            return None
+        owner_id, post_id = ref
+        response = await self._api.call("wall.getById", posts=f"{owner_id}_{post_id}", extended=1)
+        items = response if isinstance(response, list) else _items(response)
+        item = next((i for i in items if isinstance(i, Mapping)), None)
+        if item is None:
+            return None
+        cards: dict[int, SourceCard] = {}
+        if isinstance(response, Mapping):
+            cards.update(card_from_group(g) for g in group_items(response))
+            cards.update(card_from_user(u) for u in _list(response.get("profiles")))
+        owner = item.get("owner_id")
+        card = cards.get(owner) if isinstance(owner, int) else None
+        return post_from_item(item, card or fallback_card(owner_id))
+
     # ---------- названия источников ----------
 
     async def _cards(self, owner_ids: Iterable[int]) -> dict[int, SourceCard]:
@@ -257,6 +287,10 @@ class VkConnector:
 
 def _items(response: Any) -> list[Mapping[str, Any]]:
     raw = response.get("items") if isinstance(response, Mapping) else None
+    return [item for item in raw if isinstance(item, Mapping)] if isinstance(raw, list) else []
+
+
+def _list(raw: Any) -> list[Mapping[str, Any]]:
     return [item for item in raw if isinstance(item, Mapping)] if isinstance(raw, list) else []
 
 

@@ -6,6 +6,7 @@ import { useQuery } from "@tanstack/react-query";
 import { useState } from "react";
 
 import { api, ApiError, unwrap, type S } from "../../api/client";
+import { Icon } from "../../components/Icon";
 import { errorText } from "../../lib/errors";
 import { publications } from "../../lib/format";
 import { isFinal } from "../search/status";
@@ -112,6 +113,7 @@ export function ExportBar({ search, filters: f, grouped }: Props) {
         download
         size="sm"
         variant={variant}
+        leftSection={<Icon name="download" size={15} />}
         loading={busy === format}
         disabled={!!disabledReason || total === undefined}
         onClick={(e: React.MouseEvent) => {
@@ -135,7 +137,7 @@ export function ExportBar({ search, filters: f, grouped }: Props) {
   return (
     <Group justify="flex-end" gap="sm">
       {final && !rejectedTab && total !== undefined && (
-        <Text size="sm" c="dimmed">
+        <Text size="xs" c="dimmed">
           В файл попадёт {publications(total)}
         </Text>
       )}

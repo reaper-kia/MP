@@ -20,6 +20,10 @@ class Settings(BaseSettings):
 
     # VK API (B1-03)
     vk_service_token: str = ""
+    # Токен VK ID с автообновлением (scripts/vk_token.py пишет .vk/token.json). Если файл есть —
+    # он главнее VK_SERVICE_TOKEN. В compose: VK_TOKEN_FILE=/vk/token.json (том ./.vk:/vk)
+    vk_token_file: str = ""
+    vk_id_client_id: str = "54832790"
     vk_api_version: str = "5.199"
     vk_requests_per_second: float = 3.0
 

@@ -1,0 +1,213 @@
+.section {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  margin-top: 12px;
+}
+
+.head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 12px 24px;
+}
+
+.heading {
+  margin: 0;
+  font-size: 18px;
+  font-weight: 700;
+  letter-spacing: -0.01em;
+}
+
+.headingCount {
+  margin-left: 4px;
+  color: var(--mp-faint);
+}
+
+.sub {
+  margin: 4px 0 0;
+  font-size: 12px;
+  color: var(--mp-muted);
+}
+
+/* вкладки — подчёркивание лаймом, как в макете */
+.tabsList {
+  gap: 4px;
+}
+
+.tabsList::before {
+  border-color: var(--mp-border) !important;
+}
+
+.tab {
+  padding: 12px 16px;
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--mp-faint);
+}
+
+.tab:hover {
+  background: transparent;
+  border-color: transparent;
+  color: var(--mp-text-2);
+}
+
+.tab[data-active] {
+  border-color: var(--mp-accent-line) !important;
+  color: var(--mp-text);
+}
+
+.tabCount {
+  margin-left: 4px;
+  font-weight: 600;
+  color: var(--mp-faint);
+}
+
+.filters {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 12px;
+}
+
+.pills {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 14px;
+  border: 1px solid var(--mp-border);
+  border-radius: 999px;
+  background: var(--mp-surface);
+  font: inherit;
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--mp-text-2);
+  cursor: pointer;
+  transition:
+    border-color 150ms ease,
+    background-color 150ms ease;
+}
+
+.pill:has(span[role="img"]) {
+  padding-left: 4px;
+}
+
+.pill:hover {
+  border-color: var(--mp-border-strong);
+}
+
+.pill[data-active] {
+  border-color: var(--mp-accent);
+  background: var(--mp-accent);
+  color: #171914;
+}
+
+.switches {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px 24px;
+}
+
+.note {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 12px;
+  border-left: 2px solid var(--mp-accent-line);
+  font-size: 12px;
+  color: var(--mp-muted);
+}
+
+.noteAction {
+  margin-left: auto;
+  padding: 0;
+  border: 0;
+  background: none;
+  font: inherit;
+  font-weight: 700;
+  color: var(--mp-text-2);
+  cursor: pointer;
+}
+
+.noteAction:hover {
+  color: var(--mp-text);
+}
+
+.noteClose {
+  display: flex;
+  padding: 2px;
+  border: 0;
+  background: none;
+  color: var(--mp-faint);
+  cursor: pointer;
+}
+
+.bulk {
+  position: sticky;
+  top: 150px;
+  z-index: 5;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 16px;
+  border: 1px solid var(--mp-accent-line);
+  border-radius: 16px;
+  background: var(--mp-surface);
+  box-shadow: var(--mp-shadow-card);
+  font-size: 13px;
+  font-weight: 700;
+}
+
+.list {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.skeleton {
+  display: flex;
+  gap: 16px;
+  padding: 20px;
+  border: 1px solid var(--mp-border);
+  border-radius: 16px;
+  background: var(--mp-surface);
+}
+
+.empty {
+  padding: 40px;
+  border: 1px dashed var(--mp-border-strong);
+  border-radius: 16px;
+  background: var(--mp-surface);
+  text-align: center;
+}
+
+.emptyTitle {
+  margin: 0;
+  font-weight: 700;
+}
+
+.emptyText {
+  margin: 4px 0 0;
+  font-size: 14px;
+  color: var(--mp-muted);
+}
+
+.waiting {
+  margin: 0;
+  font-size: 14px;
+  color: var(--mp-muted);
+}
+
+.footnote {
+  margin: 0;
+  font-size: 12px;
+  text-align: center;
+  color: var(--mp-faint);
+}

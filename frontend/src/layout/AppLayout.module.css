@@ -1,16 +1,238 @@
-.link {
-  padding: 6px 12px;
-  border-radius: var(--mantine-radius-sm);
-  font-size: var(--mantine-font-size-sm);
-  color: var(--mantine-color-text);
+.shell {
+  min-height: 100vh;
 }
 
-.link:hover {
-  background: var(--mantine-color-default-hover);
+.header {
+  position: sticky;
+  top: 0;
+  z-index: 100;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  height: 80px;
+  padding: 0 40px;
+  border-bottom: 1px solid var(--mp-border);
+  background: var(--mp-header);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
 }
 
-.active {
-  background: var(--mantine-primary-color-light);
-  color: var(--mantine-primary-color-light-color);
-  font-weight: 500;
+.brand {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.brandName {
+  margin: 0;
+  font-size: 14px;
+  font-weight: 800;
+  letter-spacing: -0.01em;
+  color: var(--mp-text);
+}
+
+.brandSub {
+  margin: 0;
+  font-size: 10px;
+  color: var(--mp-faint);
+}
+
+.roundButton {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 36px;
+  height: 36px;
+  border: 1px solid var(--mp-border);
+  border-radius: 50%;
+  background: var(--mp-surface);
+  color: var(--mp-text-2);
+  box-shadow: var(--mp-shadow-card);
+  transition:
+    border-color 150ms ease,
+    color 150ms ease;
+}
+
+.roundButton:hover {
+  border-color: var(--mp-border-strong);
+  color: var(--mp-text);
+}
+
+.logo {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 36px;
+  height: 36px;
+  border: 1px solid var(--mp-border);
+  border-radius: 12px;
+  background: var(--mp-surface);
+  color: #84cc16;
+  box-shadow: var(--mp-shadow-card);
+}
+
+:global([data-mantine-color-scheme="dark"]) .logo {
+  background: #171914;
+  color: #bef264;
+}
+
+.actions {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.pill {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 12px;
+  border: 1px solid var(--mp-border);
+  border-radius: 12px;
+  background: var(--mp-surface);
+  color: var(--mp-text-2);
+  font-size: 12px;
+  font-weight: 700;
+  box-shadow: var(--mp-shadow-card);
+  transition:
+    border-color 150ms ease,
+    color 150ms ease;
+}
+
+.pill:hover {
+  border-color: var(--mp-border-strong);
+  color: var(--mp-text);
+}
+
+.main {
+  padding-bottom: 64px;
+}
+
+/* ───────── шторка меню ───────── */
+
+.drawer {
+  background: var(--mp-surface);
+  border-left: 1px solid var(--mp-border);
+}
+
+.drawerBody {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+}
+
+.drawerHead {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 40px;
+}
+
+.drawerTitle {
+  margin: 0;
+  font-size: 18px;
+  font-weight: 700;
+}
+
+.drawerSub {
+  margin: 4px 0 0;
+  font-size: 12px;
+  color: var(--mp-muted);
+}
+
+.closeButton {
+  display: flex;
+  padding: 8px;
+  border: 1px solid var(--mp-border);
+  border-radius: 50%;
+  color: var(--mp-muted);
+  transition: background-color 150ms ease;
+}
+
+.closeButton:hover {
+  background: var(--mp-surface-2);
+  color: var(--mp-text);
+}
+
+.nav {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.navItem {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  width: 100%;
+  padding: 16px;
+  border-radius: 16px;
+  color: var(--mp-text-2);
+  transition:
+    background-color 150ms ease,
+    color 150ms ease;
+}
+
+.navItem:hover {
+  background: var(--mp-bg);
+  color: var(--mp-text);
+}
+
+.navItem[data-active] {
+  background: var(--mp-surface-2);
+  color: var(--mp-text);
+}
+
+.navIcon {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 40px;
+  height: 40px;
+  border-radius: 12px;
+  background: var(--mp-surface);
+  color: var(--mp-muted);
+}
+
+.navItem[data-active] .navIcon {
+  background: var(--mp-accent);
+  color: #171914;
+}
+
+.navLabel {
+  display: block;
+  font-size: 14px;
+  font-weight: 700;
+}
+
+.navDescription {
+  display: block;
+  margin-top: 2px;
+  font-size: 12px;
+  color: var(--mp-muted);
+}
+
+.status {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: auto;
+  padding: 16px;
+  border: 1px solid var(--mp-border);
+  border-radius: 16px;
+  background: var(--mp-bg);
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--mp-text-2);
+}
+
+@media (max-width: 720px) {
+  .header {
+    padding: 0 16px;
+    height: 64px;
+  }
+
+  .pillLabel {
+    display: none;
+  }
 }

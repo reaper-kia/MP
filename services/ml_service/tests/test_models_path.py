@@ -94,6 +94,14 @@ async def test_clarification_for_one_generic_word() -> None:
     assert analysis.needs_clarification and "дорожная" in analysis.clarification_hint
 
 
+async def test_clarification_for_news_without_topic() -> None:
+    for query in ("новости", "новости Красноярска", "что нового в Красноярском крае"):
+        analysis, _ = await engine().analyze_query(query)
+        assert analysis.needs_clarification and analysis.clarification_hint, query
+    analysis, _ = await engine().analyze_query("новости о ДТП в Ачинске")
+    assert not analysis.needs_clarification
+
+
 # ───────────────────────── ScorePosts ─────────────────────────
 
 POSTS = [

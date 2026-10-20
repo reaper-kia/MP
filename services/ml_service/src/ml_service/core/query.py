@@ -58,6 +58,15 @@ CLARIFY_HINTS = {
     ),
 }
 DEFAULT_CLARIFY_HINT = "Уточните запрос: о чём именно, где и когда (например, «ДТП в Ачинске»)"
+# Слова, которые сами по себе темы не задают: «новости», «новости Красноярска», «что нового».
+# Если кроме них (и региона) в запросе ничего нет — просим уточнить, а не ищем «всё подряд».
+GENERIC_STEMS = frozenset(
+    stem(w)
+    for w in (
+        "новости новость события событие информация инфо публикации посты главное сегодня"
+        " вчера свежие последние интересное что нового происходит всё все"
+    ).split()
+)
 
 
 # ─────────────────────────── эвристика ───────────────────────────
@@ -153,6 +162,7 @@ def analyze_query_heuristic(query: str) -> QueryAnalysis:
     entities = _heuristic_entities(text)
     persons = [e.text for e in entities if e.type is EntityType.PERSON]
     meaningful = word_stems(text) - REGION_STEMS
+    topical = meaningful - GENERIC_STEMS
     must, exclude, hint = _ambiguity(text)
     if len(meaningful) >= 2:
         hint = ""
@@ -180,8 +190,8 @@ def analyze_query_heuristic(query: str) -> QueryAnalysis:
         entities=entities,
         must_concepts=must,
         exclude_concepts=exclude,
-        needs_clarification=bool(hint) or not meaningful,
-        clarification_hint=hint or ("" if meaningful else DEFAULT_CLARIFY_HINT),
+        needs_clarification=bool(hint) or not topical,
+        clarification_hint=hint or ("" if topical else DEFAULT_CLARIFY_HINT),
     )
 
 

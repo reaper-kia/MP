@@ -1,6 +1,8 @@
-import { Button, Group, Paper, Progress, Stack, Text } from "@mantine/core";
+import { Button, Progress } from "@mantine/core";
 
 import type { S } from "../../api/client";
+import { Icon } from "../../components/Icon";
+import classes from "./SearchProgress.module.css";
 import { isFinal, stageText } from "./status";
 import { useCancel } from "./useSearch";
 
@@ -11,30 +13,34 @@ export function SearchProgress({ search }: { search: S["Search"] }) {
   if (!running && search.warnings.length === 0) return null;
 
   return (
-    <Paper withBorder p="md" radius="md">
-      <Stack gap="xs">
-        {running && (
-          <>
-            <Group justify="space-between">
-              <Text fw={500}>{stageText(search)}</Text>
-              <Button
-                variant="default"
-                size="compact-sm"
-                loading={cancel.isPending}
-                onClick={() => cancel.mutate(undefined)}
-              >
-                Остановить
-              </Button>
-            </Group>
-            <Progress value={search.progress.percent} animated striped />
-          </>
-        )}
-        {search.warnings.map((w) => (
-          <Text key={w} size="sm" c="dimmed">
-            {w}
-          </Text>
-        ))}
-      </Stack>
-    </Paper>
+    <div className={classes.wrap}>
+      {running && (
+        <div className={`mp-card ${classes.card}`}>
+          <span className={`${classes.icon} mp-pulse`}>
+            <Icon name="search" size={22} />
+          </span>
+          <div className={classes.body}>
+            <p className={classes.title}>{stageText(search)}</p>
+            <p className={classes.sub}>Проверяем публикации по смыслу — найденное появится ниже по мере обработки</p>
+            <Progress value={search.progress.percent} animated striped size="sm" radius="xl" mt={12} />
+          </div>
+          <Button
+            variant="default"
+            size="compact-sm"
+            leftSection={<Icon name="stop" size={14} />}
+            loading={cancel.isPending}
+            onClick={() => cancel.mutate(undefined)}
+          >
+            Остановить
+          </Button>
+        </div>
+      )}
+      {search.warnings.map((w) => (
+        <div key={w} className={classes.warning}>
+          <Icon name="info" />
+          {w}
+        </div>
+      ))}
+    </div>
   );
 }

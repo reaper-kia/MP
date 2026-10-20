@@ -74,3 +74,14 @@ async def test_group_posts_every_post_once(engine: MlEngine) -> None:
 def test_region() -> None:
     assert find_region("Авария на трассе под Канском") == "Канск"
     assert find_region("Новости Новосибирска") == ""
+
+
+async def test_region_only_query_is_not_rejected_wholesale(engine: MlEngine) -> None:
+    analysis, _ = await engine.analyze_query("Красноярск")
+    posts = [
+        Post(id="1", text="В Красноярске открыли новую набережную."),
+        Post(id="2", text="Курс доллара вырос на бирже."),
+    ]
+    scores, _ = await engine.score_posts("Красноярск", analysis, posts)
+    assert scores[0].relevance is not Relevance.IRRELEVANT
+    assert scores[1].relevance is Relevance.IRRELEVANT

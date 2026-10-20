@@ -5,8 +5,13 @@
 
 ```bash
 make deploy HOST=1.2.3.4 SSH_USER=ubuntu     # из корня проекта
+make vk-login HOST=1.2.3.4 SSH_USER=ubuntu   # один раз: вход VK ID для сервера (ссылка → адрес)
+make seed URL=http://1.2.3.4                 # каталог источников из seed/sources.xlsx
 make smoke URL=http://1.2.3.4                # проверка снаружи
 ```
+
+Токен VK ID у сервера свой: `.vk/token.json` в rsync не уезжает. Refresh-токен одноразовый — если
+локальный стенд и сервер обновляли бы один и тот же, первый же обновивший выкинул бы второго.
 
 Без `HOST=` берётся `inventory/dev.yml`. Настройки — `playbooks/group_vars/all.yml`.
 

@@ -1,14 +1,24 @@
-import { Accordion, Anchor, Badge, Button, Group, Stack, Text, UnstyledButton } from "@mantine/core";
+import { Accordion, Anchor, Button, Text, UnstyledButton } from "@mantine/core";
 import { useEffect, useRef, useState } from "react";
 import { useSearchParams } from "react-router";
 
 import type { S } from "../../api/client";
-import { PLATFORM_TITLE } from "../../lib/platforms";
+import { Icon } from "../../components/Icon";
+import { PlatformLogo } from "../../components/PlatformLogo";
 import { isFinal, TARGET_STATUS } from "./status";
-import { useRetry } from "./useSearch";
 import classes from "./TargetsPanel.module.css";
+import { useRetry } from "./useSearch";
 
 const ITEM = "targets";
+
+const DOT: Record<S["TargetStatus"], string> = {
+  pending: "#c5c9ba",
+  running: "#60a5fa",
+  done: "#34d399",
+  empty: "#979b8d",
+  failed: "#f87171",
+  skipped: "#c5c9ba",
+};
 
 /** «Где искали»: раскрыт во время поиска, после финала сворачивается в строку-итог. */
 export function TargetsPanel({ search }: { search: S["Search"] }) {
@@ -37,39 +47,43 @@ export function TargetsPanel({ search }: { search: S["Search"] }) {
   const processed = count("done") + count("empty");
 
   return (
-    <Accordion variant="contained" radius="md" value={open} onChange={setOpen}>
+    <Accordion
+      variant="contained"
+      radius="lg"
+      value={open}
+      onChange={setOpen}
+      classNames={{ item: classes.item, control: classes.control, panel: classes.panel }}
+    >
       <Accordion.Item value={ITEM}>
-        <Accordion.Control>
-          <Group gap="xs" wrap="wrap">
-            <Text fw={500}>Где искали</Text>
-            <Text size="sm" c="dimmed">
+        <Accordion.Control icon={<Icon name="sources" className={classes.controlIcon} />}>
+          <span className={classes.head}>
+            <span className={classes.headTitle}>Где искали</span>
+            <span className={classes.headMeta}>
               Обработано {processed} из {search.targets.length}
-              {failed > 0 && (
-                <>
-                  {" · "}
-                  <Text span c="red" size="sm">
-                    не удалось: {failed}
-                  </Text>
-                </>
-              )}
+              {failed > 0 && <span className={classes.headFailed}> · не удалось: {failed}</span>}
               {activeTargets.length > 0 && " · подборка отфильтрована по источнику"}
-            </Text>
-          </Group>
+            </span>
+          </span>
         </Accordion.Control>
         <Accordion.Panel>
-          <Stack gap={4}>
-            {final && failed > 0 && (
-              <Group>
-                <Button size="compact-sm" variant="light" loading={retry.isPending} onClick={() => retry.mutate(undefined)}>
-                  Повторить все неудачные
-                </Button>
-              </Group>
-            )}
-            {search.targets.length === 0 && (
-              <Text size="sm" c="dimmed">
-                Список источников появится, когда поиск начнётся.
-              </Text>
-            )}
+          {final && failed > 0 && (
+            <Button
+              size="compact-sm"
+              variant="light"
+              mb="xs"
+              leftSection={<Icon name="refresh" size={14} />}
+              loading={retry.isPending}
+              onClick={() => retry.mutate(undefined)}
+            >
+              Повторить все неудачные
+            </Button>
+          )}
+          {search.targets.length === 0 && (
+            <Text size="sm" c="dimmed">
+              Список источников появится, когда поиск начнётся.
+            </Text>
+          )}
+          <div className={classes.list}>
             {search.targets.map((t) => (
               <TargetRow
                 key={t.id}
@@ -80,7 +94,7 @@ export function TargetsPanel({ search }: { search: S["Search"] }) {
                 retrying={retry.isPending && retry.variables?.includes(t.id) === true}
               />
             ))}
-          </Stack>
+          </div>
         </Accordion.Panel>
       </Accordion.Item>
     </Accordion>
@@ -104,7 +118,8 @@ function TargetRow({ target: t, active, onToggle, onRetry, retrying }: RowProps)
       component="div"
       role="button"
       tabIndex={0}
-      className={active ? `${classes.row} ${classes.active}` : classes.row}
+      className={classes.row}
+      data-active={active || undefined}
       onClick={onToggle}
       onKeyDown={(e: React.KeyboardEvent) => {
         if (e.key === "Enter" || e.key === " ") {
@@ -114,52 +129,56 @@ function TargetRow({ target: t, active, onToggle, onRetry, retrying }: RowProps)
       }}
       title={active ? "Показать все результаты" : "Показать только найденное здесь"}
     >
-      <Group justify="space-between" wrap="nowrap" gap="sm">
-        <Group gap="sm" wrap="nowrap" style={{ minWidth: 0 }}>
-          <Badge variant="outline" color="gray" w={78} style={{ flexShrink: 0 }}>
-            {PLATFORM_TITLE[t.platform]}
-          </Badge>
-          <Stack gap={0} style={{ minWidth: 0 }}>
-            {t.url && t.kind === "source" ? (
-              <Anchor href={t.url} target="_blank" rel="noopener noreferrer" size="sm" onClick={(e) => e.stopPropagation()} truncate>
-                {t.name}
-              </Anchor>
-            ) : (
-              <Text size="sm" truncate>
-                {t.name}
-              </Text>
-            )}
-            {t.error && (
-              <Text size="xs" c="red">
-                {t.error.message}
-              </Text>
-            )}
-          </Stack>
-        </Group>
-        <Group gap="sm" wrap="nowrap" style={{ flexShrink: 0 }}>
-          {hasCounts && (
-            <Text size="xs" c="dimmed">
-              получено {t.fetched} · в подборке {t.matched}
-            </Text>
-          )}
-          <Badge color={st.color} variant="light">
-            {st.label}
-          </Badge>
-          {t.status === "failed" && (
-            <Button
-              size="compact-xs"
-              variant="light"
-              loading={retrying}
-              onClick={(e) => {
-                e.stopPropagation();
-                onRetry();
-              }}
-            >
-              Повторить
-            </Button>
-          )}
-        </Group>
-      </Group>
+      <span
+        className={`mp-dot ${t.status === "running" ? "mp-pulse" : ""}`}
+        style={{ background: DOT[t.status] }}
+        aria-hidden="true"
+      />
+      <PlatformLogo platform={t.platform} size="sm" />
+      <span className={classes.name}>
+        {t.url && t.kind === "source" ? (
+          <Anchor
+            href={t.url}
+            target="_blank"
+            rel="noopener noreferrer"
+            size="sm"
+            fw={600}
+            c="var(--mp-text)"
+            onClick={(e) => e.stopPropagation()}
+            truncate
+          >
+            {t.name}
+          </Anchor>
+        ) : (
+          <Text size="sm" fw={600} truncate>
+            {t.name}
+          </Text>
+        )}
+        {t.error && (
+          <Text size="xs" c="red">
+            {t.error.message}
+          </Text>
+        )}
+      </span>
+      {hasCounts && (
+        <span className={classes.counts}>
+          получено {t.fetched} · в подборке {t.matched}
+        </span>
+      )}
+      <span className={classes.status}>{st.label}</span>
+      {t.status === "failed" && (
+        <Button
+          size="compact-xs"
+          variant="light"
+          loading={retrying}
+          onClick={(e) => {
+            e.stopPropagation();
+            onRetry();
+          }}
+        >
+          Повторить
+        </Button>
+      )}
     </UnstyledButton>
   );
 }

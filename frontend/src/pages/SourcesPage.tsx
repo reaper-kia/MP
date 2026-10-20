@@ -4,19 +4,16 @@ import {
   ActionIcon,
   Alert,
   Anchor,
-  Badge,
   Button,
   Group,
   Modal,
   Pagination,
   SegmentedControl,
   Skeleton,
-  Stack,
   Switch,
   Table,
   Text,
   TextInput,
-  Title,
   Tooltip,
 } from "@mantine/core";
 import { useDebouncedValue } from "@mantine/hooks";
@@ -24,11 +21,15 @@ import { notifications } from "@mantine/notifications";
 import { useEffect, useState } from "react";
 
 import type { S } from "../api/client";
+import { Icon } from "../components/Icon";
+import { PlatformLogo } from "../components/PlatformLogo";
+import { useAllSources, usePlatforms } from "../features/search/useCatalog";
 import { AddSource } from "../features/sources/AddSource";
 import { SOURCES_PAGE, useDeleteSource, useSourcePage, useUpdateSource } from "../features/sources/useSources";
 import { errorText } from "../lib/errors";
 import { sourcesCount } from "../lib/format";
-import { PLATFORM_TITLE } from "../lib/platforms";
+import { PLATFORM_NAME } from "../lib/platforms";
+import classes from "./SourcesPage.module.css";
 
 const PLATFORM_FILTER = [
   { value: "all", label: "Все площадки" },
@@ -79,13 +80,20 @@ export function SourcesPage() {
   };
 
   return (
-    <Stack>
-      <Title order={2}>Источники</Title>
+    <div className={`mp-container ${classes.page}`}>
+      <div>
+        <h1 className="mp-page-title">Источники</h1>
+        <p className="mp-page-lead">Управляйте группами, сообществами и каналами без изменения настроек системы.</p>
+      </div>
+
+      <PlatformStats />
+
       <AddSource onShowExisting={showExisting} onAdded={showAdded} />
 
       <Group gap="sm" wrap="wrap">
         <TextInput
           placeholder="Поиск по названию или ссылке"
+          leftSection={<Icon name="search" />}
           value={q}
           onChange={(e) => setQ(e.currentTarget.value)}
           w={320}
@@ -112,16 +120,23 @@ export function SourcesPage() {
         </Alert>
       )}
 
-      <Table striped highlightOnHover verticalSpacing="xs" style={{ opacity: sources.isPlaceholderData ? 0.6 : 1 }}>
+      <div className={classes.tableCard}>
+      <Table
+        highlightOnHover
+        verticalSpacing="sm"
+        horizontalSpacing="md"
+        classNames={{ th: classes.th, tr: classes.tr }}
+        style={{ opacity: sources.isPlaceholderData ? 0.6 : 1 }}
+      >
         <Table.Thead>
           <Table.Tr>
-            <Table.Th w={80}>Площадка</Table.Th>
+            <Table.Th w={70}>Площадка</Table.Th>
             <Table.Th>Название</Table.Th>
             <Table.Th w={140}>Город</Table.Th>
             <Table.Th w={120}>Региональный</Table.Th>
             <Table.Th w={150}>
               Активный
-              <Text size="xs" c="dimmed" fw={400}>
+              <Text size="xs" c="dimmed" fw={400} tt="none" lts={0}>
                 участвует в поиске «Везде»
               </Text>
             </Table.Th>
@@ -142,15 +157,13 @@ export function SourcesPage() {
             <Table.Tr
               key={s.id}
               id={`source-${s.id}`}
-              bg={s.id === highlight ? "var(--mantine-color-yellow-light)" : undefined}
+              bg={s.id === highlight ? "var(--mp-accent-soft)" : undefined}
             >
               <Table.Td>
-                <Badge variant="outline" color="gray">
-                  {PLATFORM_TITLE[s.platform]}
-                </Badge>
+                <PlatformLogo platform={s.platform} size="sm" />
               </Table.Td>
               <Table.Td>
-                <Anchor href={s.url} target="_blank" rel="noopener noreferrer" size="sm">
+                <Anchor href={s.url} target="_blank" rel="noopener noreferrer" size="sm" fw={700} c="var(--mp-text)">
                   {s.name}
                 </Anchor>
               </Table.Td>
@@ -177,7 +190,7 @@ export function SourcesPage() {
               <Table.Td>
                 <Tooltip label="Удалить источник">
                   <ActionIcon variant="subtle" color="red" onClick={() => setToDelete(s)} aria-label={`Удалить ${s.name}`}>
-                    ✕
+                    <Icon name="trash" />
                   </ActionIcon>
                 </Tooltip>
               </Table.Td>
@@ -196,6 +209,7 @@ export function SourcesPage() {
           )}
         </Table.Tbody>
       </Table>
+      </div>
 
       {pages > 1 && (
         <Group justify="center">
@@ -204,7 +218,54 @@ export function SourcesPage() {
       )}
 
       <DeleteModal source={toDelete} onClose={() => setToDelete(null)} />
-    </Stack>
+    </div>
+  );
+}
+
+const STATUS_VIEW: Record<S["PlatformInfo"]["status"], { label: string; color: string; fill: number }> = {
+  ok: { label: "Работает", color: "#34d399", fill: 100 },
+  degraded: { label: "Работает с ограничениями", color: "#fbbf24", fill: 60 },
+  unavailable: { label: "Не подключена", color: "#f87171", fill: 8 },
+};
+
+/** Карточки площадок из макета: сколько источников в каталоге и состояние площадки из GET /platforms. */
+function PlatformStats() {
+  const platforms = usePlatforms();
+  const all = useAllSources();
+  const list = platforms.data ?? [];
+  if (list.length === 0) return null;
+  const items = all.data?.items ?? [];
+
+  return (
+    <div className={classes.stats}>
+      {list.map((p) => {
+        const n = items.filter((s) => s.platform === p.code).length;
+        const active = items.filter((s) => s.platform === p.code && s.is_active).length;
+        const st = STATUS_VIEW[p.status];
+        return (
+          <Tooltip key={p.code} label={p.note} disabled={!p.note} multiline maw={280}>
+            <div className={classes.stat}>
+              <div className={classes.statHead}>
+                <PlatformLogo platform={p.code} />
+                <div>
+                  <p className={classes.statName}>{PLATFORM_NAME[p.code]}</p>
+                  <p className={classes.statMeta}>
+                    {all.isSuccess ? `${sourcesCount(n)} · активных ${active}` : "…"}
+                  </p>
+                </div>
+              </div>
+              <div className={classes.bar}>
+                <div style={{ width: `${st.fill}%`, background: st.color }} />
+              </div>
+              <p className={classes.statStatus}>
+                {st.label}
+                {p.global_mode ? " · поиск «Везде»" : " · только по списку"}
+              </p>
+            </div>
+          </Tooltip>
+        );
+      })}
+    </div>
   );
 }
 

@@ -1,4 +1,233 @@
-/* Глобальные стили поверх Mantine. Основное оформление — через theme.ts. */
+/* Глобальные стили поверх Mantine по макету «МедиаПульс». Палитра Mantine — в theme.ts, здесь — фон страницы и общие классы. */
+
+:root,
+:root[data-mantine-color-scheme="light"] {
+  --mp-bg: #f2f1e9;
+  --mp-surface: #fffefa;
+  --mp-surface-2: #e8eadf;
+  --mp-sunken: #f2f1e9;
+  --mp-hero: #fffefa;
+  --mp-border: #dcded2;
+  --mp-border-soft: #ebece3;
+  --mp-border-strong: #c5c9ba;
+  --mp-text: #171914;
+  --mp-text-2: #575b4e;
+  --mp-muted: #74786a;
+  --mp-faint: #979b8d;
+  --mp-ink: #171914;
+  --mp-ink-hover: #2d3027;
+  --mp-ink-text: #fffefa;
+  --mp-accent: #bef264;
+  --mp-accent-hover: #d9f99d;
+  --mp-accent-soft: #ecfccb;
+  --mp-accent-text: #4d7c0f;
+  --mp-accent-line: #84cc16;
+  --mp-header: rgb(255 254 250 / 90%);
+  --mp-glow: rgb(163 230 53 / 8%);
+  --mp-shadow-card: 0 1px 3px rgb(23 25 20 / 6%);
+  --mp-shadow-ink: 0 10px 24px rgb(23 25 20 / 18%);
+}
+
+:root[data-mantine-color-scheme="dark"] {
+  --mp-bg: #11130e;
+  --mp-surface: #1c1f18;
+  --mp-surface-2: #292d23;
+  --mp-sunken: #1c1f18;
+  --mp-hero: #171914;
+  --mp-border: #414737;
+  --mp-border-soft: #2c3026;
+  --mp-border-strong: #555c48;
+  --mp-text: #f3f4eb;
+  --mp-text-2: #c9cdbf;
+  --mp-muted: #a4a998;
+  --mp-faint: #969b8b;
+  --mp-ink: #f3f4eb;
+  --mp-ink-hover: #d9f99d;
+  --mp-ink-text: #171914;
+  --mp-accent: #bef264;
+  --mp-accent-hover: #d9f99d;
+  --mp-accent-soft: rgb(132 204 22 / 16%);
+  --mp-accent-text: #bef264;
+  --mp-accent-line: #a3e635;
+  --mp-header: rgb(17 19 14 / 90%);
+  --mp-glow: rgb(163 230 53 / 5%);
+  --mp-shadow-card: 0 1px 3px rgb(0 0 0 / 30%);
+  --mp-shadow-ink: 0 10px 26px rgb(0 0 0 / 32%);
+}
+
+html {
+  background: var(--mp-bg);
+}
+
 body {
   margin: 0;
+  min-height: 100vh;
+  background: var(--mp-bg);
+  background-image: radial-gradient(circle at 50% 8%, var(--mp-glow), transparent 32rem);
+  background-attachment: fixed;
+  color: var(--mp-text);
+  -webkit-font-smoothing: antialiased;
+  transition: background-color 200ms ease;
+}
+
+::selection {
+  background: #d9f99d;
+  color: #171914;
+}
+
+/* ───────── общие кирпичики макета ───────── */
+
+.mp-container {
+  width: 100%;
+  max-width: 1180px;
+  margin: 0 auto;
+  padding: 0 40px;
+}
+
+.mp-card {
+  background: var(--mp-surface);
+  border: 1px solid var(--mp-border);
+  border-radius: 16px;
+  box-shadow: var(--mp-shadow-card);
+}
+
+.mp-eyebrow {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  color: var(--mp-accent-text);
+}
+
+.mp-page-title {
+  margin: 0;
+  font-size: 30px;
+  font-weight: 700;
+  letter-spacing: -0.02em;
+  line-height: 1.2;
+  color: var(--mp-text);
+}
+
+.mp-page-lead {
+  margin: 8px 0 0;
+  font-size: 14px;
+  line-height: 1.6;
+  color: var(--mp-muted);
+}
+
+/* Тёмная «чернильная» кнопка — «Найти публикации» */
+.mp-ink-button {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  height: 44px;
+  padding: 0 20px;
+  border: 0;
+  border-radius: 12px;
+  background: var(--mp-ink);
+  color: var(--mp-ink-text);
+  font: inherit;
+  font-size: 14px;
+  font-weight: 700;
+  box-shadow: var(--mp-shadow-ink);
+  cursor: pointer;
+  transition:
+    background-color 150ms ease,
+    transform 150ms ease,
+    box-shadow 150ms ease;
+}
+
+.mp-ink-button:hover:not(:disabled) {
+  background: var(--mp-ink-hover);
+  transform: translateY(-1px);
+}
+
+.mp-ink-button:disabled {
+  cursor: wait;
+  opacity: 0.7;
+}
+
+/* Лаймовая кнопка — «Найти публикации» в баннере, «Применить» */
+.mp-accent-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  padding: 12px 20px;
+  border: 0;
+  border-radius: 12px;
+  background: var(--mp-accent);
+  color: #171914;
+  font: inherit;
+  font-size: 14px;
+  font-weight: 700;
+  text-decoration: none;
+  cursor: pointer;
+  transition: background-color 150ms ease;
+}
+
+.mp-accent-button:hover {
+  background: var(--mp-accent-hover);
+}
+
+/* Текстовая кнопка-действие в карточках */
+.mp-text-action {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--mp-text-2);
+  font: inherit;
+  font-size: 14px;
+  font-weight: 700;
+  text-decoration: none;
+  cursor: pointer;
+  transition: color 150ms ease;
+}
+
+.mp-text-action:hover {
+  color: var(--mp-text);
+}
+
+.mp-dot {
+  display: inline-block;
+  flex-shrink: 0;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+}
+
+@keyframes mp-pulse {
+  50% {
+    opacity: 0.55;
+  }
+}
+
+.mp-pulse {
+  animation: mp-pulse 1.6s ease-in-out infinite;
+}
+
+@keyframes mp-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+.mp-spin {
+  animation: mp-spin 1s linear infinite;
+}
+
+@media (max-width: 720px) {
+  .mp-container {
+    padding: 0 16px;
+  }
+
+  .mp-page-title {
+    font-size: 24px;
+  }
 }

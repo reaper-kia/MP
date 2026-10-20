@@ -62,6 +62,9 @@ async def test_client_request_and_errors() -> None:
         await client(Poster(status=429, payload={})).search("x")
     with pytest.raises(PlatformUnavailableError, match="ключ не принят"):
         await client(Poster(status=403, payload={})).search("x")
+    denied = Poster(status=403, payload={"code": 7, "message": "Permission denied"})
+    with pytest.raises(PlatformUnavailableError, match="Permission denied"):
+        await client(denied).search("x")
     with pytest.raises(PlatformUnavailableError, match="не настроен"):
         await client(Poster(), key="").search("x")
 

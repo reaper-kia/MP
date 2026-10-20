@@ -1,5 +1,8 @@
 """Режим «везде» для площадок без своего поиска (OK, MAX): поисковик → открыть каждую ссылку.
 
+VK свой поиск имеет (newsfeed.search), но токену пользователя VK ID он закрыт (ошибка 1051) —
+тогда WithSearchFallback переключает VK на тот же путь: Яндекс site:vk.com → wall.getById.
+
 Стратегия, а не часть коннектора: подключается к любой площадке, у которой есть PostReader
 (умеет открыть пост по ссылке). Правило достоверности (B1-06): ссылка из выдачи попадает в
 ответ, только если пост открылся и с его страницы получены текст и (если есть) дата.
@@ -15,7 +18,12 @@ from collections.abc import AsyncIterator, Sequence
 from dataclasses import dataclass
 
 from collector_service.applications.ports.connectors import PlatformConnector, PostReader
-from collector_service.domain.exceptions import CollectorError, RateLimitedError
+from collector_service.domain.exceptions import (
+    CollectorError,
+    MethodUnavailableError,
+    PlatformUnavailableError,
+    RateLimitedError,
+)
 from collector_service.domain.value_objects import Page, Period, PlatformInfo, RawPost, SourceInfo
 from collector_service.infra.yandex_search.client import SearchHit, YandexSearchClient
 
@@ -137,6 +145,60 @@ class WithSiteSearch:
         self, queries: Sequence[str], period: Period, region_terms: Sequence[str]
     ) -> AsyncIterator[Page]:
         return self._site_search.search(queries, period)
+
+
+class WithSearchFallback:
+    """Декоратор коннектора со своим поиском: пока площадка ищет сама — её поиск; если метод поиска
+    ключу закрыт (MethodUnavailableError) — дальше «везде» через SiteSearch, без повторных попыток.
+    """
+
+    def __init__(self, base: PlatformConnector, site_search: SiteSearch) -> None:
+        self._base = base
+        self._site_search = site_search
+        self._native_closed = False
+        self.platform = base.platform
+        self.title = base.title
+        self.hosts = base.hosts
+
+    async def health(self) -> PlatformInfo:
+        info = await self._base.health()
+        if not self._native_closed or not info.source_mode_supported:
+            return info
+        if not self._site_search.configured:
+            note = "Поиск «везде» закрыт для этого ключа VK, а ключ Yandex Search API не задан"
+            return _with(info, global_mode=False, note=note)
+        return _with(info, global_mode=True, note=f"Поиск «везде»: {COVERAGE_NOTE}")
+
+    async def resolve(self, url: str) -> SourceInfo:
+        return await self._base.resolve(url)
+
+    def collect(
+        self, source_external_id: str, period: Period, keywords: Sequence[str]
+    ) -> AsyncIterator[Page]:
+        return self._base.collect(source_external_id, period, keywords)
+
+    async def search(
+        self, queries: Sequence[str], period: Period, region_terms: Sequence[str]
+    ) -> AsyncIterator[Page]:
+        if not self._native_closed:
+            yielded = False
+            try:
+                async for page in self._base.search(queries, period, region_terms):
+                    yielded = True
+                    yield page
+                return
+            except MethodUnavailableError as exc:
+                if yielded:
+                    raise
+                logger.warning("%s: свой поиск закрыт (%s) — дальше через Яндекс", self.title, exc)
+                self._native_closed = True
+        if not self._site_search.configured:
+            raise PlatformUnavailableError(
+                f"{self.title}: поиск «везде» закрыт для этого ключа, "
+                "а ключ Yandex Search API (YC_SEARCH_API_KEY) не задан"
+            )
+        async for page in self._site_search.search(queries, period):
+            yield page
 
 
 def _with(info: PlatformInfo, *, global_mode: bool, note: str) -> PlatformInfo:

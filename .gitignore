@@ -12,6 +12,11 @@
 .env
 **/.env
 
+# токен VK ID (scripts/vk_token.py) — секрет; папка нужна compose, поэтому .gitkeep
+.vk/*
+!.vk/.gitkeep
+.vk_token.json
+
 frontend/node_modules/
 frontend/dist/
 

@@ -1,14 +1,16 @@
-// История поисков (FE-09): GET /searches, «Показать ещё» по has_more, клик по строке → /search/:id.
-import { Alert, Anchor, Badge, Button, Center, Group, Skeleton, Stack, Table, Text, Title } from "@mantine/core";
+// История поисков (FE-09): GET /searches, «Показать ещё» по has_more, клик по карточке → /search/:id.
+import { Alert, Anchor, Button, Center, Skeleton } from "@mantine/core";
 import { useInfiniteQuery } from "@tanstack/react-query";
-import { Link, useNavigate } from "react-router";
+import { Link } from "react-router";
 
 import { api, unwrap, type S } from "../api/client";
+import { Icon } from "../components/Icon";
+import { PlatformLogo } from "../components/PlatformLogo";
 import { isFinal, SEARCH_STATUS } from "../features/search/status";
 import { fmtDateTime, fmtPeriod } from "../lib/dates";
 import { errorText } from "../lib/errors";
 import { publications } from "../lib/format";
-import { PLATFORM_TITLE } from "../lib/platforms";
+import classes from "./HistoryPage.module.css";
 
 const PAGE = 30;
 const cut = (s: string, n: number) => {
@@ -16,8 +18,17 @@ const cut = (s: string, n: number) => {
   return one.length > n ? `${one.slice(0, n - 1).trimEnd()}…` : one;
 };
 
+// цвет точки статуса — как во всём приложении: идёт — синий, готово — зелёный, частично — жёлтый, ошибка — красный
+const DOT: Record<S["SearchStatus"], string> = {
+  queued: "#c5c9ba",
+  running: "#60a5fa",
+  completed: "#34d399",
+  partial: "#fbbf24",
+  failed: "#f87171",
+  cancelled: "#979b8d",
+};
+
 export function HistoryPage() {
-  const navigate = useNavigate();
   const history = useInfiniteQuery({
     queryKey: ["searches", "history"],
     queryFn: ({ pageParam }) =>
@@ -30,8 +41,22 @@ export function HistoryPage() {
   const items = history.data?.pages.flatMap((p) => p.items) ?? [];
 
   return (
-    <Stack>
-      <Title order={2}>История</Title>
+    <div className={`mp-container ${classes.page}`}>
+      <div className={classes.head}>
+        <div>
+          <div className="mp-eyebrow">
+            <span className="mp-dot" style={{ background: "#84cc16" }} />
+            Обновляется автоматически
+          </div>
+          <h1 className="mp-page-title" style={{ marginTop: 12 }}>
+            История
+          </h1>
+          <p className="mp-page-lead">Все подборки, которые собирали, — с параметрами и результатами.</p>
+        </div>
+        <Link to="/search" className="mp-accent-button">
+          <Icon name="plus" /> Новый поиск
+        </Link>
+      </div>
 
       {history.isError && !history.data && (
         <Alert color="red" title="Не удалось загрузить историю">
@@ -43,41 +68,24 @@ export function HistoryPage() {
       )}
 
       {history.isSuccess && items.length === 0 && (
-        <Stack align="flex-start" gap="sm">
-          <Text c="dimmed">Поисков ещё не было.</Text>
-          <Button component={Link} to="/">
-            Новый поиск
-          </Button>
-        </Stack>
+        <div className={classes.empty}>
+          <p className={classes.emptyTitle}>Поисков ещё не было</p>
+          <p className={classes.emptyText}>Запустите первый поиск — подборка появится здесь.</p>
+        </div>
       )}
 
-      {(history.isPending || items.length > 0) && (
-        <Table highlightOnHover verticalSpacing="sm">
-          <Table.Thead>
-            <Table.Tr>
-              <Table.Th>Запрос</Table.Th>
-              <Table.Th w={150}>Период</Table.Th>
-              <Table.Th w={200}>Где искали</Table.Th>
-              <Table.Th w={150}>Статус</Table.Th>
-              <Table.Th w={130}>Найдено</Table.Th>
-              <Table.Th w={150}>Когда</Table.Th>
-            </Table.Tr>
-          </Table.Thead>
-          <Table.Tbody>
-            {history.isPending &&
-              [0, 1, 2, 3, 4].map((i) => (
-                <Table.Tr key={i}>
-                  <Table.Td colSpan={6}>
-                    <Skeleton height={14} />
-                  </Table.Td>
-                </Table.Tr>
-              ))}
-            {items.map((s) => (
-              <HistoryRow key={s.id} s={s} onOpen={() => navigate(`/search/${s.id}`)} />
-            ))}
-          </Table.Tbody>
-        </Table>
-      )}
+      <div className={classes.list}>
+        {history.isPending &&
+          [0, 1, 2, 3].map((i) => (
+            <div key={i} className={classes.card}>
+              <Skeleton height={14} width="50%" mb="sm" />
+              <Skeleton height={10} width="30%" />
+            </div>
+          ))}
+        {items.map((s) => (
+          <HistoryCard key={s.id} s={s} />
+        ))}
+      </div>
 
       {history.hasNextPage && (
         <Center>
@@ -86,55 +94,43 @@ export function HistoryPage() {
           </Button>
         </Center>
       )}
-    </Stack>
+    </div>
   );
 }
 
-function HistoryRow({ s, onOpen }: { s: S["SearchSummary"]; onOpen: () => void }) {
+function HistoryCard({ s }: { s: S["SearchSummary"] }) {
   const st = SEARCH_STATUS[s.status];
   const p = s.params;
+  const running = !isFinal(s.status);
   return (
-    <Table.Tr
-      style={{ cursor: "pointer" }}
-      onClick={onOpen}
-      onKeyDown={(e) => {
-        if (e.key === "Enter") onOpen();
-      }}
-      tabIndex={0}
-      role="link"
-      aria-label={`Открыть поиск «${cut(p.query, 60)}»`}
-    >
-      <Table.Td>
-        <Text size="sm" title={p.query.length > 100 ? p.query : undefined}>
-          {cut(p.query, 100)}
-        </Text>
-      </Table.Td>
-      <Table.Td>
-        <Text size="sm">{fmtPeriod(p.period_from, p.period_to)}</Text>
-      </Table.Td>
-      <Table.Td>
-        <Text size="sm">{p.mode === "selected" ? "Мои источники" : "Везде"}</Text>
-        <Group gap={4} mt={2}>
-          {p.platforms.map((x) => (
-            <Badge key={x} variant="outline" color="gray" size="xs">
-              {PLATFORM_TITLE[x]}
-            </Badge>
-          ))}
-        </Group>
-      </Table.Td>
-      <Table.Td>
-        <Badge color={st.color} variant="light" style={{ overflow: "visible" }}>
+    <Link to={`/search/${s.id}`} className={classes.card} aria-label={`Открыть поиск «${cut(p.query, 60)}»`}>
+      <div className={classes.cardTop}>
+        <span className={classes.status}>
+          <span className={`mp-dot ${running ? "mp-pulse" : ""}`} style={{ background: DOT[s.status] }} />
           {st.label}
-        </Badge>
-      </Table.Td>
-      <Table.Td>
-        <Text size="sm">{isFinal(s.status) ? publications(s.counts.total) : "—"}</Text>
-      </Table.Td>
-      <Table.Td>
-        <Text size="sm" c="dimmed">
-          {fmtDateTime(s.created_at)}
-        </Text>
-      </Table.Td>
-    </Table.Tr>
+        </span>
+        <span>·</span>
+        <span>{fmtDateTime(s.created_at)}</span>
+        <span className={classes.found}>{isFinal(s.status) ? publications(s.counts.total) : "идёт поиск…"}</span>
+      </div>
+      <h2 className={classes.query} title={p.query.length > 140 ? p.query : undefined}>
+        {cut(p.query, 140)}
+      </h2>
+      <div className={classes.cardBottom}>
+        <span className={classes.meta}>
+          <Icon name="calendar" size={14} />
+          {fmtPeriod(p.period_from, p.period_to)}
+        </span>
+        <span className={classes.meta}>{p.mode === "selected" ? "Мои источники" : "Везде"}</span>
+        <span className={classes.logos}>
+          {p.platforms.map((x) => (
+            <PlatformLogo key={x} platform={x} size="sm" />
+          ))}
+        </span>
+        <span className={classes.open}>
+          Открыть подборку <Icon name="arrow" />
+        </span>
+      </div>
+    </Link>
   );
 }

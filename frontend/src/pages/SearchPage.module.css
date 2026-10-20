@@ -1,0 +1,40 @@
+.centered {
+  display: flex;
+  align-items: center;
+  min-height: calc(100vh - 80px);
+  padding-top: 48px;
+  padding-bottom: 48px;
+}
+
+.full {
+  width: 100%;
+}
+
+.page {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  padding-top: 32px;
+}
+
+.problem {
+  max-width: 520px;
+  margin: 0 auto;
+  text-align: center;
+}
+
+.problem > a {
+  display: inline-flex;
+}
+
+.problemIcon {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 48px;
+  height: 48px;
+  margin: 0 auto 20px;
+  border-radius: 16px;
+  background: var(--mp-surface-2);
+  color: var(--mp-text-2);
+}

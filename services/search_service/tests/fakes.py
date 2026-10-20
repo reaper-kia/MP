@@ -38,6 +38,10 @@ class InMemorySources:
 
     async def list(self, **kw):
         items = [s for s in self.store.values() if s.is_alive]
+        if kw.get("platforms"):
+            items = [s for s in items if s.platform in kw["platforms"]]
+        if kw.get("is_active") is not None:
+            items = [s for s in items if s.is_active == kw["is_active"]]
         return items, len(items)
 
     async def add(self, e):

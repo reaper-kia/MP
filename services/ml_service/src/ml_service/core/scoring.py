@@ -55,6 +55,9 @@ class V1Result:
 def build_context(query: str, analysis: QueryAnalysis) -> QueryContext:
     sources = [query, *analysis.search_queries, *analysis.must_concepts]
     phrases = [s for s in (stems(p) - REGION_STEMS for p in sources) if s]
+    if not phrases:
+        # запрос целиком из названий края («Красноярск»): тогда регион и есть тема
+        phrases = [s for s in (stems(p) for p in sources) if s]
     all_stems: set[str] = set()
     for p in sources:
         all_stems |= stems(p)

@@ -2,6 +2,7 @@ import { createBrowserRouter, createHashRouter, RouterProvider } from "react-rou
 
 import { AppLayout } from "./layout/AppLayout";
 import { HistoryPage } from "./pages/HistoryPage";
+import { HomePage } from "./pages/HomePage";
 import { SearchPage } from "./pages/SearchPage";
 import { SourcesPage } from "./pages/SourcesPage";
 
@@ -9,7 +10,8 @@ const routes = [
   {
     element: <AppLayout />,
     children: [
-      { path: "/", element: <SearchPage /> },
+      { path: "/", element: <HomePage /> },
+      { path: "/search", element: <SearchPage /> },
       { path: "/search/:searchId", element: <SearchPage /> },
       { path: "/sources", element: <SourcesPage /> },
       { path: "/history", element: <HistoryPage /> },

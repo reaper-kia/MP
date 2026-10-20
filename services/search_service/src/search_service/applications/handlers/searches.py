@@ -20,6 +20,8 @@ from search_service.domain.enums import SearchMode, TargetKind
 from search_service.domain.errors import NotFoundError, SearchInvalidParams
 from search_service.domain.value_objects import Period
 
+GLOBAL_CATALOG_LIMIT = 200  # сколько источников каталога подключаем к «везде»
+
 
 @dataclass
 class StartSearchRequest:
@@ -89,6 +91,23 @@ class SearchHandler:
                             name=p.upper(),
                         )
                     )
+                # «везде» = поиск по площадке + стены всех активных региональных источников
+                # каталога на этих площадках: поиск площадки (VK — Яндекс site:vk.com) неполный
+                # и может быть недоступен, а свои проверенные паблики читаются всегда
+                catalog, _ = await self.uow.sources.list(
+                    platforms=platforms, is_active=True, limit=GLOBAL_CATALOG_LIMIT
+                )
+                for src in catalog:
+                    if src.is_alive and src.is_regional and src.platform in platforms:
+                        targets.append(
+                            SearchTarget(
+                                kind=TargetKind.SOURCE,
+                                platform=src.platform,
+                                name=src.name,
+                                url=src.url,
+                                source_id=src.id,
+                            )
+                        )
 
             search = Search(
                 query=req.query,

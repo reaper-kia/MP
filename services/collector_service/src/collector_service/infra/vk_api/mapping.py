@@ -9,6 +9,7 @@ from collections.abc import Mapping
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from typing import Any
+from urllib.parse import parse_qs, urlsplit
 
 from collector_service.domain.enums import Platform
 from collector_service.domain.exceptions import UnsupportedUrlError
@@ -20,6 +21,8 @@ VK_URL = "https://vk.com"
 _COMMUNITY_ID = re.compile(r"^(?:club|public|event)(\d+)$")
 _PROFILE = re.compile(r"^id\d+$")
 _SCREEN_NAME = re.compile(r"^[A-Za-z0-9_.]{2,32}$")
+_WALL_POST = re.compile(r"^wall(-?\d+)_(\d+)$")
+_VK_HOSTS = frozenset({"vk.com", "vk.ru", "m.vk.com", "m.vk.ru", "www.vk.com", "www.vk.ru"})
 
 
 @dataclass(frozen=True, slots=True)
@@ -78,7 +81,7 @@ def source_from_group(item: Mapping[str, Any]) -> SourceInfo:
     group_id = int(item["id"])
     screen_name = _text(item.get("screen_name")) or f"club{group_id}"
     city = item.get("city")
-    city_title = _text(city.get("title")) if isinstance(city, Mapping) else None
+    city_title = _city_title(city.get("title")) if isinstance(city, Mapping) else None
     return SourceInfo(
         platform=Platform.VK,
         external_id=str(-group_id),
@@ -115,6 +118,27 @@ def fallback_card(owner_id: int) -> SourceCard:
 
 def wall_url(owner_id: int, post_id: int) -> str:
     return f"{VK_URL}/wall{owner_id}_{post_id}"
+
+
+def wall_ref_from_url(url: str) -> tuple[int, int] | None:
+    """Ссылка на пост стены → (owner_id, post_id); всё остальное (группы, профили) — None.
+
+    vk.com/wall-68039614_123660, m.vk.ru/wall-1_2, vk.com/krsk?w=wall-1_2 (пост поверх группы).
+    """
+    try:
+        parts = urlsplit(url.strip())
+    except ValueError:
+        return None
+    if parts.scheme not in ("http", "https") or (parts.hostname or "") not in _VK_HOSTS:
+        return None
+    candidates = [parts.path.strip("/")]
+    query = parse_qs(parts.query)
+    candidates += query.get("w", []) + query.get("z", [])
+    for candidate in candidates:
+        match = _WALL_POST.match(candidate.split("/")[0])
+        if match and int(match.group(1)) != 0:
+            return int(match.group(1)), int(match.group(2))
+    return None
 
 
 def post_from_item(item: Mapping[str, Any], card: SourceCard) -> RawPost | None:
@@ -171,6 +195,13 @@ def _count(item: Mapping[str, Any], key: str) -> int | None:
 
 def _int(value: Any) -> int | None:
     return value if isinstance(value, int) and not isinstance(value, bool) else None
+
+
+def _city_title(value: Any) -> str | None:
+    """Название города; без единой буквы — None. С токеном пользователя VK ID VK отдаёт вместо
+    кириллицы «?4??4??4?…» — такое честнее не показывать, чем показывать мусор."""
+    title = _text(value)
+    return title if any(ch.isalpha() for ch in title) else None
 
 
 def _text(value: Any) -> str:

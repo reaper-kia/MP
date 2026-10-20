@@ -21,6 +21,9 @@ MAYBE_AT = 0.3
 COPY_CONTAINMENT = 0.8
 SHORT_CONTAINMENT = 0.45
 SIM_SAME = 0.85  # косинус bge-m3 для пересказа
+# доля общих основ считается от меньшего текста: у «Сегодня понедельник, 19 октября» одно общее
+# слово уже даёт треть — без нескольких общих основ похожесть по словам не засчитываем
+MIN_SHARED_WORDS = 4
 
 
 @dataclass(frozen=True, slots=True)
@@ -83,7 +86,7 @@ def score_news_post(
 ) -> V1Result:
     facts = NewsFacts.of(post_text(post))
     cmp = compare(source, facts)
-    signal = cmp.word_overlap
+    signal = cmp.word_overlap if len(source.words & facts.words) >= MIN_SHARED_WORDS else 0.0
     if similarity is not None:
         signal = max(signal, semantic(similarity) * 0.9)
         if similarity >= SIM_SAME:

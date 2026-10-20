@@ -72,8 +72,15 @@ services:
     environment:
       COLLECTOR_FAKE: ${COLLECTOR_FAKE:-false} # true — тестовые посты [FAKE], НЕ для демо
       VK_SERVICE_TOKEN: ${VK_SERVICE_TOKEN:-}
+      # токен VK ID (python3 scripts/vk_token.py): сборщик сам обновляет его каждый час
+      VK_TOKEN_FILE: /vk/token.json
       YC_FOLDER_ID: ${YC_FOLDER_ID:-}
       YC_SEARCH_API_KEY: ${YC_SEARCH_API_KEY:-}
+      # сколько постов на одну цель уходит в ML: локальная модель проверяет ~3 поста/с на всех
+      DEFAULT_MAX_POSTS_SEARCH: ${DEFAULT_MAX_POSTS_SEARCH:-200} # «везде» по площадке
+      DEFAULT_MAX_POSTS_SOURCE: ${DEFAULT_MAX_POSTS_SOURCE:-150} # стена одного источника
+    volumes:
+      - ./.vk:/vk
     ports:
       - "127.0.0.1:50054:50054"
 

@@ -1,0 +1,121 @@
+.row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  margin-top: 16px;
+}
+
+.label {
+  margin-right: 4px;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--mp-muted);
+}
+
+.empty {
+  font-size: 12px;
+  color: var(--mp-faint);
+}
+
+.empty[data-error] {
+  color: #ef4444;
+}
+
+.chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  max-width: 260px;
+  padding: 3px 6px 3px 3px;
+  border: 1px solid var(--mp-border);
+  border-radius: 999px;
+  background: var(--mp-surface);
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--mp-text-2);
+}
+
+.chip > span:first-child {
+  border-radius: 50%;
+}
+
+.chipName {
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.chipRemove {
+  display: flex;
+  padding: 2px;
+  border: 0;
+  border-radius: 50%;
+  background: none;
+  color: var(--mp-faint);
+  cursor: pointer;
+}
+
+.chipRemove:hover {
+  background: var(--mp-surface-2);
+  color: var(--mp-text);
+}
+
+.more,
+.edit {
+  padding: 6px 10px;
+  border: 0;
+  border-radius: 999px;
+  background: none;
+  font: inherit;
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--mp-accent-text);
+  cursor: pointer;
+}
+
+.more {
+  background: var(--mp-surface-2);
+  color: var(--mp-text-2);
+}
+
+.edit:hover {
+  text-decoration: underline;
+}
+
+.option {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 10px;
+  border-radius: 12px;
+  cursor: pointer;
+  transition: background-color 120ms ease;
+}
+
+.option:hover {
+  background: var(--mp-bg);
+}
+
+.option[data-checked] {
+  background: var(--mp-accent-soft);
+}
+
+.optionText {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+
+.optionName {
+  overflow: hidden;
+  font-size: 14px;
+  font-weight: 600;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.optionMeta {
+  font-size: 12px;
+  color: var(--mp-muted);
+}

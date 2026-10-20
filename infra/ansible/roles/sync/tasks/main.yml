@@ -22,3 +22,10 @@
       - "--exclude=frontend/dist"
       - "--exclude=infra/ansible/.secrets"
       - "--exclude=.env"
+      # токен VK ID у сервера свой (make vk-login): refresh_token одноразовый, общий файл с
+      # локальным стендом ломал бы вход обоим — кто обновил первым, у другого вход пропадает
+      - "--exclude=.vk/token.json"
+      - "--exclude=.vk/token.tmp"
+      - "--exclude=.vk_token.json"
+      - "--exclude=.diagnose"
+      - "--exclude=.ml_check"

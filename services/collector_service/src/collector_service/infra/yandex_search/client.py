@@ -98,8 +98,13 @@ class YandexSearchClient:
         if status == 429:
             raise RateLimitedError("Яндекс Поиск: превышена квота запросов")
         if status in (401, 403):
+            # причину Яндекс пишет в message («Permission denied», «billing account…») — без неё
+            # не понять, что чинить: ключ, роль сервисного аккаунта или биллинг
+            reason = payload.get("message") if isinstance(payload, Mapping) else None
+            detail = f": {str(reason)[:160]}" if reason else ""
             raise PlatformUnavailableError(
-                f"Яндекс Поиск: ключ не принят ({status}) — проверьте YC_SEARCH_API_KEY и роль"
+                f"Яндекс Поиск: ключ не принят ({status}{detail}) — проверьте YC_SEARCH_API_KEY, "
+                "роль search-api.webSearch.user и биллинг"
             )
         if status >= 400 or not isinstance(payload, Mapping):
             raise PlatformUnavailableError(f"Яндекс Поиск: ошибка HTTP {status}")

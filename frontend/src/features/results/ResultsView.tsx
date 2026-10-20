@@ -1,30 +1,19 @@
-import {
-  Alert,
-  Anchor,
-  Button,
-  Center,
-  Chip,
-  Group,
-  Paper,
-  Select,
-  Skeleton,
-  Stack,
-  Switch,
-  Tabs,
-  Text,
-} from "@mantine/core";
+import { Button, Center, Select, Skeleton, Switch, Tabs } from "@mantine/core";
 import { useQueryClient } from "@tanstack/react-query";
 import { useEffect, useState } from "react";
 
 import type { S } from "../../api/client";
-import { PLATFORM_TITLE } from "../../lib/platforms";
+import { Icon } from "../../components/Icon";
+import { PlatformLogo } from "../../components/PlatformLogo";
 import { fmtNumber, publications } from "../../lib/format";
+import { PLATFORM_NAME } from "../../lib/platforms";
 import { useConnectionNotice } from "../../lib/useConnectionNotice";
 import { isFinal } from "../search/status";
 import { ExportBar } from "./ExportBar";
 import { useResultFilters, type Sort, type Tab } from "./filters";
 import { GroupCard } from "./GroupCard";
 import { ResultCard } from "./ResultCard";
+import classes from "./ResultsView.module.css";
 import { useExclusion, useGroupList, useResultList } from "./useResults";
 
 const SORT_OPTIONS: { value: Sort; label: string }[] = [
@@ -32,6 +21,11 @@ const SORT_OPTIONS: { value: Sort; label: string }[] = [
   { value: "date_desc", label: "Сначала новые" },
   { value: "date_asc", label: "Сначала старые" },
 ];
+
+const cut = (s: string, n: number) => {
+  const one = s.replace(/\s+/g, " ").trim();
+  return one.length > n ? `${one.slice(0, n - 1).trimEnd()}…` : one;
+};
 
 export function ResultsView({ search }: { search: S["Search"] }) {
   const { filters: f, update } = useResultFilters();
@@ -72,36 +66,99 @@ export function ResultsView({ search }: { search: S["Search"] }) {
     setSelected((prev) => new Set([...prev].filter((id) => !ids.includes(id))));
   };
 
+  const togglePlatform = (p: S["Platform"]) =>
+    update({ platform: f.platform.includes(p) ? f.platform.filter((x) => x !== p) : [...f.platform, p] });
+
   const pages = active.data?.pages ?? [];
   const total = pages[0]?.total ?? 0;
 
   return (
-    <Stack gap="sm">
-      <ExportBar search={search} filters={f} grouped={grouped} />
-      <Tabs value={f.tab} onChange={(v) => update({ tab: (v ?? "all") as Tab })}>
+    <section className={classes.section}>
+      <div className={classes.head}>
+        <div>
+          <h2 className={classes.heading}>
+            Результаты <span className={classes.headingCount}>{fmtNumber(c.total)}</span>
+          </h2>
+          <p className={classes.sub}>По запросу «{cut(search.params.query, 72)}»</p>
+        </div>
+        <ExportBar search={search} filters={f} grouped={grouped} />
+      </div>
+
+      <Tabs
+        value={f.tab}
+        onChange={(v) => update({ tab: (v ?? "all") as Tab })}
+        classNames={{ list: classes.tabsList, tab: classes.tab }}
+      >
         <Tabs.List>
-          <Tabs.Tab value="all">Все {fmtNumber(c.total)}</Tabs.Tab>
-          <Tabs.Tab value="direct">Прямые {fmtNumber(c.direct)}</Tabs.Tab>
-          <Tabs.Tab value="indirect">Косвенные {fmtNumber(c.indirect)}</Tabs.Tab>
-          <Tabs.Tab value="disputed">Спорные {fmtNumber(c.disputed)}</Tabs.Tab>
-          <Tabs.Tab value="rejected" ml="auto" c="dimmed">
-            Отсеяно системой ({fmtNumber(c.rejected)})
+          <Tabs.Tab value="all">
+            Все <span className={classes.tabCount}>{fmtNumber(c.total)}</span>
+          </Tabs.Tab>
+          <Tabs.Tab value="direct">
+            Прямые <span className={classes.tabCount}>{fmtNumber(c.direct)}</span>
+          </Tabs.Tab>
+          <Tabs.Tab value="indirect">
+            Косвенные <span className={classes.tabCount}>{fmtNumber(c.indirect)}</span>
+          </Tabs.Tab>
+          <Tabs.Tab value="disputed">
+            Спорные <span className={classes.tabCount}>{fmtNumber(c.disputed)}</span>
+          </Tabs.Tab>
+          <Tabs.Tab value="rejected" ml="auto">
+            Отсеяно системой <span className={classes.tabCount}>{fmtNumber(c.rejected)}</span>
           </Tabs.Tab>
         </Tabs.List>
       </Tabs>
 
       {/* фильтры */}
-      <Group gap="md" wrap="wrap">
+      <div className={classes.filters}>
         {search.params.platforms.length > 1 && (
-          <Chip.Group multiple value={f.platform} onChange={(v) => update({ platform: v as S["Platform"][] })}>
-            <Group gap={6}>
-              {search.params.platforms.map((p) => (
-                <Chip key={p} value={p} size="xs">
-                  {PLATFORM_TITLE[p]}
-                </Chip>
-              ))}
-            </Group>
-          </Chip.Group>
+          <div className={classes.pills} role="group" aria-label="Площадки">
+            <button
+              type="button"
+              className={classes.pill}
+              data-active={f.platform.length === 0 || undefined}
+              onClick={() => update({ platform: [] })}
+            >
+              Все площадки
+            </button>
+            {search.params.platforms.map((p) => (
+              <button
+                key={p}
+                type="button"
+                className={classes.pill}
+                data-active={f.platform.includes(p) || undefined}
+                aria-pressed={f.platform.includes(p)}
+                onClick={() => togglePlatform(p)}
+              >
+                <PlatformLogo platform={p} size="sm" />
+                {PLATFORM_NAME[p]}
+              </button>
+            ))}
+          </div>
+        )}
+        {!grouped && (
+          <Select
+            size="xs"
+            radius="md"
+            ml="auto"
+            w={260}
+            allowDeselect={false}
+            value={f.sort}
+            onChange={(v) => update({ sort: (v ?? "relevance") as Sort })}
+            data={SORT_OPTIONS}
+            leftSection={<Icon name="filter" size={14} />}
+            aria-label="Сортировка"
+          />
+        )}
+      </div>
+
+      <div className={classes.switches}>
+        {f.tab !== "rejected" && (
+          <Switch
+            size="sm"
+            label="Группировать одинаковые новости"
+            checked={f.group}
+            onChange={(e) => update({ group: e.currentTarget.checked })}
+          />
         )}
         {!grouped && (
           <Switch
@@ -117,105 +174,99 @@ export function ResultsView({ search }: { search: S["Search"] }) {
           checked={f.include_excluded}
           onChange={(e) => update({ include_excluded: e.currentTarget.checked })}
         />
-        {f.tab !== "rejected" && (
-          <Switch
-            size="sm"
-            label="Группировать одинаковые новости"
-            checked={f.group}
-            onChange={(e) => update({ group: e.currentTarget.checked })}
-          />
-        )}
-        {!grouped && (
-          <Select
-            size="xs"
-            ml="auto"
-            w={260}
-            allowDeselect={false}
-            value={f.sort}
-            onChange={(v) => update({ sort: (v ?? "relevance") as Sort })}
-            data={SORT_OPTIONS}
-            aria-label="Сортировка"
-          />
-        )}
-      </Group>
+      </div>
 
       {f.target_id.length > 0 && (
-        <Alert variant="light" color="blue" p="xs">
-          Показано найденное в выбранном источнике.{" "}
-          <Anchor component="button" type="button" size="sm" onClick={() => update({ target_id: [] })}>
+        <div className={classes.note}>
+          <Icon name="info" />
+          Показано найденное в выбранном источнике.
+          <button type="button" className={classes.noteAction} onClick={() => update({ target_id: [] })}>
             Показать всё
-          </Anchor>
-        </Alert>
+          </button>
+        </div>
       )}
       {f.tab === "rejected" && (
-        <Text size="sm" c="dimmed">
+        <div className={classes.note}>
+          <Icon name="info" />
           Эти публикации система сочла не относящимися к запросу. Их нет в счёте и в выгрузке.
-        </Text>
+        </div>
       )}
       {grouped && (
-        <Text size="sm" c="dimmed">
-          В счёте каждое размещение — отдельная публикация.
-        </Text>
+        <div className={classes.note}>
+          <Icon name="info" />В счёте каждое размещение — отдельная публикация.
+        </div>
       )}
 
       {/* массовые действия и «Вернуть» */}
       {selected.size > 0 && (
-        <Paper withBorder p="xs" radius="md">
-          <Group justify="space-between">
-            <Text size="sm">Выбрано: {selected.size}</Text>
-            <Group gap="xs">
-              <Button size="compact-sm" variant="subtle" color="gray" onClick={() => setSelected(new Set())}>
-                Снять выделение
-              </Button>
-              <Button size="compact-sm" color="red" variant="light" onClick={() => exclude([...selected], true)}>
-                Исключить выбранные
-              </Button>
-            </Group>
-          </Group>
-        </Paper>
+        <div className={classes.bulk}>
+          <span>Выбрано: {selected.size}</span>
+          <Button size="compact-sm" variant="subtle" color="gray" ml="auto" onClick={() => setSelected(new Set())}>
+            Снять выделение
+          </Button>
+          <Button
+            size="compact-sm"
+            color="red"
+            variant="light"
+            leftSection={<Icon name="trash" size={14} />}
+            onClick={() => exclude([...selected], true)}
+          >
+            Исключить выбранные
+          </Button>
+        </div>
       )}
       {lastExcluded.length > 0 && (
-        <Alert variant="light" color="gray" p="xs" withCloseButton onClose={() => setLastExcluded([])}>
-          Исключено: {lastExcluded.length}.{" "}
-          <Anchor
-            component="button"
+        <div className={classes.note}>
+          <Icon name="trash" />
+          Исключено: {lastExcluded.length}.
+          <button
             type="button"
-            size="sm"
+            className={classes.noteAction}
             onClick={() => {
               exclusion.mutate({ ids: lastExcluded, excluded: false });
               setLastExcluded([]);
             }}
           >
             Вернуть
-          </Anchor>
-        </Alert>
+          </button>
+          <button type="button" className={classes.noteClose} onClick={() => setLastExcluded([])} aria-label="Скрыть">
+            <Icon name="close" size={14} />
+          </button>
+        </div>
       )}
 
       {/* список */}
-      {active.isSuccess && total === 0 && (
-        <Text c="dimmed" py="xs">
-          {running ? "Публикации появятся по мере обработки источников…" : "Под эти фильтры ничего не подходит."}
-        </Text>
+      {active.isSuccess && total === 0 && !running && (
+        <div className={classes.empty}>
+          <p className={classes.emptyTitle}>Под эти фильтры ничего не подходит</p>
+          <p className={classes.emptyText}>Переключите вкладку, площадку или снимите фильтры.</p>
+        </div>
+      )}
+      {active.isSuccess && total === 0 && running && (
+        <p className={classes.waiting}>Публикации появятся по мере обработки источников…</p>
       )}
       {/* скелетон, пока список грузится или поиск идёт, а публикаций ещё нет */}
       {(active.isPending || (running && active.isSuccess && total === 0)) && <ListSkeleton />}
-      {grouped
-        ? (groups.data?.pages ?? []).flatMap((p) =>
-            p.items.map((g) => (
-              <GroupCard key={g.group_id} group={g} selected={selected} onSelect={select} onExclude={exclude} />
-            )),
-          )
-        : (list.data?.pages ?? []).flatMap((p) =>
-            p.items.map((r) => (
-              <ResultCard
-                key={r.id}
-                result={r}
-                selected={selected.has(r.id)}
-                onSelect={(on) => select(r.id, on)}
-                onExclude={(ex) => exclude([r.id], ex)}
-              />
-            )),
-          )}
+
+      <div className={classes.list}>
+        {grouped
+          ? (groups.data?.pages ?? []).flatMap((p) =>
+              p.items.map((g) => (
+                <GroupCard key={g.group_id} group={g} selected={selected} onSelect={select} onExclude={exclude} />
+              )),
+            )
+          : (list.data?.pages ?? []).flatMap((p) =>
+              p.items.map((r) => (
+                <ResultCard
+                  key={r.id}
+                  result={r}
+                  selected={selected.has(r.id)}
+                  onSelect={(on) => select(r.id, on)}
+                  onExclude={(ex) => exclude([r.id], ex)}
+                />
+              )),
+            )}
+      </div>
 
       {active.hasNextPage && (
         <Center>
@@ -225,25 +276,30 @@ export function ResultsView({ search }: { search: S["Search"] }) {
         </Center>
       )}
       {total > 0 && (
-        <Text size="xs" c="dimmed" ta="center">
-          {grouped ? `Сюжетов и одиночных публикаций: ${fmtNumber(total)}` : `Показано ${publications(pages.reduce((n, p) => n + p.items.length, 0))} из ${fmtNumber(total)}`}
-        </Text>
+        <p className={classes.footnote}>
+          {grouped
+            ? `Сюжетов и одиночных публикаций: ${fmtNumber(total)}`
+            : `Показано ${publications(pages.reduce((n, p) => n + p.items.length, 0))} из ${fmtNumber(total)}`}
+        </p>
       )}
-    </Stack>
+    </section>
   );
 }
 
 function ListSkeleton() {
   return (
-    <Stack gap="sm" aria-busy="true" aria-label="Загрузка подборки">
+    <div className={classes.list} aria-busy="true" aria-label="Загрузка подборки">
       {[0, 1, 2].map((i) => (
-        <Paper key={i} withBorder radius="md" p="md">
-          <Skeleton height={12} width="30%" mb="sm" />
-          <Skeleton height={10} mb={6} />
-          <Skeleton height={10} width="85%" mb={6} />
-          <Skeleton height={10} width="60%" />
-        </Paper>
+        <div key={i} className={classes.skeleton}>
+          <Skeleton height={40} width={40} radius="md" />
+          <div style={{ flex: 1 }}>
+            <Skeleton height={14} width="55%" mb="sm" />
+            <Skeleton height={10} width="30%" mb="md" />
+            <Skeleton height={10} mb={6} />
+            <Skeleton height={10} width="80%" />
+          </div>
+        </div>
       ))}
-    </Stack>
+    </div>
   );
 }

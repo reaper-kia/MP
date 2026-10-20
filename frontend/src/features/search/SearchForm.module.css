@@ -1,0 +1,267 @@
+.hero {
+  padding: 32px;
+  border: 1px solid var(--mp-border);
+  border-radius: 24px;
+  background: var(--mp-hero);
+  color: var(--mp-text);
+  box-shadow: var(--mp-shadow-card);
+}
+
+:global([data-mantine-color-scheme="dark"]) .hero {
+  border-color: transparent;
+  box-shadow: 0 20px 25px rgb(0 0 0 / 25%);
+}
+
+.hero[data-compact] {
+  padding: 24px 28px;
+}
+
+.title {
+  margin: 12px 0 0;
+  font-size: 30px;
+  font-weight: 700;
+  letter-spacing: -0.02em;
+}
+
+.hero[data-compact] .title {
+  font-size: 22px;
+}
+
+.lead {
+  max-width: 672px;
+  margin: 8px 0 0;
+  font-size: 14px;
+  line-height: 1.6;
+  color: var(--mp-muted);
+}
+
+/* ───────── поле запроса ───────── */
+
+.queryBox {
+  margin-top: 24px;
+  padding: 8px;
+  border: 1px solid var(--mp-border);
+  border-radius: 16px;
+  background: var(--mp-sunken);
+  transition: box-shadow 150ms ease;
+}
+
+.hero[data-compact] .queryBox {
+  margin-top: 16px;
+}
+
+.queryBox:focus-within {
+  box-shadow: 0 0 0 2px var(--mp-accent);
+}
+
+.queryBox[data-error] {
+  box-shadow: 0 0 0 2px #f87171;
+}
+
+.queryInput {
+  padding: 12px 16px !important;
+  font-size: 16px !important;
+  line-height: 1.6 !important;
+  color: var(--mp-text) !important;
+}
+
+.queryFooter {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 8px 4px 0 12px;
+  border-top: 1px solid var(--mp-border-soft);
+}
+
+.queryHint {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-right: auto;
+  font-size: 12px;
+  color: var(--mp-faint);
+}
+
+.kbd {
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--mp-faint);
+  white-space: nowrap;
+}
+
+.error {
+  margin: 8px 0 0;
+  font-size: 12px;
+  color: #ef4444;
+}
+
+.warning {
+  margin: 12px 0 0;
+  font-size: 12px;
+  font-weight: 600;
+  color: #d97706;
+}
+
+/* ───────── как понят запрос ───────── */
+
+.analysis {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-top: 16px;
+}
+
+.chipRow {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
+
+.chipLabel {
+  margin-right: 4px;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--mp-muted);
+}
+
+.chip {
+  padding: 6px 12px;
+  border: 1px solid var(--mp-border);
+  border-radius: 999px;
+  background: var(--mp-sunken);
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--mp-text-2);
+}
+
+.chipActive {
+  border-color: var(--mp-accent);
+  background: var(--mp-accent);
+  color: #171914;
+}
+
+.summary {
+  font-size: 13px;
+  color: var(--mp-text-2);
+}
+
+/* ───────── полоса параметров ───────── */
+
+.params {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 12px 14px;
+  margin-top: 16px;
+  padding: 12px 16px;
+  border: 1px solid var(--mp-border);
+  border-radius: 16px;
+  background: var(--mp-surface);
+}
+
+.paramGroup {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.paramIcon {
+  color: var(--mp-faint);
+}
+
+.paramLabel {
+  font-size: 12px;
+  color: var(--mp-muted);
+}
+
+.divider {
+  width: 1px;
+  height: 24px;
+  background: var(--mp-border-soft);
+}
+
+.segment {
+  background: var(--mp-surface-2);
+}
+
+.dateInput {
+  font-weight: 600;
+}
+
+.platforms {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.platformToggle {
+  display: flex;
+  padding: 0;
+  border: 0;
+  border-radius: 6px;
+  background: none;
+  cursor: pointer;
+  opacity: 0.3;
+  filter: grayscale(1);
+  transition:
+    opacity 150ms ease,
+    filter 150ms ease;
+}
+
+.platformToggle:hover:not(:disabled) {
+  opacity: 0.6;
+}
+
+.platformToggle[data-on] {
+  opacity: 1;
+  filter: none;
+}
+
+.platformToggle:disabled {
+  cursor: not-allowed;
+  opacity: 0.15;
+}
+
+.platformToggle:focus-visible {
+  outline: 2px solid var(--mp-accent-line);
+  outline-offset: 2px;
+}
+
+.sourcesLink {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-left: auto;
+  padding: 0;
+  border: 0;
+  background: none;
+  font: inherit;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--mp-muted);
+  cursor: pointer;
+}
+
+.sourcesLink:hover {
+  color: var(--mp-text);
+}
+
+.paramErrors {
+  margin-top: 4px;
+}
+
+@media (max-width: 720px) {
+  .hero {
+    padding: 20px;
+  }
+
+  .queryFooter {
+    flex-wrap: wrap;
+  }
+
+  .kbd,
+  .divider {
+    display: none;
+  }
+}

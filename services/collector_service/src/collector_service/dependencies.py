@@ -1,13 +1,16 @@
 """Composition root: настройки → клиенты площадок → коннекторы → реестр → Mediator.
 
 Здесь и только здесь выбирается, как получаем публикации с каждой площадки:
-  VK    — VK API (сервисный ключ);
+  VK    — VK API (сервисный ключ или токен VK ID с автообновлением); «везде» — newsfeed.search,
+          а если он ключу закрыт (токен пользователя) — Yandex Search site:vk.com + wall.getById;
   OK    — публичные страницы ok.ru; «везде» — Yandex Search API + открыть каждую ссылку;
   MAX   — Bot API (каналы, где бот — администратор); «везде» нет: веб без входа пуст;
   NEWS  — RSS-ленты сайтов из перечня (NEWS_SITES).
 """
 
+import logging
 from dataclasses import dataclass
+from pathlib import Path
 
 import httpx
 
@@ -37,17 +40,24 @@ from collector_service.infra.connectors.max import MaxConnector
 from collector_service.infra.connectors.news import NewsConnector
 from collector_service.infra.connectors.ok import OkConnector
 from collector_service.infra.connectors.registry import InMemoryConnectorRegistry
-from collector_service.infra.connectors.site_search import SiteSearch, WithSiteSearch
+from collector_service.infra.connectors.site_search import (
+    SiteSearch,
+    WithSearchFallback,
+    WithSiteSearch,
+)
 from collector_service.infra.connectors.vk import VkConnector
 from collector_service.infra.http import HttpxFormPoster, HttpxJsonPoster, create_http_client
 from collector_service.infra.max_api.client import MaxApiClient
 from collector_service.infra.news.sites import parse_sites
 from collector_service.infra.vk_api.client import VkApiClient
 from collector_service.infra.vk_api.limiter import RateLimiter
+from collector_service.infra.vk_api.tokens import StaticToken, TokenSource, VkIdToken
 from collector_service.infra.web.fetcher import HostLimiters, HttpxWebFetcher, WebFetcher
 from collector_service.infra.yandex_search.client import YandexSearchClient
 
 RESOLVE_CACHE_TTL = 600.0
+
+logger = logging.getLogger(__name__)
 
 
 @dataclass(frozen=True)
@@ -59,10 +69,21 @@ class Container:
         await self.http.aclose()
 
 
+def build_vk_tokens(settings: Settings, http: httpx.AsyncClient) -> TokenSource:
+    """Файл токена VK ID (scripts/vk_token.py) главнее VK_SERVICE_TOKEN: он сам обновляется."""
+    path = Path(settings.vk_token_file) if settings.vk_token_file else None
+    if path is not None and path.is_file():
+        tokens = VkIdToken(HttpxFormPoster(http), path, settings.vk_id_client_id)
+        if tokens.configured:
+            logger.info("VK: токен VK ID из %s (автообновление)", path)
+            return tokens
+    return StaticToken(settings.vk_service_token)
+
+
 def build_vk(settings: Settings, http: httpx.AsyncClient) -> VkConnector:
     client = VkApiClient(
         HttpxFormPoster(http),
-        token=settings.vk_service_token,
+        tokens=build_vk_tokens(settings, http),
         version=settings.vk_api_version,
         limiter=RateLimiter(settings.vk_requests_per_second),
     )
@@ -103,8 +124,9 @@ def build_connectors(settings: Settings, http: httpx.AsyncClient) -> list[Platfo
         base_url=settings.max_api_url,
         limiter=RateLimiter(settings.max_requests_per_second),
     )
+    vk = build_vk(settings, http)
     return [
-        build_vk(settings, http),
+        WithSearchFallback(vk, SiteSearch(yandex, "vk.com", vk)),
         WithSiteSearch(ok, SiteSearch(yandex, "ok.ru", ok)),
         MaxConnector(max_api),
         NewsConnector(

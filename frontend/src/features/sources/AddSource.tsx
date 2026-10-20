@@ -1,9 +1,11 @@
 // Добавление источника по ссылке: blur / Enter → resolve → карточка → «Добавить» (FE-08, FE-10 переиспользует).
-import { Alert, Anchor, Badge, Button, Checkbox, Group, Loader, Paper, Stack, Text, TextInput } from "@mantine/core";
+import { Alert, Anchor, Button, Checkbox, Group, Loader, Paper, Stack, Text, TextInput } from "@mantine/core";
 import { notifications } from "@mantine/notifications";
 import { useEffect, useRef, useState } from "react";
 
 import type { S } from "../../api/client";
+import { Icon } from "../../components/Icon";
+import { PlatformLogo } from "../../components/PlatformLogo";
 import { errorText } from "../../lib/errors";
 import { fmtNumber, plural } from "../../lib/format";
 import { PLATFORM_NAME } from "../../lib/platforms";
@@ -67,10 +69,12 @@ export function AddSource({ onShowExisting, onAdded, initialUrl }: Props) {
   const inputError = resolve.isError ? errorText(resolve.error, "source") : null;
 
   return (
-    <Paper withBorder radius="md" p="md">
+    <Paper withBorder radius="lg" p="lg" shadow="xs">
       <Stack gap="sm">
         <TextInput
-          label="Ссылка на группу или канал"
+          size="md"
+          leftSection={<Icon name="plus" />}
+          label="Добавить источник по ссылке"
           description="ВКонтакте, Одноклассники или MAX. Проверим ссылку и покажем, что это за источник."
           placeholder="https://vk.com/krsk_news"
           value={url}
@@ -87,22 +91,20 @@ export function AddSource({ onShowExisting, onAdded, initialUrl }: Props) {
         />
 
         {preview && (
-          <Paper withBorder radius="md" p="sm" bg="var(--mantine-color-gray-0)">
+          <Paper withBorder radius="lg" p="sm" bg="var(--mp-bg)">
             <Group justify="space-between" align="center" wrap="wrap" gap="sm">
-              <Stack gap={2} style={{ minWidth: 0 }}>
-                <Group gap="xs" wrap="nowrap">
-                  <Badge variant="outline" color="gray" style={{ flexShrink: 0 }}>
-                    {PLATFORM_NAME[preview.platform]}
-                  </Badge>
-                  <Anchor href={preview.url} target="_blank" rel="noopener noreferrer" fw={500} truncate>
+              <Group gap="sm" wrap="nowrap" style={{ minWidth: 0 }}>
+                <PlatformLogo platform={preview.platform} />
+                <Stack gap={2} style={{ minWidth: 0 }}>
+                  <Anchor href={preview.url} target="_blank" rel="noopener noreferrer" fw={700} truncate>
                     {preview.name}
                   </Anchor>
-                </Group>
-                <Text size="sm" c="dimmed">
-                  {preview.city ?? "Город не указан"}
+                  <Text size="sm" c="dimmed">
+                  {PLATFORM_NAME[preview.platform]} · {preview.city ?? "Город не указан"}
                   {preview.members_count !== null && ` · ${subscribers(preview.members_count)}`}
-                </Text>
-              </Stack>
+                  </Text>
+                </Stack>
+              </Group>
 
               {preview.existing_source_id ? (
                 <Group gap="sm">

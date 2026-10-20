@@ -30,6 +30,13 @@ def test_same_news_dataset_heuristic() -> None:
     assert any("Норильск" in e and "2 вместо 3" in e for e in explanations)
 
 
+def test_short_post_with_one_common_word_is_not_the_same_news() -> None:
+    data = rows()
+    post = Post(id="day", text="Сегодня понедельник, 19 октября 2026 года.")
+    [result] = score_news_posts(data[0]["query"] + " До конца года.", [post])
+    assert result.score.relevance.value == "irrelevant"
+
+
 def test_groups_dataset_copies_together_other_events_apart() -> None:
     data = rows()
     groups = group_posts_heuristic(
@@ -50,6 +57,30 @@ async def test_many_copies_of_one_story_are_one_group() -> None:
     groups = await engine.group_posts(posts)
     biggest = max(groups, key=lambda g: len(g.post_ids))
     assert len(biggest.post_ids) == 40 and len(groups) <= 4
+
+
+def test_groups_do_not_chain_different_stories() -> None:
+    words = (
+        "автобус берег вокзал газета деревня ёлка журнал завод игрушка камень лампа магазин"
+        " небо облако парк река солнце трамвай улица фонарь хлеб цветок чайник школа"
+    ).split()
+    a = " ".join(words[0:12])
+    b = " ".join(words[6:18])  # половина слов от a и половина от c
+    c = " ".join(words[12:24])
+    groups = group_posts_heuristic(
+        [GroupInput(id="a", text=a), GroupInput(id="b", text=b), GroupInput(id="c", text=c)]
+    )
+    assert max(len(g.post_ids) for g in groups) <= 2  # раньше все трое склеивались через b
+
+
+def test_short_post_is_not_glued_by_a_few_common_words() -> None:
+    short = "Дорожная обстановка в Солнечном. Пора переобуваться?"
+    long_ = (
+        "В Солнечном дорожная обстановка осложнилась: на трассе столкнулись две фуры, "
+        "движение перекрыто, водителей просят выбирать объезд через Северное шоссе."
+    )
+    groups = group_posts_heuristic([GroupInput(id="s", text=short), GroupInput(id="l", text=long_)])
+    assert len(groups) == 2
 
 
 def test_text_helpers() -> None:

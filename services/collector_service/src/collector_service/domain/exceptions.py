@@ -25,5 +25,10 @@ class PlatformUnavailableError(CollectorError):
     """Площадка не отвечает, нет ключа, анти-бот."""
 
 
+class MethodUnavailableError(PlatformUnavailableError):
+    """Площадка отвечает, но этот метод нашему ключу закрыт (VK 1051 — newsfeed.search для токена
+    пользователя). Не «площадка лежит»: можно перейти на запасной путь."""
+
+
 class RateLimitedError(CollectorError):
     pass
