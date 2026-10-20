@@ -231,7 +231,8 @@ def _short(e: BaseException) -> str:
 
 def _worth_judging(result: V1Result) -> bool:
     """В модель не отправляем только явно мимо: по смыслу ниже нижнего порога (THRESHOLDS.low)
-    и ни одного общего слова. Низкий порог — экономим время, полноту не теряем. Без эмбеддингов — судят все.
+    и ни одного общего слова. Низкий порог — экономим время, полноту не теряем.
+    Без эмбеддингов — судят все.
     """
     if result.similarity is None or result.person_missing:
         return True
