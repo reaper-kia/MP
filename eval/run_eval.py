@@ -296,7 +296,8 @@ def render(results: list[Result], mode: str, engine: MlEngine, settings: Setting
         "Настройки: "
         f"LLM `{settings.llm_provider}` / `{settings.ollama_llm_model}`, судья "
         f"`{settings.ollama_judge_model or settings.ollama_llm_model}`, эмбеддинги "
-        f"`{settings.embed_provider}` / `{settings.ollama_embed_model}`, пачка судьи "
+        f"`{','.join(settings.embed_chain) or 'stub'}` / `{settings.ollama_embed_model}`, "
+        "пачка судьи "
         f"{settings.judge_batch_size}, параллельно {settings.judge_concurrency}, бюджет ScorePosts "
         f"{settings.score_budget_seconds:.0f} с.",
         "",

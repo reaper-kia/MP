@@ -78,12 +78,15 @@ class Pipeline:
         ml: MlClient,
         semaphore: asyncio.Semaphore,
         target_timeout: int = 60,
+        *,
+        show_degraded_warning: bool = True,
     ) -> None:
         self.uow = uow
         self.collector = collector
         self.ml = ml
         self.sem = semaphore
         self.target_timeout = target_timeout
+        self.show_degraded_warning = show_degraded_warning
         self.save = SaveHandler(uow)
         self.scorer = ScoringHandler(uow, ml)
 
@@ -172,8 +175,11 @@ class Pipeline:
                 summary="Базовый поиск по фразе",
                 search_queries=[search.query],
             ), "ML недоступен — использованы базовые фразы поиска"
-        # degraded: ml_service ответил, но без моделей (эвристики)
-        return analysis, "ML работал в упрощённом режиме" if degraded else None
+        # degraded: ml_service ответил, но без моделей (эвристики). Переход ollama → yandex
+        # degraded не даёт. ML_SHOW_DEGRADED_WARNING=false — не показываем и эвристики
+        if degraded and self.show_degraded_warning:
+            return analysis, "ML работал в упрощённом режиме"
+        return analysis, None
 
     async def _collect(self, search_id: uuid.UUID, analysis: QueryAnalysis) -> list[TargetJob]:
         async with self.uow:

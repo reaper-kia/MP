@@ -1,0 +1,10 @@
+# Сгенерировано Ansible (роль tunnel, ML-15): обратный туннель Ollama с ноута команды.
+# Только для пользователя {{ ansible_user }}; остальных пользователей не касается.
+Match User {{ ansible_user }}
+    # -R {{ tunnel_bind }}:{{ tunnel_port }}:… может слушать на адресе docker-моста, а не только 127.0.0.1
+    GatewayPorts clientspecified
+    AllowTcpForwarding yes
+    # ноут пропал из сети → за ~30 с закрыть сессию и освободить порт, иначе autossh не сможет
+    # занять его снова, а запросы ml_service повиснут на «мёртвом» туннеле
+    ClientAliveInterval {{ tunnel_client_alive_interval }}
+    ClientAliveCountMax {{ tunnel_client_alive_count }}

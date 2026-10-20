@@ -12,7 +12,8 @@ from dataclasses import dataclass
 from ml_service.core.excerpt import best_excerpt, highlight_spans
 from ml_service.core.models import Post, PostScore, Relevance
 from ml_service.core.region import REGION_STEMS, find_region, places
-from ml_service.core.scoring import V1Result, banded, post_text, semantic, short_sentence
+from ml_service.core.scoring import V1Result, banded, post_text, short_sentence
+from ml_service.core.similarity import BGE_M3, SimilarityThresholds
 from ml_service.core.text import MONTHS, dates, overlap, quantities, shingles, stems, word_stems
 
 MONTH_STEMS = frozenset(m[:6] for m in MONTHS)
@@ -20,7 +21,6 @@ SAME_AT = 0.5  # доля общих основ: дальше — та же но
 MAYBE_AT = 0.3
 COPY_CONTAINMENT = 0.8
 SHORT_CONTAINMENT = 0.45
-SIM_SAME = 0.85  # косинус bge-m3 для пересказа
 # доля общих основ считается от меньшего текста: у «Сегодня понедельник, 19 октября» одно общее
 # слово уже даёт треть — без нескольких общих основ похожесть по словам не засчитываем
 MIN_SHARED_WORDS = 4
@@ -82,14 +82,18 @@ def compare(source: NewsFacts, post: NewsFacts) -> Comparison:
 
 
 def score_news_post(
-    post: Post, source: NewsFacts, source_stems: set[str], similarity: float | None
+    post: Post,
+    source: NewsFacts,
+    source_stems: set[str],
+    similarity: float | None,
+    thresholds: SimilarityThresholds = BGE_M3,
 ) -> V1Result:
     facts = NewsFacts.of(post_text(post))
     cmp = compare(source, facts)
     signal = cmp.word_overlap if len(source.words & facts.words) >= MIN_SHARED_WORDS else 0.0
     if similarity is not None:
-        signal = max(signal, semantic(similarity) * 0.9)
-        if similarity >= SIM_SAME:
+        signal = max(signal, thresholds.semantic(similarity) * 0.9)
+        if similarity >= thresholds.same_news:  # пересказ: порог у эмбеддера
             signal = max(signal, SAME_AT)
 
     if cmp.conflicts and cmp.containment < COPY_CONTAINMENT:
@@ -149,12 +153,18 @@ def _kind(cmp: Comparison, post: NewsFacts, source: NewsFacts) -> str:
 
 
 def score_news_posts(
-    source_text: str, posts: list[Post], similarities: list[float] | None = None
+    source_text: str,
+    posts: list[Post],
+    similarities: list[float] | None = None,
+    thresholds: SimilarityThresholds = BGE_M3,
 ) -> list[V1Result]:
     source = NewsFacts.of(source_text)
     source_stems = stems(source_text)
     sims: list[float | None] = list(similarities) if similarities else [None] * len(posts)
-    return [score_news_post(p, source, source_stems, s) for p, s in zip(posts, sims, strict=True)]
+    return [
+        score_news_post(p, source, source_stems, s, thresholds)
+        for p, s in zip(posts, sims, strict=True)
+    ]
 
 
 def facts_conflict(a: str, b: str) -> bool:

@@ -1,0 +1,9 @@
+# ML-15: сервер принимает обратный туннель Ollama с ноута. Запуск: make llm-tunnel-server
+# Отдельно от deploy.yml: обычный деплой sshd не трогает и не требует ключа туннеля.
+# Повторный запуск безопасен.
+- name: LLM tunnel (server side)
+  hosts: "{{ target | default('mp') }}"
+  become: true
+
+  roles:
+    - tunnel

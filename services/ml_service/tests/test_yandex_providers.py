@@ -6,11 +6,11 @@ import httpx
 import pytest
 
 from ml_service.config import Settings
-from ml_service.core import similarity
-from ml_service.dependencies import build_engine
+from ml_service.core.similarity import SimilarityThresholds
 from ml_service.errors import MlUnavailableError
 from ml_service.providers import yandex
 from ml_service.providers.embeddings import StubEmbedder, build_embedder
+from ml_service.providers.fallback import FallbackEmbedder
 from ml_service.providers.llm import StubLLM, build_llm
 from ml_service.providers.yandex import YandexClient, YandexEmbedder, YandexLLM
 
@@ -185,12 +185,25 @@ async def test_build_without_key_is_stub_and_with_key_is_yandex() -> None:
     await emb.aclose()
 
 
-async def test_build_engine_applies_similarity_thresholds() -> None:
-    settings = Settings(sim_low=0.5, sim_high=0.8, sim_retell=0.9, _env_file=None)
-    engine = build_engine(settings)
-    try:
-        assert (similarity.THRESHOLDS.low, similarity.THRESHOLDS.high) == (0.5, 0.8)
-        assert similarity.THRESHOLDS.retell == 0.9
-    finally:
-        similarity.configure(0.38, 0.68, 0.86)  # не влиять на другие тесты
-        await engine.aclose()
+async def test_similarity_thresholds_belong_to_each_provider() -> None:
+    settings = Settings(
+        embed_provider="ollama,yandex",
+        yc_api_key="KEY",
+        yc_folder_id="b1g",
+        sim_low=0.4,
+        sim_high=0.7,
+        sim_low_yandex=0.5,
+        sim_high_yandex=0.8,
+        sim_retell_yandex=0.9,
+        sim_same_news_yandex=0.88,
+        _env_file=None,
+    )
+    chain = build_embedder(settings)
+    assert isinstance(chain, FallbackEmbedder)
+    ollama, ya = chain.providers
+    assert (ollama.thresholds.low, ollama.thresholds.high) == (0.4, 0.7)
+    assert ya.thresholds == SimilarityThresholds(0.5, 0.8, 0.9, 0.88)
+    await chain.aclose()
+
+    with pytest.raises(ValueError, match="пороги"):
+        SimilarityThresholds(0.8, 0.5)

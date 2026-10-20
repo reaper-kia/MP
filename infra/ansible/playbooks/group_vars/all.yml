@@ -12,10 +12,33 @@ http_port: 80
 # На демо — ВСЕГДА false: только реальные публикации
 collector_fake: false
 
-# Модели на сервере (нет GPU): yandex — Yandex AI Studio (YandexGPT Lite + эмбеддинги text-search),
-# нужны YC_FOLDER_ID и YC_API_KEY в .env машины деплоя. Без ключа ml_service стартует на эвристиках.
-# Переопределить: LLM_PROVIDER=stub make deploy (вариант без LLM: LLM_PROVIDER=stub EMBED_PROVIDER=yandex)
-llm_provider: yandex
+# Модели на сервере (нет GPU), ML-15: цепочка «ноут → Яндекс → эвристики».
+#   ollama — Ollama на ноуте команды через обратный SSH-туннель (make llm-tunnel-server / -install);
+#   yandex — Yandex AI Studio, если на машине деплоя есть YC_FOLDER_ID и YC_API_KEY (иначе пропускается);
+#   эвристики — всегда последние. Переключение пользователь не видит (degraded=false).
+# Эмбеддинги — только ollama: векторы Яндекса без калибровки порогов (ML-11) не берём; ноута нет —
+# отбор по словам + LLM-судья. После калибровки: EMBED_PROVIDER=ollama,yandex и SIM_*_YANDEX.
+# Переопределить: LLM_PROVIDER=yandex make deploy (без ноута) или LLM_PROVIDER=stub make deploy
+llm_provider: "ollama,yandex"
+embed_provider: "ollama"
+# Ollama ноута на сервере: туннель слушает tunnel_bind:tunnel_port, из контейнера — host-gateway
+ollama_url: "http://host.docker.internal:{{ tunnel_port }}"
+# ноут уснул — понять за секунды, а не за таймаут запроса (services/ml_service/README.md)
+ollama_connect_timeout_seconds: 3
+# false — не показывать «ML работал в упрощённом режиме», когда отвечают эвристики (решение TL).
+# Критерии требуют отделять работающее от имитации: на демо держать true
+ml_show_degraded_warning: true
+
+# Обратный туннель Ollama (роль tunnel, playbooks/tunnel.yml): адрес docker-моста на сервере и порт
+tunnel_bind: 172.17.0.1
+tunnel_port: 11435
+# публичный ключ туннеля на машине деплоя (make llm-tunnel-key)
+tunnel_pubkey_file: ~/.ssh/mp_tunnel.pub
+# откуда контейнеры ходят к туннелю (ufw): все docker-подсети по умолчанию
+tunnel_docker_subnet: 172.16.0.0/12
+# sshd: ноут пропал — сессию закрыть за interval × count секунд, порт освободить
+tunnel_client_alive_interval: 10
+tunnel_client_alive_count: 3
 
 # Docker Hub из РФ бывает недоступен — зеркала. [] — без зеркал.
 docker_registry_mirrors:

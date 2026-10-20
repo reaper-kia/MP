@@ -1,0 +1,11 @@
+---
+# reload, не restart: открытые сессии (и наша) не рвутся. ssh — Ubuntu/Debian, sshd — остальные
+- name: Reload sshd
+  ansible.builtin.shell: |
+    for unit in ssh sshd; do
+      if systemctl is-active --quiet "$unit"; then systemctl reload "$unit"; exit 0; fi
+    done
+    echo "sshd не запущен как служба (socket activation) — новые подключения возьмут новый конфиг"
+  args:
+    executable: /bin/bash
+  changed_when: true

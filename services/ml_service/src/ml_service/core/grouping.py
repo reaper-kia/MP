@@ -4,7 +4,7 @@
 - почти дубли: шинглы (тройки основ) пересекаются по Жаккару ≥ 0.5 или короткий пост на ≥ 70 %
   вложен в длинный (сокращённая копия);
 - пересказ: общих основ много (доля от меньшего ≥ 0.5) или эмбеддинги близки
-  (косинус ≥ порога retell из core/similarity.py);
+  (косинус ≥ порога retell эмбеддера, который посчитал векторы);
 - и при этом факты не спорят: место, дата, числа (иначе это похожая, но другая новость).
 «Пересказ по словам» требует ещё и не меньше MIN_SHARED_WORDS общих основ: короткий пост
 («Дорожная обстановка в Солнечном») делит половину своих слов с любой новостью про дороги.
@@ -21,7 +21,7 @@ from collections.abc import Sequence
 
 from ml_service.core.models import GroupInput, PostGroup
 from ml_service.core.same_news import NewsFacts, compare
-from ml_service.core.similarity import THRESHOLDS
+from ml_service.core.similarity import BGE_M3, SimilarityThresholds
 from ml_service.core.text import jaccard, overlap
 
 SHINGLE_JACCARD = 0.5
@@ -36,7 +36,12 @@ def _text(p: GroupInput) -> str:
     return f"{p.title}\n{p.text}" if p.title else p.text
 
 
-def same_story(a: NewsFacts, b: NewsFacts, similarity: float | None) -> bool:
+def same_story(
+    a: NewsFacts,
+    b: NewsFacts,
+    similarity: float | None,
+    thresholds: SimilarityThresholds = BGE_M3,
+) -> bool:
     shingle_j = jaccard(a.shingles, b.shingles)
     small, big = (a, b) if len(a.shingles) <= len(b.shingles) else (b, a)
     contained = len(small.shingles & big.shingles) / len(small.shingles) if small.shingles else 0.0
@@ -46,7 +51,7 @@ def same_story(a: NewsFacts, b: NewsFacts, similarity: float | None) -> bool:
     words = overlap(a.words, b.words)
     shared = len(a.words & b.words)
     retelling = (words >= WORD_OVERLAP and shared >= MIN_SHARED_WORDS) or (
-        similarity is not None and similarity >= THRESHOLDS.retell and words >= SIM_MIN_OVERLAP
+        similarity is not None and similarity >= thresholds.retell and words >= SIM_MIN_OVERLAP
     )
     if not (near_duplicate or retelling):
         return False
@@ -55,7 +60,9 @@ def same_story(a: NewsFacts, b: NewsFacts, similarity: float | None) -> bool:
 
 
 def group_posts_heuristic(
-    posts: list[GroupInput], vectors: Sequence[list[float]] | None = None
+    posts: list[GroupInput],
+    vectors: Sequence[list[float]] | None = None,
+    thresholds: SimilarityThresholds = BGE_M3,
 ) -> list[PostGroup]:
     facts = [NewsFacts.of(_text(p)) for p in posts]
     pairs: dict[tuple[int, int], bool] = {}
@@ -68,7 +75,7 @@ def group_posts_heuristic(
                 sim = None
                 if vectors is not None:
                     sim = sum(x * y for x, y in zip(vectors[i], vectors[j], strict=True))
-                ok = same_story(facts[i], facts[j], sim)
+                ok = same_story(facts[i], facts[j], sim, thresholds)
             pairs[key] = ok
         return pairs[key]
 

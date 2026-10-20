@@ -131,6 +131,7 @@ def build_container(settings: Settings) -> Container:
         ml,
         asyncio.Semaphore(settings.collect_concurrency),
         settings.target_timeout,
+        show_degraded_warning=settings.ml_show_degraded_warning,
     )
     runner = AsyncioSearchRunner(pipeline)
     return Container(

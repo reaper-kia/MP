@@ -253,13 +253,14 @@ class FakeMl:
         self.region_texts: set[str] = set()  # подстрока текста → region.by_content = True
         self.excerpt_span: tuple[int, int] | None = None  # None — «весь текст до 300»
         self.unavailable = False
+        self.degraded = False  # ml_service ответил эвристикой
         self.group_calls: list[int] = []  # размеры вызовов GroupPosts
         self.request_ids: list[str] = []  # request_id в момент каждого вызова (B2-12)
 
     async def analyze_query(self, query: str) -> tuple[QueryAnalysis, bool]:
         if self.unavailable:
             raise UpstreamError("ml", "ML_UNAVAILABLE", "ml недоступен")
-        return QueryAnalysis(QueryType.TOPIC.value, f"Тема: {query}", [query]), False
+        return QueryAnalysis(QueryType.TOPIC.value, f"Тема: {query}", [query]), self.degraded
 
     async def score_posts(
         self, *, query: str, analysis: QueryAnalysis, posts: list[PostForScoring]

@@ -155,3 +155,19 @@ async def test_pipeline_all_targets_failed_is_failed(uow, collector, ml):
 
     assert search.status is SearchStatus.FAILED
     assert all(t.error_message for t in search.targets)
+
+
+@pytest.mark.parametrize(
+    ("show", "expected"), [(True, "ML работал в упрощённом режиме"), (False, None)]
+)
+async def test_degraded_warning_can_be_hidden(uow, collector, ml, show, expected):
+    """ML-15: ML_SHOW_DEGRADED_WARNING=false — эвристики ML не показываем пользователю."""
+    ml.degraded = True
+    search = await add_search(uow, [await add_source(uow, "a")])
+    runner = Pipeline(uow, collector, ml, asyncio.Semaphore(5), 10, show_degraded_warning=show)
+    _, warning = await runner._analyze(search)
+    assert warning == expected
+
+    ml.degraded = False  # модель ответила (ноут или Яндекс) — предупреждения нет никогда
+    _, warning = await runner._analyze(search)
+    assert warning is None

@@ -4,6 +4,8 @@ import logging
 import time
 from typing import Literal, Protocol
 
+from ml_service.core.similarity import SimilarityThresholds
+
 logger = logging.getLogger(__name__)
 
 Kind = Literal["query", "doc"]
@@ -31,6 +33,11 @@ class Embedder(Protocol):
     name: str
 
     @property
+    def thresholds(self) -> SimilarityThresholds:
+        """Пороги косинуса для векторов ЭТОЙ модели (векторы разных моделей несравнимы)."""
+        ...
+
+    @property
     def available(self) -> bool: ...
 
     async def embed(self, texts: list[str], kind: Kind) -> list[list[float]]:
@@ -47,6 +54,7 @@ class CircuitBreaker:
         self._name = name
         self._cooldown = cooldown_seconds
         self._open_until = 0.0
+        self.reason = ""  # причина последнего сбоя — для лога переключений и /health
 
     @property
     def closed(self) -> bool:
@@ -56,9 +64,10 @@ class CircuitBreaker:
         self._open_until = 0.0
 
     def failure(self, reason: str) -> None:
+        self.reason = reason
         if self.closed:
             logger.warning(
-                "%s недоступна (%s) — %.0f с работаем на эвристиках",
+                "%s недоступна (%s) — %.0f с её не вызываем (следующий провайдер или эвристики)",
                 self._name,
                 reason,
                 self._cooldown,

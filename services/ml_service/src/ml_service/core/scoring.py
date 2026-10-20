@@ -10,7 +10,7 @@ from dataclasses import dataclass
 from ml_service.core.excerpt import best_excerpt, highlight_spans
 from ml_service.core.models import Post, PostScore, QueryAnalysis, QueryType, Relevance
 from ml_service.core.region import REGION_STEMS, find_region
-from ml_service.core.similarity import THRESHOLDS
+from ml_service.core.similarity import BGE_M3, SimilarityThresholds
 from ml_service.core.text import stems, tokens
 
 # Классы по итоговому скору 0..1 (подобраны на eval/, см. eval/report.md)
@@ -18,7 +18,7 @@ DIRECT_AT = 0.55
 INDIRECT_AT = 0.35
 DISPUTED_AT = 0.15
 
-# Пороги косинуса «запрос ↔ пост» — в core/similarity.py (свои у каждой модели эмбеддингов)
+# Пороги косинуса «запрос ↔ пост» — у эмбеддера (core/similarity.py, свои у каждой модели)
 SEMANTIC_WEIGHT = 0.6
 
 # Итоговый score в ответе — внутри полосы своего класса: сортировка «класс → score» не ломается
@@ -75,9 +75,8 @@ def build_context(query: str, analysis: QueryAnalysis) -> QueryContext:
     )
 
 
-def semantic(similarity: float) -> float:
-    low, high = THRESHOLDS.low, THRESHOLDS.high
-    return min(1.0, max(0.0, (similarity - low) / (high - low)))
+def semantic(similarity: float, thresholds: SimilarityThresholds = BGE_M3) -> float:
+    return thresholds.semantic(similarity)
 
 
 def relevance_for(raw: float) -> Relevance:
@@ -113,7 +112,12 @@ def post_text(post: Post) -> str:
     return f"{post.title}\n{post.text}" if post.title else post.text
 
 
-def score_post_v1(post: Post, ctx: QueryContext, similarity: float | None) -> V1Result:
+def score_post_v1(
+    post: Post,
+    ctx: QueryContext,
+    similarity: float | None,
+    thresholds: SimilarityThresholds = BGE_M3,
+) -> V1Result:
     full = post_text(post)
     text_stems = stems(full)
 
@@ -121,7 +125,7 @@ def score_post_v1(post: Post, ctx: QueryContext, similarity: float | None) -> V1
     if similarity is None:
         raw = lexical
     else:
-        raw = SEMANTIC_WEIGHT * semantic(similarity) + (1 - SEMANTIC_WEIGHT) * lexical
+        raw = SEMANTIC_WEIGHT * thresholds.semantic(similarity) + (1 - SEMANTIC_WEIGHT) * lexical
 
     exclude_hit = next((c for c, s in ctx.exclude if s <= text_stems), "")
     if exclude_hit:
@@ -136,7 +140,12 @@ def score_post_v1(post: Post, ctx: QueryContext, similarity: float | None) -> V1
     excerpt = best_excerpt(post.text, ctx.all_stems)
     region = find_region(post.text)
     explanation = _explain(
-        full, ctx, similarity, exclude_hit=exclude_hit, person_missing=person_missing
+        full,
+        ctx,
+        similarity,
+        thresholds,
+        exclude_hit=exclude_hit,
+        person_missing=person_missing,
     )
     score = PostScore(
         id=post.id,
@@ -156,6 +165,7 @@ def _explain(
     text: str,
     ctx: QueryContext,
     similarity: float | None,
+    thresholds: SimilarityThresholds,
     *,
     exclude_hit: str,
     person_missing: str,
@@ -176,7 +186,7 @@ def _explain(
     if words:
         parts.append("есть " + ", ".join(f"«{w}»" for w in words))
     if similarity is not None:
-        sem = semantic(similarity)
+        sem = thresholds.semantic(similarity)
         parts.append(
             "по смыслу близко к запросу"
             if sem >= 0.6
@@ -194,10 +204,11 @@ def score_posts_v1(
     analysis: QueryAnalysis,
     posts: list[Post],
     similarities: list[float] | None = None,
+    thresholds: SimilarityThresholds = BGE_M3,
 ) -> list[V1Result]:
     ctx = build_context(query, analysis)
     sims: list[float | None] = list(similarities) if similarities else [None] * len(posts)
-    return [score_post_v1(p, ctx, s) for p, s in zip(posts, sims, strict=True)]
+    return [score_post_v1(p, ctx, s, thresholds) for p, s in zip(posts, sims, strict=True)]
 
 
 def score_posts_heuristic(

@@ -1,0 +1,28 @@
+# ML-15: Ollama ноута → сервер через обратный SSH-туннель (systemd --user на ноуте).
+# Ставит `make llm-tunnel-install`: копирует юнит в ~/.config/systemd/user/, пишет переменные в
+# ~/.config/mp-llm-tunnel.env, включает автозапуск (и linger — поднимается без входа в систему).
+#
+# На сервере порт слушает только адрес docker-моста (TUNNEL_BIND, 172.17.0.1) — из контейнера
+# ml_service это host.docker.internal:TUNNEL_PORT; наружу ничего не открыто, шифрует SSH.
+# Сеть пропала → ServerAlive 10 с × 3 = за 30 с ssh понимает, что связи нет, autossh
+# переподключается; сервер со своей стороны освобождает порт за те же ~30 с (ClientAlive, роль tunnel).
+[Unit]
+Description=MP: обратный SSH-туннель Ollama -> сервер (ML-15)
+Documentation=file://%h/Projects/MP/services/ml_service/README.md
+
+[Service]
+EnvironmentFile=%h/.config/mp-llm-tunnel.env
+# первая попытка не удалась — всё равно переподключаться (ноут проснулся без сети)
+Environment=AUTOSSH_GATETIME=0
+ExecStart=/usr/bin/autossh -M 0 -N \
+  -i ${TUNNEL_KEY} -p ${TUNNEL_SSH_PORT} \
+  -o IdentitiesOnly=yes -o BatchMode=yes -o StrictHostKeyChecking=accept-new \
+  -o ServerAliveInterval=10 -o ServerAliveCountMax=3 -o ExitOnForwardFailure=yes \
+  -o ConnectTimeout=10 \
+  -R ${TUNNEL_BIND}:${TUNNEL_PORT}:127.0.0.1:${OLLAMA_PORT} \
+  ${TUNNEL_USER}@${TUNNEL_HOST}
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=default.target

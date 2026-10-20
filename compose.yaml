@@ -36,6 +36,8 @@ services:
       DATABASE_URL: postgresql+asyncpg://search:${SEARCH_DB_PASSWORD:-search_local}@search_db:5432/search
       COLLECTOR_GRPC_TARGET: collector_service:50054
       ML_GRPC_TARGET: ml_service:50055
+      # false — не показывать «ML работал в упрощённом режиме» (эвристики), ML-15
+      ML_SHOW_DEGRADED_WARNING: ${ML_SHOW_DEGRADED_WARNING:-true}
     ports:
       - "127.0.0.1:50053:50053"
     depends_on:
@@ -102,6 +104,7 @@ services:
       dockerfile: services/ml_service/Dockerfile
     restart: unless-stopped
     environment:
+      # цепочка по порядку: ollama,yandex — ноут, потом Яндекс, потом эвристики (ML-15)
       LLM_PROVIDER: ${LLM_PROVIDER:-stub}
       EMBED_PROVIDER: ${EMBED_PROVIDER:-} # пусто — как LLM_PROVIDER
       YC_FOLDER_ID: ${YC_FOLDER_ID:-}
@@ -109,12 +112,19 @@ services:
       # Yandex AI Studio (LLM_PROVIDER=yandex / EMBED_PROVIDER=yandex), пусто — значения по умолчанию
       YC_LLM_MODEL: ${YC_LLM_MODEL:-yandexgpt-lite/latest}
       YC_JUDGE_MODEL: ${YC_JUDGE_MODEL:-}
-      # пороги косинуса эмбеддингов (по умолчанию — bge-m3); для Яндекса подобрать по eval
+      # пороги косинуса эмбеддингов — у каждого провайдера свои: SIM_* — bge-m3 (Ollama),
+      # SIM_*_YANDEX — Яндекс (до калибровки ML-11 те же, подобрать по eval)
       SIM_LOW: ${SIM_LOW:-0.38}
       SIM_HIGH: ${SIM_HIGH:-0.68}
       SIM_RETELL: ${SIM_RETELL:-0.86}
+      SIM_LOW_YANDEX: ${SIM_LOW_YANDEX:-0.38}
+      SIM_HIGH_YANDEX: ${SIM_HIGH_YANDEX:-0.68}
+      SIM_RETELL_YANDEX: ${SIM_RETELL_YANDEX:-0.86}
       # Ollama в compose (профиль llm-local) или на хосте: OLLAMA_URL=http://host.docker.internal:11434
+      # на сервере — ноут через туннель: http://host.docker.internal:11435 (Ansible, ML-15)
       OLLAMA_URL: ${OLLAMA_URL:-http://ollama:11434}
+      # ноут недоступен — понять за секунды (connect) и проверить /api/version после паузы
+      OLLAMA_CONNECT_TIMEOUT_SECONDS: ${OLLAMA_CONNECT_TIMEOUT_SECONDS:-3}
       OLLAMA_LLM_MODEL: ${OLLAMA_LLM_MODEL:-qwen2.5:7b-instruct}
       OLLAMA_JUDGE_MODEL: ${OLLAMA_JUDGE_MODEL:-}
       OLLAMA_EMBED_MODEL: ${OLLAMA_EMBED_MODEL:-bge-m3}
@@ -122,6 +132,8 @@ services:
       - "host.docker.internal:host-gateway"
     ports:
       - "127.0.0.1:50055:50055"
+      # HTTP /health: какой провайдер сейчас отвечает (curl -s localhost:8085/health), только localhost
+      - "127.0.0.1:8085:8085"
 
   # локальная LLM для разработки без ключей Яндекса:
   #   docker compose --profile llm-local up -d ollama

@@ -1,0 +1,110 @@
+---
+# ML-15: принять обратный SSH-туннель Ollama с ноута.
+# 1) публичный ключ туннеля — в authorized_keys с ограничениями (только этот -R, без shell);
+# 2) sshd: GatewayPorts clientspecified + ClientAlive для пользователя деплоя (drop-in, с проверкой
+#    `sshd -t` и откатом — сломать вход на сервер организаторов нельзя);
+# 3) ufw (если включён): из docker-подсетей к {{ tunnel_bind }}:{{ tunnel_port }}, наружу — нет.
+
+- name: Read tunnel public key (on the deploy machine)
+  ansible.builtin.set_fact:
+    tunnel_pubkey: "{{ lookup('ansible.builtin.file', tunnel_pubkey_file | expanduser) }}"
+
+- name: Docker bridge has the tunnel address
+  ansible.builtin.command: ip -4 -o addr show docker0
+  register: docker0
+  changed_when: false
+  failed_when: tunnel_bind not in docker0.stdout
+  # нет — у docker0 другой адрес: make llm-tunnel-server TUNNEL_BIND=<адрес docker0>
+
+# только встроенные модули (без коллекции ansible.posix)
+- name: Home of the deploy user
+  ansible.builtin.getent:
+    database: passwd
+    key: "{{ ansible_user }}"
+
+# sshd (StrictModes) молча игнорирует authorized_keys, если домашний каталог доступен на запись
+# группе или всем — частая причина «ключ не принимается» (TL-15). Снимаем только лишние права записи
+- name: Home of the deploy user is not group/world-writable
+  ansible.builtin.file:
+    path: "{{ ansible_facts.getent_passwd[ansible_user][4] }}"
+    state: directory
+    owner: "{{ ansible_user }}"
+    mode: "go-w"
+
+- name: ~/.ssh of the deploy user
+  ansible.builtin.file:
+    path: "{{ ansible_facts.getent_passwd[ansible_user][4] }}/.ssh"
+    state: directory
+    owner: "{{ ansible_user }}"
+    mode: "0700"
+
+- name: Allow the tunnel key (port forwarding to {{ tunnel_bind }}:{{ tunnel_port }} only)
+  ansible.builtin.lineinfile:
+    path: "{{ ansible_facts.getent_passwd[ansible_user][4] }}/.ssh/authorized_keys"
+    regexp: "{{ (tunnel_pubkey.split()[1]) | regex_escape }}"
+    line: >-
+      restrict,port-forwarding,permitlisten="{{ tunnel_bind }}:{{ tunnel_port }}",command="/bin/false"
+      {{ tunnel_pubkey.split()[0] }} {{ tunnel_pubkey.split()[1] }} mp-tunnel
+    create: true
+    owner: "{{ ansible_user }}"
+    mode: "0600"
+
+- name: Main sshd_config includes sshd_config.d
+  ansible.builtin.command: grep -Eq '^\s*Include\s+/etc/ssh/sshd_config\.d/\*\.conf' /etc/ssh/sshd_config
+  changed_when: false
+
+- name: Configure sshd (validate, roll back on error)
+  block:
+    - name: sshd drop-in
+      ansible.builtin.template:
+        src: mp-tunnel.conf.j2
+        dest: /etc/ssh/sshd_config.d/mp-tunnel.conf
+        mode: "0644"
+      notify: Reload sshd
+
+    - name: sshd config is valid
+      ansible.builtin.command: sshd -t
+      changed_when: false
+
+    - name: Effective settings for the deploy user
+      ansible.builtin.command: sshd -T -C user={{ ansible_user }},host=localhost,addr=127.0.0.1
+      register: sshd_user
+      changed_when: false
+      failed_when: >-
+        'gatewayports clientspecified' not in sshd_user.stdout
+        or ('clientaliveinterval ' ~ tunnel_client_alive_interval) not in sshd_user.stdout
+
+    - name: Other users are not affected
+      ansible.builtin.command: sshd -T -C user=mp-tunnel-check-nobody,host=localhost,addr=127.0.0.1
+      register: sshd_other
+      changed_when: false
+      failed_when: "'gatewayports clientspecified' in sshd_other.stdout"
+  rescue:
+    - name: Roll back sshd drop-in
+      ansible.builtin.file:
+        path: /etc/ssh/sshd_config.d/mp-tunnel.conf
+        state: absent
+
+    - name: Stop
+      ansible.builtin.fail:
+        msg: "sshd не принял настройки туннеля — drop-in удалён, sshd не перезагружался"
+
+- name: Let containers reach the tunnel through ufw (if active)
+  ansible.builtin.shell: |
+    if ufw status 2>/dev/null | grep -q "Status: active"; then
+      ufw allow from {{ tunnel_docker_subnet }} to {{ tunnel_bind }} port {{ tunnel_port }} proto tcp \
+        comment 'mp-llm-tunnel'
+    else
+      echo "ufw off"
+    fi
+  args:
+    executable: /bin/bash
+  register: ufw_tunnel
+  changed_when: "'added' in ufw_tunnel.stdout.lower() or 'updated' in ufw_tunnel.stdout.lower()"
+
+- name: Next steps
+  ansible.builtin.debug:
+    msg:
+      - "Ноут: make llm-tunnel-install && make llm-tunnel-status"
+      - "Сервер: curl -s http://{{ tunnel_bind }}:{{ tunnel_port }}/api/tags   # модели ноута"
+      - "Сервер: ss -ltnp | grep {{ tunnel_port }}   # только {{ tunnel_bind }}, не 0.0.0.0"

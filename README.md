@@ -114,12 +114,27 @@ _Скриншоты шагов — добавить после прогона ф
 
 | Что | Зачем | Состояние |
 |---|---|---|
-| Ollama: `qwen2.5:7b-instruct` + `bge-m3` (`LLM_PROVIDER=ollama`, `EMBED_PROVIDER=ollama`) | отбор по смыслу, объяснения, тональность, группы | написано и покрыто тестами; на настоящих моделях — `bash scripts/ml_check.sh` |
-| Эвристики `ml_service` (`LLM_PROVIDER=stub` или модель недоступна) | разбор запроса, оценка, группы без моделей | работает, это упрощённый режим |
+| Ollama: `qwen2.5:7b-instruct` + `bge-m3` (`LLM_PROVIDER=ollama`) | отбор по смыслу, объяснения, тональность, группы | основной режим; на ноуте команды с GPU |
+| Yandex AI Studio: YandexGPT Lite + text-search (`LLM_PROVIDER=yandex`) | то же без своей видеокарты | запасной провайдер на сервере, нужен `YC_API_KEY` |
+| Эвристики `ml_service` (`stub`, или ни одна модель не отвечает) | разбор запроса, оценка, группы без моделей | упрощённый режим, `degraded=true` и предупреждение в поиске |
 | Yandex Search API (`YC_SEARCH_API_KEY`) | глобальный поиск по OK / MAX / сайтам | не подключён |
 
-Модели локальные: текст запроса и тексты публичных постов уходят только в Ollama на той же машине,
-наружу ML ничего не отправляет; денег не стоит, цена — время (`eval/report.md`) и память GPU.
+**Модели на сервере (ML-15).** У сервера нет GPU, поэтому модели берутся с ноута команды:
+
+```
+ноут: Ollama :11434 ──обратный SSH-туннель──▶ сервер 172.17.0.1:11435 ──▶ ml_service
+                                              LLM_PROVIDER=ollama,yandex: ноут → Яндекс → эвристики
+```
+
+- Что куда уходит: текст запроса и тексты публичных постов — на ноут команды по SSH (шифрует SSH,
+  порт наружу не открыт); если ноута нет и задан `YC_API_KEY` — в Yandex AI Studio по HTTPS.
+  Персональных данных пользователей в запросах нет.
+- Без ноута: LLM — Yandex AI Studio (пользователь разницы не видит), эмбеддинги выключаются
+  (отбор по словам + LLM-судья); нет и ключа Яндекса — эвристики с предупреждением «ML работал в
+  упрощённом режиме». Ноут вернулся — в течение ~1 минуты снова Ollama.
+- Какой провайдер отвечает сейчас: на сервере `curl -s localhost:8085/health`, в логе
+  `ml provider switched: …`. Настройка: `make llm-tunnel-server`, `make llm-tunnel-install`
+  (подробно — `services/ml_service/README.md`, раздел «LLM на ноуте, приложение на сервере»).
 
 ## Доступы для экспертов
 
@@ -310,8 +325,9 @@ XLSX, где строк со ссылками = `counts.total` → 404) и пе�
 | `COLLECTOR_FAKE` | collector | `true` — тестовые посты `[FAKE]`; `false` — площадки | при `false`: VK без ключа → 503 `PLATFORM_UNAVAILABLE` «ВКонтакте: не настроен доступ (VK_SERVICE_TOKEN)»; OK, MAX, сайты → 501 `NOT_IMPLEMENTED` (B1-04…B1-08); поиск «везде» завершается `failed` с причиной по каждой цели |
 | `VK_SERVICE_TOKEN` | collector | сервисный ключ VK ID | ключа у команды пока нет (TL-04); с настоящим VK код не запускали |
 | `YC_FOLDER_ID`, `YC_SEARCH_API_KEY` | collector | Yandex Search API — поиск «везде» по OK / MAX (B1-06) | не подключено |
-| `LLM_PROVIDER`, `EMBED_PROVIDER` | ml | `stub` — эвристики, `degraded=true`; `ollama` — локальные модели | `ollama` написан; нет Ollama / модели — сервис стартует на эвристиках, причина в логе; `yandex` не реализован (тоже эвристики) |
-| `YC_FOLDER_ID`, `YC_API_KEY` | ml | YandexGPT и эмбеддинги Яндекса | понадобятся после ML-03 |
+| `LLM_PROVIDER`, `EMBED_PROVIDER` | ml | `stub` — эвристики, `degraded=true`; `ollama` — локальные модели; `yandex` — Yandex AI Studio; цепочка `ollama,yandex` — по порядку (`EMBED_PROVIDER` пусто — как LLM) | локально `ollama`; на сервере `ollama,yandex` (ноут через туннель), эмбеддинги `ollama`; нет модели — сервис стартует на эвристиках, причина в логе |
+| `YC_FOLDER_ID`, `YC_API_KEY` | ml | YandexGPT и эмбеддинги Яндекса | запасной провайдер на сервере |
+| `ML_SHOW_DEGRADED_WARNING` | search | `true` — предупреждать, что ML работал на эвристиках; `false` — не показывать | `true` (на демо не выключать) |
 | `COLLECTOR_MODE`, `ML_MODE` | search | `grpc` (по умолчанию) — настоящие соседи; `stub` — офлайн-заглушки | `stub` добавляет поиску предупреждение «имитация» |
 
 Локальные модели: `ollama serve` на хосте (или `docker compose --profile llm-local up -d ollama`),

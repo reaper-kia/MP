@@ -22,6 +22,7 @@ from typing import Any
 
 import httpx
 
+from ml_service.core.similarity import BGE_M3, SimilarityThresholds
 from ml_service.errors import MlUnavailableError
 from ml_service.providers.base import CircuitBreaker, Kind
 from ml_service.providers.embeddings import normalize
@@ -149,8 +150,11 @@ class YandexEmbedder:
         query_model: str,
         concurrency: int,
         cooldown: float,
+        thresholds: SimilarityThresholds = BGE_M3,
     ) -> None:
         folder = client.folder_id
+        # пороги косинуса этой модели: SIM_*_YANDEX (до калибровки ML-11 — как у bge-m3)
+        self.thresholds = thresholds
         self._uri: dict[Kind, str] = {
             "doc": doc_model if "://" in doc_model else f"emb://{folder}/{doc_model}",
             "query": query_model if "://" in query_model else f"emb://{folder}/{query_model}",

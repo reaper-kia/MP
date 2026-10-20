@@ -1,20 +1,48 @@
 from functools import lru_cache
-from typing import Literal
+from typing import Literal, cast
 
+from pydantic import ValidationInfo, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
-Provider = Literal["stub", "ollama", "yandex"]
+Provider = Literal["ollama", "yandex"]
+PROVIDERS: tuple[str, ...] = ("stub", "ollama", "yandex")
+
+
+def parse_chain(value: str, variable: str) -> list[Provider]:
+    """«ollama,yandex» → ["ollama", "yandex"]. stub — конец цепочки (он и так всегда последний
+    неявно), поэтому «stub» → []. Неизвестное имя — ValueError: сервис не стартует с опечаткой.
+    """
+    chain: list[Provider] = []
+    names = [n.strip().lower() for n in value.split(",") if n.strip()]
+    for i, name in enumerate(names):
+        if name not in PROVIDERS:
+            raise ValueError(
+                f"{variable}: неизвестный провайдер «{name}», допустимо: {', '.join(PROVIDERS)} "
+                "(несколько — через запятую по порядку, например ollama,yandex)"
+            )
+        if name == "stub":
+            if i != len(names) - 1:
+                raise ValueError(f"{variable}: stub — только последним (это эвристики)")
+            break
+        if name not in chain:
+            chain.append(cast(Provider, name))
+    return chain
 
 
 class Settings(BaseSettings):
     grpc_address: str = "[::]:50055"
+    # HTTP /health для нас (какой провайдер сейчас активен); пусто — не поднимать
+    health_address: str = "0.0.0.0:8085"
 
+    # Провайдеры по порядку, через запятую: «ollama,yandex» — сначала Ollama (ноут через туннель),
+    # не отвечает — Yandex AI Studio, нет и его — эвристики (stub, всегда последний неявно).
+    # Один провайдер (stub / ollama / yandex) — как раньше.
     # stub — без моделей: эвристики, все ответы с degraded=true.
-    # ollama — локальные модели (ноут с GPU). yandex — Yandex AI Studio (сервер без GPU).
     # Без ключа / модели сервис всё равно стартует: причина в логе, ответы эвристикой.
     # Вариант «без LLM»: LLM_PROVIDER=stub, EMBED_PROVIDER=yandex — отбор по эмбеддингам и словам.
-    llm_provider: Provider = "stub"
-    embed_provider: Provider = "stub"
+    llm_provider: str = "stub"
+    # пусто — та же цепочка, что у LLM_PROVIDER
+    embed_provider: str = ""
 
     # Yandex AI Studio (Foundation Models API): API-ключ сервисного аккаунта с ролью
     # ai.languageModels.user на каталоге YC_FOLDER_ID
@@ -29,11 +57,17 @@ class Settings(BaseSettings):
     yc_embed_concurrency: int = 8  # textEmbedding — один текст на запрос
     yc_retries: int = 2  # повторы на 429 / 5xx
 
-    # Пороги косинуса эмбеддингов (core/similarity.py): по умолчанию — bge-m3; для другой модели
-    # подобрать по eval (`eval/run_eval.py --details` печатает косинусы)
+    # Пороги косинуса эмбеддингов (core/similarity.py) — у каждого провайдера свои, векторы
+    # разных моделей несравнимы. SIM_* — Ollama (bge-m3, подобраны на eval), SIM_*_YANDEX — Яндекс
+    # (до калибровки ML-11 те же; подобрать: `eval/run_eval.py --details` печатает косинусы)
     sim_low: float = 0.38
     sim_high: float = 0.68
     sim_retell: float = 0.86
+    sim_same_news: float = 0.85
+    sim_low_yandex: float = 0.38
+    sim_high_yandex: float = 0.68
+    sim_retell_yandex: float = 0.86
+    sim_same_news_yandex: float = 0.85
 
     # Ollama (docker compose --profile llm-local up -d ollama)
     ollama_url: str = "http://localhost:11434"
@@ -43,6 +77,12 @@ class Settings(BaseSettings):
     ollama_embed_model: str = "bge-m3"
     ollama_keep_alive: str = "30m"  # держать модель в памяти между запросами
     ollama_num_ctx: int = 8192
+    # Ollama на ноуте через SSH-туннель: ноут уснул / без сети — понять это за секунды, а не за
+    # таймаут запроса. Подключение — не дольше connect-таймаута; если ответа от Ollama не было
+    # дольше OLLAMA_PROBE_AFTER_SECONDS, перед запросом быстрый GET /api/version (туннель может
+    # принять соединение и молчать). 0 — без проверки.
+    ollama_connect_timeout_seconds: float = 3.0
+    ollama_probe_after_seconds: float = 20.0
 
     # таймауты одного запроса к модели
     llm_timeout_seconds: float = 40.0
@@ -67,6 +107,22 @@ class Settings(BaseSettings):
     max_group_posts: int = 500
 
     model_config = SettingsConfigDict(env_file=".env", env_file_encoding="utf-8", extra="ignore")
+
+    @field_validator("llm_provider", "embed_provider")
+    @classmethod
+    def _check_chain(cls, value: str, info: ValidationInfo) -> str:
+        parse_chain(value, (info.field_name or "").upper())
+        return value.strip().lower()
+
+    @property
+    def llm_chain(self) -> list[Provider]:
+        return parse_chain(self.llm_provider, "LLM_PROVIDER")
+
+    @property
+    def embed_chain(self) -> list[Provider]:
+        if not self.embed_provider.strip():
+            return self.llm_chain
+        return parse_chain(self.embed_provider, "EMBED_PROVIDER")
 
 
 @lru_cache

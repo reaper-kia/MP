@@ -11,6 +11,7 @@ from ml_service.config import get_settings
 from ml_service.dependencies import build_engine, warm_up
 from ml_service.engine import MlEngine
 from ml_service.transport.grpc.servicer import MlServicer
+from ml_service.transport.http_health import start_health_server
 
 logger = logging.getLogger(__name__)
 
@@ -46,6 +47,7 @@ async def serve() -> None:
     server, _ = await create_server(engine, settings.grpc_address)
     await server.start()
     logger.info("ML gRPC server listening on %s (%s)", settings.grpc_address, engine.describe)
+    health = await start_health_server(settings.health_address, engine.status)
     # прогрев в фоне: сервер уже отвечает (эвристиками), пока модель грузится в память
     warm = asyncio.create_task(warm_up(engine))
 
@@ -53,5 +55,7 @@ async def serve() -> None:
         await server.wait_for_termination()
     finally:
         warm.cancel()
+        if health is not None:
+            health.close()
         await server.stop(grace=5)
         await engine.aclose()

@@ -4,7 +4,6 @@ import asyncio
 import logging
 
 from ml_service.config import Settings
-from ml_service.core import similarity
 from ml_service.engine import EngineLimits, MlEngine
 from ml_service.errors import MlUnavailableError
 from ml_service.providers.embeddings import build_embedder
@@ -14,7 +13,6 @@ logger = logging.getLogger(__name__)
 
 
 def build_engine(settings: Settings) -> MlEngine:
-    similarity.configure(settings.sim_low, settings.sim_high, settings.sim_retell)
     llm = build_llm(settings)
     return MlEngine(
         llm=llm,

@@ -29,6 +29,10 @@ class Settings(BaseSettings):
     ml_analyze_timeout: float = 20.0
     ml_score_timeout: float = 60.0
     ml_group_timeout: float = 60.0
+    # ML без моделей (эвристики) → предупреждение «ML работал в упрощённом режиме» у поиска.
+    # false — не показываем (решение TL, ML-15). Критерии требуют отделять работающее от
+    # имитации: на демо держать true или проговорить на защите
+    ml_show_degraded_warning: bool = True
 
     # пайплайн (B2-04)
     collect_concurrency: int = 5
