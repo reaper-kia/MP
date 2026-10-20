@@ -1,9 +1,10 @@
 """Ключ кэша готовой подборки (B2-20).
 
-Одинаковые и похожие запросы → один ключ. Запрос сводится к набору основ слов: регистр, «ё»,
-пунктуация, «#» и слитные хэштеги (#КрасноярскийКрай), служебные слова, порядок слов и окончания
-не важны — «ДТП в Красноярске», «красноярск, дтп» и «#ДТП #Красноярск» дают один ключ. Период,
-режим, площадки и источники — как были: другой период, источник или площадка — другой ключ,
+Одинаковые и похожие запросы по тем же источникам → один ключ. Запрос сводится к набору основ
+слов: регистр, «ё», пунктуация, «#» и слитные хэштеги (#КрасноярскийКрай), служебные слова,
+порядок слов и окончания не важны — «ДТП в Красноярске», «красноярск, дтп» и «#ДТП #Красноярск»
+дают один ключ. Вместо режима и площадок — где поиск реально ищет (coverage): «Мои источники» и
+«Везде» по тем же источникам совпадают. Другой период, источник или площадка — другой ключ,
 подборки не смешиваются. В ключе — только хэш: текст запроса в Redis и в лог не попадает.
 """
 
@@ -12,17 +13,17 @@ from __future__ import annotations
 import hashlib
 import json
 import re
-import uuid
 from collections.abc import Iterable
 from datetime import date
 
-from search_service.domain.entities import Search
-from search_service.domain.enums import SearchMode
+from search_service.domain.entities import Search, SearchTarget
+from search_service.domain.enums import Platform, TargetKind
 
 # v2 — нормализация по основам слов; старые ключи v1 просто перестают попадать
-KEY_PREFIX = "mp:search:v2:"
+# v3 — ключ по тому, где ищем (источники и поиск по площадке), а не по режиму; старые не попадают
+KEY_PREFIX = "mp:search:v3:"
 # «такой же поиск уже идёт»: ключ параметров → id поиска, который сейчас собирает подборку
-RUNNING_PREFIX = "mp:search:running:v2:"
+RUNNING_PREFIX = "mp:search:running:v3:"
 
 # служебные слова: на смысл поиска не влияют («не» и «без» меняют смысл — их оставляем)
 STOP_WORDS = frozenset(
@@ -66,25 +67,37 @@ def normalize_query(query: str) -> str:
     return " ".join(sorted({_stem(w) for w in words}))
 
 
+def coverage(targets: Iterable[SearchTarget]) -> list[str]:
+    """Где поиск реально ищет: источники каталога и поиск по всей площадке.
+
+    Режим («Мои источники» / «Везде») в ключ не входит: «Везде» по тем же источникам — та же
+    работа. Поиск по новостным сайтам читает RSS тех же сайтов из перечня, что и источники-сайты
+    каталога, поэтому при источниках-сайтах в целях он ничего не добавляет и в ключ не идёт."""
+    items = list(targets)
+    has_news_sources = any(
+        t.kind == TargetKind.SOURCE and t.platform == Platform.NEWS.value for t in items
+    )
+    out: set[str] = set()
+    for t in items:
+        if t.kind == TargetKind.SOURCE:
+            out.add(f"source:{t.source_id}")
+        elif not (t.platform == Platform.NEWS.value and has_news_sources):
+            out.add(f"platform:{t.platform}")
+    return sorted(out)
+
+
 def search_cache_key(
     *,
     query: str,
     period_from: date,
     period_to: date,
-    mode: SearchMode,
-    platforms: Iterable[str],
-    source_ids: Iterable[uuid.UUID],
+    targets: Iterable[SearchTarget],
 ) -> str:
-    # в SELECTED площадки берутся из источников (контракт), поэтому в ключе — только источники;
-    # в GLOBAL источников нет, только площадки
-    selected = mode is SearchMode.SELECTED
     params = {
         "query": normalize_query(query),
         "period_from": period_from.isoformat(),
         "period_to": period_to.isoformat(),
-        "mode": mode.value,
-        "platforms": [] if selected else sorted(set(platforms)),
-        "source_ids": sorted({str(s) for s in source_ids}) if selected else [],
+        "where": coverage(targets),
     }
     raw = json.dumps(params, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
     return KEY_PREFIX + hashlib.sha256(raw.encode()).hexdigest()
@@ -100,7 +113,5 @@ def key_of(search: Search) -> str:
         query=search.query,
         period_from=search.period.from_date,
         period_to=search.period.to_date,
-        mode=SearchMode(search.mode),
-        platforms=search.platforms,
-        source_ids=search.source_ids,
+        targets=search.targets,
     )

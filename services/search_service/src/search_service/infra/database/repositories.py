@@ -478,7 +478,14 @@ class SearchRepo:
             return False
         mine = (
             await self.s.execute(
-                select(SearchModel.status, SearchModel.owner_id).where(SearchModel.id == search_id)
+                select(
+                    SearchModel.status,
+                    SearchModel.owner_id,
+                    SearchModel.query,
+                    SearchModel.mode,
+                    SearchModel.platforms,
+                    SearchModel.source_ids,
+                ).where(SearchModel.id == search_id)
             )
         ).one_or_none()
         if mine is None or mine.status != SearchStatus.QUEUED:
@@ -490,7 +497,33 @@ class SearchRepo:
             delete(SearchTargetModel).where(SearchTargetModel.search_id == search_id)
         )
         await self.s.execute(delete(SearchModel).where(SearchModel.id == search_id))
-        return await self.clone_finished(source_id, search_id, created_at, mine.owner_id or "")
+        if not await self.clone_finished(source_id, search_id, created_at, mine.owner_id or ""):
+            return False
+        # параметры — как просил пользователь этой вкладки («Везде», его формулировка)
+        await self.set_params(
+            search_id,
+            query=mine.query,
+            mode=mine.mode,
+            platforms=list(mine.platforms),
+            source_ids=list(mine.source_ids),
+        )
+        return True
+
+    async def set_params(
+        self,
+        search_id: uuid.UUID,
+        *,
+        query: str,
+        mode: str,
+        platforms: builtins.list[str],
+        source_ids: builtins.list[uuid.UUID],
+    ) -> None:
+        """Копия из кэша показывает параметры своего запроса, а не исходного поиска."""
+        await self.s.execute(
+            update(SearchModel)
+            .where(SearchModel.id == search_id)
+            .values(query=query, mode=mode, platforms=platforms, source_ids=source_ids)
+        )
 
     async def save(self, e: Search) -> None:
         await self.s.execute(

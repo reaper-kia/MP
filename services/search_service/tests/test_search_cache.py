@@ -9,7 +9,7 @@ from datetime import UTC, date, datetime, timedelta
 import grpc
 import pytest
 import structlog
-from common.v1 import common_pb2
+from common.v1 import common_pb2, platform_pb2
 from search.v1 import search_service_pb2 as pb
 from search.v1 import search_service_pb2_grpc as pb_grpc
 
@@ -17,7 +17,8 @@ from search_service.applications.handlers.pipeline import Pipeline
 from search_service.applications.ports.collector_client import RawPost, SourceInfo
 from search_service.applications.search_cache import search_cache_key
 from search_service.dependencies import build_mediator
-from search_service.domain.enums import SearchMode, SearchStatus
+from search_service.domain.entities import SearchTarget
+from search_service.domain.enums import SearchStatus, TargetKind
 from search_service.infra.runner import SearchRunner
 from search_service.infra.search_cache import DisabledSearchCache, RedisSearchCache
 from search_service.transport.grpc.server import create_server
@@ -38,14 +39,23 @@ FINAL = {
 # ---------- ключ ----------
 
 
+A_ID, B_ID = uuid.uuid4(), uuid.uuid4()
+
+
+def src(sid: uuid.UUID, platform: str = "vk") -> SearchTarget:
+    return SearchTarget(kind=TargetKind.SOURCE, platform=platform, name="s", source_id=sid)
+
+
+def psearch(platform: str) -> SearchTarget:
+    return SearchTarget(kind=TargetKind.PLATFORM_SEARCH, platform=platform, name=platform)
+
+
 def key(query: str = "ДТП Красноярск", **kw: object) -> str:
     params: dict[str, object] = dict(
         query=query,
         period_from=date(2026, 10, 1),
         period_to=date(2026, 10, 20),
-        mode=SearchMode.GLOBAL,
-        platforms=["vk", "ok"],
-        source_ids=[],
+        targets=[src(A_ID), src(B_ID, "ok")],
     )
     params.update(kw)
     return search_cache_key(**params)  # type: ignore[arg-type]
@@ -53,8 +63,24 @@ def key(query: str = "ДТП Красноярск", **kw: object) -> str:
 
 def test_key_normalizes_query_and_order() -> None:
     assert key("  ДТП   Красноярск ") == key("дтп красноярск")
-    assert key(platforms=["ok", "vk", "vk"]) == key(platforms=["vk", "ok"])
-    assert key().startswith("mp:search:v2:") and "дтп" not in key().lower()
+    assert key(targets=[src(B_ID, "ok"), src(A_ID), src(A_ID)]) == key()
+    assert key().startswith("mp:search:v3:") and "дтп" not in key().lower()
+
+
+def test_key_differs_by_period_and_where_we_search() -> None:
+    assert key() != key(period_to=date(2026, 10, 19))
+    assert key() != key(period_from=date(2026, 9, 30))
+    assert key() != key(targets=[src(A_ID)])
+    assert key() != key(targets=[src(A_ID), src(B_ID, "ok"), psearch("vk")])
+
+
+def test_key_ignores_mode_and_redundant_news_search() -> None:
+    """«Мои источники» и «Везде» по тем же источникам — один ключ. Поиск по новостным сайтам
+    читает RSS тех же сайтов, что и источники-сайты, — при них ключ не меняет."""
+    news = [src(A_ID, "news"), src(B_ID, "ok")]
+    assert key(targets=news + [psearch("news")]) == key(targets=news)
+    # без источников-сайтов поиск по сайтам — другая работа
+    assert key(targets=[src(B_ID, "ok"), psearch("news")]) != key(targets=[src(B_ID, "ok")])
 
 
 def test_key_same_for_similar_wording() -> None:
@@ -75,17 +101,6 @@ def test_key_differs_when_meaning_differs() -> None:
     assert key("ДТП в Красноярске") != key("ДТП не в Красноярске")
     assert key("пожар") != key("пожар без жертв")
     assert key("ремонт моста") != key("ремонт дороги")
-
-
-def test_key_differs_by_period_platform_source_and_mode() -> None:
-    a, b = uuid.uuid4(), uuid.uuid4()
-    assert key() != key(period_to=date(2026, 10, 19))
-    assert key() != key(period_from=date(2026, 9, 30))
-    assert key() != key(platforms=["vk"])
-    selected = key(mode=SearchMode.SELECTED, source_ids=[a, b])
-    assert selected != key()
-    assert selected == key(mode=SearchMode.SELECTED, source_ids=[b, a], platforms=["max"])
-    assert selected != key(mode=SearchMode.SELECTED, source_ids=[a])
 
 
 # ---------- фейк Redis ----------
@@ -269,6 +284,7 @@ async def test_same_search_again_is_an_instant_copy(stand: Stand) -> None:
 
     # тот же запрос другими пробелами и регистром — сразу финальный статус, сбор не идёт
     again = await start(stub, [source_id], query="  Безопасность   дорожного движения ")
+    assert again.params.query == "  Безопасность   дорожного движения "
     assert again.id != first.id
     assert again.status == pb.SEARCH_STATUS_COMPLETED
     assert again.HasField("cache") and again.cache.from_search_id == first.id
@@ -405,7 +421,7 @@ async def test_cache_logs_hit_miss_store_without_query_text(stand: Stand) -> Non
     with structlog.testing.capture_logs() as logs:
         await wait_final(stub, (await start(stub, [source_id])).id)
         await start(stub, [source_id])
-    events = [e["event"] for e in logs if str(e.get("key", "")).startswith("mp:search:v2:")]
+    events = [e["event"] for e in logs if str(e.get("key", "")).startswith("mp:search:v3:")]
     assert events == ["cache miss", "cache store", "cache hit"]
     assert not any("дорожного" in str(e) for e in logs if e["event"].startswith("cache"))
 
@@ -493,11 +509,35 @@ async def test_stale_running_mark_is_ignored(stand: Stand) -> None:
         query="безопасность дорожного движения",
         period_from=(TODAY - timedelta(days=30)).date(),
         period_to=TODAY.date(),
-        mode=SearchMode.SELECTED,
-        platforms=[],
-        source_ids=[uuid.UUID(source_id)],
+        targets=[src(uuid.UUID(source_id))],
     )
     await RedisSearchCache(stand.redis, ttl_seconds=60).put_running(k, uuid.UUID(first.id))  # type: ignore[arg-type]
     again = await start(stub, [source_id])
     assert not any("уже идёт" in w for w in again.warnings)
     await wait_final(stub, again.id)
+
+
+async def test_everywhere_with_same_sources_joins_my_sources(stand: Stand) -> None:
+    """Две вкладки: «Мои источники» и «Везде» по тем же источникам — один сбор."""
+    stub = stand.stub
+    source_id = await add_source(stub)
+    stand.collector.no_global = {"vk"}  # VK без поиска по всей площадке: «везде» = каталог
+    stand.collector.delay = 0.3
+    mine = await start(stub, [source_id])
+    everywhere = await stub.StartSearch(
+        pb.StartSearchRequest(
+            context=CTX,
+            query="безопасность дорожного движения",
+            period_from=(TODAY - timedelta(days=30)).date().isoformat(),
+            period_to=TODAY.date().isoformat(),
+            mode=pb.SEARCH_MODE_GLOBAL,
+            platforms=[platform_pb2.PLATFORM_VK],
+        )
+    )
+    assert any("уже идёт" in w for w in everywhere.search.warnings)
+    await wait_final(stub, mine.id)
+    done = await wait_final(stub, everywhere.search.id)
+    assert done.cache.from_search_id == mine.id
+    # вкладка «Везде» показывает свои параметры, а не параметры оригинала
+    assert done.params.mode == pb.SEARCH_MODE_GLOBAL and done.params.source_ids == []
+    assert [c for c in stand.collector.calls if c.startswith("collect:")] == ["collect:vk:-2034"]

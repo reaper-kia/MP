@@ -61,7 +61,9 @@ class SearchHandler:
         self.collector = collector
         self.cache = cache
 
-    async def _from_cache(self, key: str, owner: str) -> Search | None:
+    async def _from_cache(
+        self, key: str, req: StartSearchRequest, platforms: list[str]
+    ) -> Search | None:
         """Готовая подборка с теми же параметрами (B2-20) → её копия: новый поиск сразу в
         финальном статусе. Копия, а не тот же search_id: исключения одного пользователя не должны
         появляться у другого. Исходного поиска уже нет (или он перезапущен) — промах."""
@@ -74,7 +76,15 @@ class SearchHandler:
         new_id = uuid.uuid4()
         search: Search | None = None
         async with self.uow:
-            if await self.uow.searches.clone_finished(source_id, new_id, utcnow(), owner):
+            if await self.uow.searches.clone_finished(source_id, new_id, utcnow(), req.owner):
+                # параметры — как в этом запросе (режим и формулировка могли отличаться)
+                await self.uow.searches.set_params(
+                    new_id,
+                    query=req.query,
+                    mode=req.mode.value,
+                    platforms=platforms,
+                    source_ids=list(dict.fromkeys(req.source_ids)),
+                )
                 await self.uow.commit()
                 search = await self.uow.searches.get_with_targets(new_id)
         if search is None:
@@ -132,29 +142,53 @@ class SearchHandler:
         if req.mode is SearchMode.GLOBAL and not req.platforms:
             raise SearchInvalidParams("platforms", "выберите хотя бы одну площадку")
 
-        platforms = list(dict.fromkeys(req.platforms))
+        # где ищем — до кэша: ключ строится по целям, а не по режиму (см. search_cache.coverage)
+        platforms, targets = await self._plan(req)
+
         use_cache = self.cache is not None and self.cache.enabled
-        key = search_cache_key(
-            query=req.query,
-            period_from=pf,
-            period_to=pt,
-            mode=req.mode,
-            platforms=platforms,
-            source_ids=req.source_ids,
-        )
+        key = search_cache_key(query=req.query, period_from=pf, period_to=pt, targets=targets)
         leader_id: uuid.UUID | None = None
         if use_cache and not req.fresh:
-            cached = await self._from_cache(key, req.owner)
+            cached = await self._from_cache(key, req, platforms)
             if cached is not None:
                 return cached
             leader_id = await self._running_twin(key)
 
+        search = Search(
+            query=req.query,
+            period=period,
+            mode=req.mode,
+            platforms=platforms,
+            source_ids=list(dict.fromkeys(req.source_ids)),
+            targets=targets,
+            owner=req.owner,
+        )
+        if leader_id is not None:
+            search.add_warning(WAITING_FOR_TWIN)
+        async with self.uow:
+            await self.uow.searches.add(search)
+            for t in targets:
+                t.search_id = search.id
+                await self.uow.targets.add(t)
+            await self.uow.commit()
+
+        # фоновый запуск: повтор ждёт оригинал, иначе — свой пайплайн, и повторы будут ждать его
+        if leader_id is not None:
+            await self.runner.follow(search.id, leader_id)
+        else:
+            if use_cache and self.cache is not None:
+                await self.cache.put_running(key, search.id)
+            await self.runner.launch(search.id)
+        return search
+
+    async def _plan(self, req: StartSearchRequest) -> tuple[list[str], list[SearchTarget]]:
+        """Площадки и цели поиска (снимок name/url источников) — без записи в базу."""
+        platforms = list(dict.fromkeys(req.platforms))
         searchable: set[str] = set()
         if req.mode is SearchMode.GLOBAL:
             searchable = await self._global_platforms(platforms)
+        targets: list[SearchTarget] = []
         async with self.uow:
-            # снимок источников
-            targets: list[SearchTarget] = []
             if req.mode is SearchMode.SELECTED:
                 # по контракту в SELECTED площадки берутся из источников, platforms игнорируется
                 platforms = []
@@ -205,32 +239,7 @@ class SearchHandler:
                         )
                 if not targets:
                     raise SearchInvalidParams("platforms", NO_GLOBAL_TARGETS)
-
-            search = Search(
-                query=req.query,
-                period=period,
-                mode=req.mode,
-                platforms=platforms,
-                source_ids=list(dict.fromkeys(req.source_ids)),
-                targets=targets,
-                owner=req.owner,
-            )
-            if leader_id is not None:
-                search.add_warning(WAITING_FOR_TWIN)
-            await self.uow.searches.add(search)
-            for t in targets:
-                t.search_id = search.id
-                await self.uow.targets.add(t)
-            await self.uow.commit()
-
-        # фоновый запуск: повтор ждёт оригинал, иначе — свой пайплайн, и повторы будут ждать его
-        if leader_id is not None:
-            await self.runner.follow(search.id, leader_id)
-        else:
-            if use_cache and self.cache is not None:
-                await self.cache.put_running(key, search.id)
-            await self.runner.launch(search.id)
-        return search
+        return platforms, targets
 
     async def get(self, search_id: uuid.UUID) -> Search:
         async with self.uow:

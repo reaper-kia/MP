@@ -102,7 +102,20 @@ class InMemorySearches:
         for t in await self._targets.list_by_search(search_id):
             del self._targets.store[t.id]
         del self.store[search_id]
-        return await self.clone_finished(source_id, search_id, created_at, mine.owner)
+        if not await self.clone_finished(source_id, search_id, created_at, mine.owner):
+            return False
+        await self.set_params(
+            search_id,
+            query=mine.query,
+            mode=mine.mode,
+            platforms=list(mine.platforms),
+            source_ids=list(mine.source_ids),
+        )
+        return True
+
+    async def set_params(self, search_id, *, query, mode, platforms, source_ids):
+        s = self.store[search_id]
+        s.query, s.mode, s.platforms, s.source_ids = query, mode, platforms, source_ids
 
     async def get_by_id(self, i):
         return self.store.get(i)

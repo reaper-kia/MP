@@ -41,6 +41,15 @@ class SearchRepository(Protocol):
     async def replace_with_copy(
         self, source_id: uuid.UUID, search_id: uuid.UUID, created_at: datetime
     ) -> bool: ...
+    async def set_params(
+        self,
+        search_id: uuid.UUID,
+        *,
+        query: str,
+        mode: str,
+        platforms: builtins.list[str],
+        source_ids: builtins.list[uuid.UUID],
+    ) -> None: ...
 
 
 class TargetRepository(Protocol):
