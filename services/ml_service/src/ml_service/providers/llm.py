@@ -1,4 +1,7 @@
-"""LLM: stub (нет модели) и Ollama (/api/chat, format=json). Сборка по настройкам — build_llm."""
+"""LLM: stub (нет модели), Ollama (/api/chat, format=json), Yandex (providers/yandex.py).
+
+Сборка по настройкам — build_llm.
+"""
 
 import logging
 from typing import Any
@@ -8,6 +11,7 @@ import httpx
 from ml_service.config import Settings
 from ml_service.errors import MlUnavailableError
 from ml_service.providers.base import LLM, CircuitBreaker
+from ml_service.providers.yandex import YandexClient, YandexLLM
 
 logger = logging.getLogger(__name__)
 
@@ -100,14 +104,32 @@ def build_llm(settings: Settings) -> LLM:
             cooldown=settings.breaker_cooldown_seconds,
         )
     if settings.llm_provider == "yandex":
-        reason = "LLM_PROVIDER=yandex не реализован — команда работает на локальной модели (ollama)"
-        logger.warning("%s; отвечаем эвристикой (degraded=true)", reason)
-        return StubLLM(reason)
+        return _yandex_llm(settings, settings.yc_llm_model)
     return StubLLM()
 
 
+def _yandex_llm(settings: Settings, model: str) -> LLM:
+    if not (settings.yc_api_key and settings.yc_folder_id):
+        reason = "LLM_PROVIDER=yandex, но не заданы YC_API_KEY / YC_FOLDER_ID"
+        logger.warning("%s; отвечаем эвристикой (degraded=true)", reason)
+        return StubLLM(reason)
+    client = YandexClient(
+        settings.yc_api_url,
+        settings.yc_api_key,
+        settings.yc_folder_id,
+        timeout=settings.llm_timeout_seconds,
+        retries=settings.yc_retries,
+    )
+    return YandexLLM(client, model, cooldown=settings.breaker_cooldown_seconds)
+
+
 def build_judge_llm(settings: Settings, main: LLM) -> LLM:
-    """Отдельная (обычно меньшая) модель для ScorePosts, если задана OLLAMA_JUDGE_MODEL."""
+    """Отдельная модель для ScorePosts, если задана OLLAMA_JUDGE_MODEL / YC_JUDGE_MODEL."""
+    if settings.llm_provider == "yandex":
+        judge = settings.yc_judge_model.strip()
+        if not judge or judge == settings.yc_llm_model or not main.available:
+            return main
+        return _yandex_llm(settings, judge)
     model = settings.ollama_judge_model.strip()
     if settings.llm_provider != "ollama" or not model or model == settings.ollama_llm_model:
         return main

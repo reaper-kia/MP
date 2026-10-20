@@ -10,6 +10,7 @@ from dataclasses import dataclass
 from ml_service.core.excerpt import best_excerpt, highlight_spans
 from ml_service.core.models import Post, PostScore, QueryAnalysis, QueryType, Relevance
 from ml_service.core.region import REGION_STEMS, find_region
+from ml_service.core.similarity import THRESHOLDS
 from ml_service.core.text import stems, tokens
 
 # Классы по итоговому скору 0..1 (подобраны на eval/, см. eval/report.md)
@@ -17,9 +18,7 @@ DIRECT_AT = 0.55
 INDIRECT_AT = 0.35
 DISPUTED_AT = 0.15
 
-# Косинус bge-m3 «запрос ↔ пост»: ниже LOW — точно не о том, выше HIGH — точно о том
-SIM_LOW = 0.38
-SIM_HIGH = 0.68
+# Пороги косинуса «запрос ↔ пост» — в core/similarity.py (свои у каждой модели эмбеддингов)
 SEMANTIC_WEIGHT = 0.6
 
 # Итоговый score в ответе — внутри полосы своего класса: сортировка «класс → score» не ломается
@@ -77,7 +76,8 @@ def build_context(query: str, analysis: QueryAnalysis) -> QueryContext:
 
 
 def semantic(similarity: float) -> float:
-    return min(1.0, max(0.0, (similarity - SIM_LOW) / (SIM_HIGH - SIM_LOW)))
+    low, high = THRESHOLDS.low, THRESHOLDS.high
+    return min(1.0, max(0.0, (similarity - low) / (high - low)))
 
 
 def relevance_for(raw: float) -> Relevance:

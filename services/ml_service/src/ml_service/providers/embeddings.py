@@ -1,5 +1,7 @@
-"""Эмбеддинги: stub и Ollama (/api/embed, bge-m3). Кэш в памяти — ScorePosts и GroupPosts
-эмбеддят одни и те же тексты, второй раз это бесплатно."""
+"""Эмбеддинги: stub, Ollama (/api/embed, bge-m3) и Yandex (providers/yandex.py).
+
+Кэш в памяти — ScorePosts и GroupPosts эмбеддят одни и те же тексты, второй раз это бесплатно.
+"""
 
 import hashlib
 import logging
@@ -129,7 +131,25 @@ def build_embedder(settings: Settings) -> Embedder:
             cooldown=settings.breaker_cooldown_seconds,
         )
     if settings.embed_provider == "yandex":
-        reason = "EMBED_PROVIDER=yandex не реализован — команда работает на локальной модели"
-        logger.warning("%s; отбор без эмбеддингов", reason)
-        return StubEmbedder(reason)
+        if not (settings.yc_api_key and settings.yc_folder_id):
+            reason = "EMBED_PROVIDER=yandex, но не заданы YC_API_KEY / YC_FOLDER_ID"
+            logger.warning("%s; отбор без эмбеддингов", reason)
+            return StubEmbedder(reason)
+        # импорт здесь: yandex.py берёт normalize из этого модуля
+        from ml_service.providers.yandex import YandexClient, YandexEmbedder
+
+        client = YandexClient(
+            settings.yc_api_url,
+            settings.yc_api_key,
+            settings.yc_folder_id,
+            timeout=settings.embed_timeout_seconds,
+            retries=settings.yc_retries,
+        )
+        return YandexEmbedder(
+            client,
+            doc_model=settings.yc_embed_doc_model,
+            query_model=settings.yc_embed_query_model,
+            concurrency=settings.yc_embed_concurrency,
+            cooldown=settings.breaker_cooldown_seconds,
+        )
     return StubEmbedder()

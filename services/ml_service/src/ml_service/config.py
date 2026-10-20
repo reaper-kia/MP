@@ -10,14 +10,30 @@ class Settings(BaseSettings):
     grpc_address: str = "[::]:50055"
 
     # stub — без моделей: эвристики, все ответы с degraded=true.
-    # ollama — локальные модели (основной режим команды). yandex — не реализован: сервис стартует,
-    # пишет в лог причину и работает на эвристиках (degraded=true).
+    # ollama — локальные модели (ноут с GPU). yandex — Yandex AI Studio (сервер без GPU).
+    # Без ключа / модели сервис всё равно стартует: причина в логе, ответы эвристикой.
+    # Вариант «без LLM»: LLM_PROVIDER=stub, EMBED_PROVIDER=yandex — отбор по эмбеддингам и словам.
     llm_provider: Provider = "stub"
     embed_provider: Provider = "stub"
 
-    # Yandex AI Studio — оставлено под будущий провайдер, сейчас не используется
+    # Yandex AI Studio (Foundation Models API): API-ключ сервисного аккаунта с ролью
+    # ai.languageModels.user на каталоге YC_FOLDER_ID
     yc_folder_id: str = ""
     yc_api_key: str = ""
+    yc_api_url: str = "https://ai.api.cloud.yandex.net"
+    yc_llm_model: str = "yandexgpt-lite/latest"
+    # судья ScorePosts; пусто — та же модель (например yandexgpt/latest — точнее, дороже)
+    yc_judge_model: str = ""
+    yc_embed_doc_model: str = "text-search-doc/latest"
+    yc_embed_query_model: str = "text-search-query/latest"
+    yc_embed_concurrency: int = 8  # textEmbedding — один текст на запрос
+    yc_retries: int = 2  # повторы на 429 / 5xx
+
+    # Пороги косинуса эмбеддингов (core/similarity.py): по умолчанию — bge-m3; для другой модели
+    # подобрать по eval (`eval/run_eval.py --details` печатает косинусы)
+    sim_low: float = 0.38
+    sim_high: float = 0.68
+    sim_retell: float = 0.86
 
     # Ollama (docker compose --profile llm-local up -d ollama)
     ollama_url: str = "http://localhost:11434"

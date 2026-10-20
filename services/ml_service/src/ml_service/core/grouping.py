@@ -3,7 +3,8 @@
 Пара постов — одна новость, если:
 - почти дубли: шинглы (тройки основ) пересекаются по Жаккару ≥ 0.5 или короткий пост на ≥ 70 %
   вложен в длинный (сокращённая копия);
-- пересказ: общих основ много (доля от меньшего ≥ 0.5) или эмбеддинги близки (косинус ≥ 0.86);
+- пересказ: общих основ много (доля от меньшего ≥ 0.5) или эмбеддинги близки
+  (косинус ≥ порога retell из core/similarity.py);
 - и при этом факты не спорят: место, дата, числа (иначе это похожая, но другая новость).
 «Пересказ по словам» требует ещё и не меньше MIN_SHARED_WORDS общих основ: короткий пост
 («Дорожная обстановка в Солнечном») делит половину своих слов с любой новостью про дороги.
@@ -20,12 +21,12 @@ from collections.abc import Sequence
 
 from ml_service.core.models import GroupInput, PostGroup
 from ml_service.core.same_news import NewsFacts, compare
+from ml_service.core.similarity import THRESHOLDS
 from ml_service.core.text import jaccard, overlap
 
 SHINGLE_JACCARD = 0.5
 CONTAINMENT = 0.7
 WORD_OVERLAP = 0.5
-SIM_RETELL = 0.86
 SIM_MIN_OVERLAP = 0.25  # даже при близких эмбеддингах нужно немного общих слов
 MIN_SHARED_WORDS = 6  # пересказ «по словам» — не меньше стольких общих основ
 CHECK_MEMBERS = 12  # с каким числом постов группы сверяем кандидата
@@ -45,7 +46,7 @@ def same_story(a: NewsFacts, b: NewsFacts, similarity: float | None) -> bool:
     words = overlap(a.words, b.words)
     shared = len(a.words & b.words)
     retelling = (words >= WORD_OVERLAP and shared >= MIN_SHARED_WORDS) or (
-        similarity is not None and similarity >= SIM_RETELL and words >= SIM_MIN_OVERLAP
+        similarity is not None and similarity >= THRESHOLDS.retell and words >= SIM_MIN_OVERLAP
     )
     if not (near_duplicate or retelling):
         return False

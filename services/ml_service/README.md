@@ -77,14 +77,35 @@ Ollama не запущена — сервис **всё равно стартуе
 | Судья (опц.) | `OLLAMA_JUDGE_MODEL`, по умолчанию та же | если батч 30 постов не укладывается в 60 с — поставить `qwen2.5:3b-instruct` |
 | Эмбеддинги | `bge-m3` (Ollama, `OLLAMA_EMBED_MODEL`) | мультиязычная, сильная на русском; один вектор и для запроса, и для поста |
 
+**Сервер без GPU — Yandex AI Studio** (`LLM_PROVIDER=yandex`, `EMBED_PROVIDER=yandex`,
+`providers/yandex.py`):
+
+| Что | Модель | Зачем |
+|---|---|---|
+| LLM и судья | `yandexgpt-lite/latest` (`YC_LLM_MODEL`; судья — `YC_JUDGE_MODEL`, пусто = та же) | то же, что qwen: разбор запроса, судья, тональность; ответ строго JSON (`jsonObject`) |
+| Эмбеддинги | `text-search-query/latest` для запроса, `text-search-doc/latest` для поста | асимметричная пара Яндекса для поиска «запрос → документ»; один текст на запрос, параллельно `YC_EMBED_CONCURRENCY` (8), кэш в памяти |
+
+Нужно: `YC_FOLDER_ID` и `YC_API_KEY` — API-ключ сервисного аккаунта с ролью
+`ai.languageModels.user` на каталоге. Нет ключа — сервис стартует на эвристиках, причина в логе.
+429 и 5xx повторяются (`YC_RETRIES`, 2), остальные ошибки выключают провайдер на
+`BREAKER_COOLDOWN_SECONDS` — ответы эвристикой. **Вариант без LLM:** `LLM_PROVIDER=stub`,
+`EMBED_PROVIDER=yandex` — отбор по эмбеддингам и словам, без судьи (дешевле и быстрее, объяснения
+шаблонные).
+
+**Пороги косинуса** у моделей разные: по умолчанию — для bge-m3 (`SIM_LOW` 0.38, `SIM_HIGH` 0.68,
+`SIM_RETELL` 0.86, `core/similarity.py`). Для эмбеддингов Яндекса подобрать по
+`LLM_PROVIDER=yandex EMBED_PROVIDER=yandex uv run python ../../eval/run_eval.py --details`
+(печатает косинусы релевантных и нерелевантных постов) и задать в `.env`.
+
 | Переменная | По умолчанию | Смысл |
 |---|---|---|
-| `LLM_PROVIDER`, `EMBED_PROVIDER` | `stub` | `ollama` — локальные модели; `yandex` не реализован (сервис стартует на эвристиках) |
+| `LLM_PROVIDER`, `EMBED_PROVIDER` | `stub` | `ollama` — локальные модели (ноут с GPU); `yandex` — Yandex AI Studio (сервер) |
 | `OLLAMA_URL` | `http://localhost:11434` | в Docker: `http://ollama:11434` или `http://host.docker.internal:11434` |
 | `ANALYZE_BUDGET_SECONDS` / `SCORE_BUDGET_SECONDS` / `GROUP_BUDGET_SECONDS` | 15 / 45 / 40 | бюджеты RPC, меньше таймаутов search_service (20 / 60 / 60 с) |
 | `JUDGE_BATCH_SIZE`, `JUDGE_CONCURRENCY` | 6, 2 | постов в промпте и одновременных промптов на один вызов ScorePosts |
 | `BREAKER_COOLDOWN_SECONDS` | 30 | после сбоя модель не дёргаем столько секунд — сразу эвристика |
-| Пороги | `core/scoring.py` (`SIM_LOW`, `SIM_HIGH`, `DIRECT_AT`…), `core/same_news.py` | подбираются по `eval/` |
+| `SIM_LOW`, `SIM_HIGH`, `SIM_RETELL` | 0.38, 0.68, 0.86 | пороги косинуса эмбеддингов (bge-m3); для Яндекса — подобрать по `eval/` |
+| Пороги классов | `core/scoring.py` (`DIRECT_AT`…), `core/same_news.py` | подбираются по `eval/` |
 
 Ollama: search_service шлёт до 3 батчей ScorePosts параллельно, каждый — до 2 промптов судьи, то
 есть до 6 запросов разом. Если GPU позволяет — `OLLAMA_NUM_PARALLEL=4`; иначе запросы встают в
@@ -92,10 +113,15 @@ Ollama: search_service шлёт до 3 батчей ScorePosts параллел�
 
 ## Какие данные куда уходят
 
-Модели **локальные**: текст запроса и тексты публичных постов уходят только в Ollama на той же
-машине (или в контейнер `ollama` стенда). Во внешние сервисы ML ничего не отправляет, персональных
-данных пользователя в запросах нет. Денег модели не стоят — цена в секундах (`мс/пост` в
-`eval/report.md`) и в памяти GPU (7B ≈ 5 ГБ, bge-m3 ≈ 1.2 ГБ).
+- **Ollama (ноут с GPU)**: текст запроса и тексты публичных постов уходят только в Ollama на той же
+  машине. Денег не стоит — цена в секундах (`мс/пост` в `eval/report.md`) и в памяти GPU
+  (7B ≈ 5 ГБ, bge-m3 ≈ 1.2 ГБ).
+- **Yandex AI Studio (сервер)**: текст запроса и тексты публичных постов (до 2000 символов на
+  эмбеддинг, до `JUDGE_MAX_POST_CHARS` в промпте судьи) уходят в Foundation Models API Яндекса по
+  HTTPS. Оплата — по тарифу Yandex AI Studio за токены генерации и эмбеддингов; расход на один поиск
+  считается по `usage` в ответах (B2-11 / ML-11).
+
+Персональных данных пользователя в запросах нет: только публичные публикации и текст запроса.
 
 ## Без моделей (фолбэк)
 
