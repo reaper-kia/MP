@@ -197,9 +197,10 @@ export function ResultsView({ search }: { search: S["Search"] }) {
         </div>
       )}
 
-      {/* массовые действия и «Вернуть» */}
-      {selected.size > 0 && (
-        <div className={classes.bulk}>
+      {/* массовые действия и «Вернуть» — плавающая полоса внизу экрана: появление не сдвигает список
+          и не наезжает на липкие шапку и параметры при 200+ результатах */}
+      {selected.size > 0 ? (
+        <div className={classes.bulk} role="region" aria-label="Действия с выбранными">
           <span>Выбрано: {selected.size}</span>
           <Button size="compact-sm" variant="subtle" color="gray" ml="auto" onClick={() => setSelected(new Set())}>
             Снять выделение
@@ -214,25 +215,27 @@ export function ResultsView({ search }: { search: S["Search"] }) {
             Исключить выбранные
           </Button>
         </div>
-      )}
-      {lastExcluded.length > 0 && (
-        <div className={classes.note}>
-          <Icon name="trash" />
-          Исключено: {lastExcluded.length}.
-          <button
-            type="button"
-            className={classes.noteAction}
-            onClick={() => {
-              exclusion.mutate({ ids: lastExcluded, excluded: false });
-              setLastExcluded([]);
-            }}
-          >
-            Вернуть
-          </button>
-          <button type="button" className={classes.noteClose} onClick={() => setLastExcluded([])} aria-label="Скрыть">
-            <Icon name="close" size={14} />
-          </button>
-        </div>
+      ) : (
+        lastExcluded.length > 0 && (
+          <div className={classes.bulk} role="status">
+            <Icon name="trash" />
+            <span>Исключено: {lastExcluded.length}</span>
+            <Button
+              size="compact-sm"
+              variant="light"
+              ml="auto"
+              onClick={() => {
+                exclusion.mutate({ ids: lastExcluded, excluded: false });
+                setLastExcluded([]);
+              }}
+            >
+              Вернуть
+            </Button>
+            <button type="button" className={classes.noteClose} onClick={() => setLastExcluded([])} aria-label="Скрыть">
+              <Icon name="close" size={14} />
+            </button>
+          </div>
+        )
       )}
 
       {/* список */}

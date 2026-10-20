@@ -243,10 +243,16 @@ function PlatformStats() {
         const active = items.filter((s) => s.platform === p.code && s.is_active).length;
         const st = STATUS_VIEW[p.status];
         return (
-          <Tooltip key={p.code} label={p.note} disabled={!p.note} multiline maw={280}>
+          <Tooltip
+            key={p.code}
+            label={p.note ?? (p.status === "unavailable" ? "Площадка не подключена" : "")}
+            disabled={!p.note && p.status !== "unavailable"}
+            multiline
+            maw={280}
+          >
             <div className={classes.stat}>
               <div className={classes.statHead}>
-                <PlatformLogo platform={p.code} />
+                <PlatformLogo platform={p.code} title={null} />
                 <div>
                   <p className={classes.statName}>{PLATFORM_NAME[p.code]}</p>
                   <p className={classes.statMeta}>
