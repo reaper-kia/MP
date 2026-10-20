@@ -1,7 +1,14 @@
 // Каталог источников (FE-08): список с фильтрами, предпросмотр по ссылке, добавление, правка, удаление.
 // Все ключи — под ["sources"], чтобы правка здесь обновляла и выбор источников в форме поиска.
 import { notifications } from "@mantine/notifications";
-import { keepPreviousData, useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import {
+  keepPreviousData,
+  useInfiniteQuery,
+  useMutation,
+  useQuery,
+  useQueryClient,
+  type InfiniteData,
+} from "@tanstack/react-query";
 
 import { api, unwrap, type S } from "../../api/client";
 import { errorText } from "../../lib/errors";
@@ -34,6 +41,23 @@ export function useSourcePage(f: SourceFilters) {
   });
 }
 
+/** Источники одной площадки для раскрывающегося блока на странице «Источники»: по 50, «Показать ещё». */
+export function usePlatformSources(platform: S["Platform"], q: string, enabled: boolean) {
+  return useInfiniteQuery({
+    queryKey: ["sources", "platform", platform, q],
+    queryFn: ({ pageParam }) =>
+      unwrap(
+        api.GET("/api/v1/sources", {
+          params: { query: { platform: [platform], q: q || undefined, limit: SOURCES_PAGE, offset: pageParam } },
+        }),
+      ),
+    initialPageParam: 0,
+    getNextPageParam: (last, pages) => (last.has_more ? pages.reduce((n, p) => n + p.items.length, 0) : undefined),
+    enabled,
+    placeholderData: keepPreviousData,
+  });
+}
+
 export function useResolveSource() {
   return useMutation({
     mutationFn: (url: string) => unwrap(api.POST("/api/v1/sources/resolve", { body: { url } })),
@@ -49,6 +73,12 @@ export function useCreateSource() {
 }
 
 type SourcePage = S["SourcePage"];
+type SourceCache = SourcePage | InfiniteData<SourcePage> | undefined;
+
+const patchPage = (page: SourcePage, id: string, patch: S["SourceUpdateIn"]): SourcePage => ({
+  ...page,
+  items: page.items.map((s) => (s.id === id ? ({ ...s, ...patch } as S["Source"]) : s)),
+});
 
 /** PATCH со сдвигом в кэше сразу (переключатели), откат и уведомление при ошибке. */
 export function useUpdateSource() {
@@ -56,15 +86,20 @@ export function useUpdateSource() {
   return useMutation({
     mutationFn: ({ id, patch }: { id: string; patch: S["SourceUpdateIn"] }) =>
       unwrap(api.PATCH("/api/v1/sources/{source_id}", { params: { path: { source_id: id } }, body: patch })),
+    // все списки каталога (страницы, весь каталог, блоки площадок) — сразу, до ответа сервера
     onMutate: async ({ id, patch }) => {
-      await queryClient.cancelQueries({ queryKey: ["sources", "page"] });
-      const snapshot = queryClient.getQueriesData<SourcePage>({ queryKey: ["sources", "page"] });
+      await queryClient.cancelQueries({ queryKey: ["sources"] });
+      const snapshot = queryClient.getQueriesData<SourceCache>({ queryKey: ["sources"] });
       for (const [key, data] of snapshot) {
         if (!data) continue;
-        queryClient.setQueryData<SourcePage>(key, {
-          ...data,
-          items: data.items.map((s) => (s.id === id ? ({ ...s, ...patch } as S["Source"]) : s)),
-        });
+        if ("pages" in data) {
+          queryClient.setQueryData<InfiniteData<SourcePage>>(key, {
+            ...data,
+            pages: data.pages.map((p) => patchPage(p, id, patch)),
+          });
+        } else if ("items" in data) {
+          queryClient.setQueryData<SourcePage>(key, patchPage(data, id, patch));
+        }
       }
       return { snapshot };
     },

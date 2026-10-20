@@ -1,4 +1,6 @@
 .hero {
+  position: relative;
+  overflow: hidden;
   padding: 32px;
   border: 1px solid var(--mp-border);
   border-radius: 24px;
@@ -14,6 +16,206 @@
 
 .hero[data-compact] {
   padding: 24px 28px;
+}
+
+/* лаймовая точечная сетка в правом верхнем углу */
+.hero::after {
+  position: absolute;
+  top: 0;
+  right: 0;
+  width: 144px;
+  height: 144px;
+  background-image: radial-gradient(circle, rgb(163 230 53 / 28%) 1px, transparent 1px);
+  background-size: 12px 12px;
+  content: "";
+  mask-image: linear-gradient(135deg, black, transparent 72%);
+  pointer-events: none;
+}
+
+.hero > * {
+  position: relative;
+  z-index: 1;
+}
+
+.top {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 32px;
+}
+
+.eyebrow {
+  font-weight: 600;
+}
+
+/* ───────── период ───────── */
+
+.periodButton {
+  display: flex;
+  flex-shrink: 0;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 12px;
+  border: 1px solid var(--mp-border);
+  border-radius: 12px;
+  background: var(--mp-surface);
+  font: inherit;
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--mp-text-2);
+  box-shadow: var(--mp-shadow-card);
+  cursor: pointer;
+  transition: border-color 150ms ease;
+}
+
+.periodButton:hover {
+  border-color: var(--mp-border-strong);
+}
+
+:global([data-mantine-color-scheme="dark"]) .periodButton {
+  border-color: rgb(255 255 255 / 15%);
+  background: rgb(255 255 255 / 5%);
+  color: #c9cdbf;
+}
+
+:global([data-mantine-color-scheme="dark"]) .periodButton:hover {
+  border-color: rgb(255 255 255 / 30%);
+}
+
+.periodButton[data-error] {
+  border-color: #f87171 !important;
+}
+
+.flip {
+  transform: rotate(180deg);
+}
+
+.periodDropdown {
+  width: 288px;
+  border-color: var(--mp-border) !important;
+  background: var(--mp-surface) !important;
+}
+
+.periodCaption {
+  margin: 0;
+  padding: 0 8px 8px;
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--mp-faint);
+}
+
+.presetGrid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 4px;
+}
+
+.preset {
+  padding: 10px 12px;
+  border: 0;
+  border-radius: 8px;
+  background: none;
+  font: inherit;
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--mp-text-2);
+  cursor: pointer;
+  transition:
+    background-color 150ms ease,
+    color 150ms ease;
+}
+
+.preset:hover {
+  background: var(--mp-surface-2);
+  color: var(--mp-text);
+}
+
+.preset[data-active] {
+  background: var(--mp-accent);
+  color: #171914;
+}
+
+.periodDates {
+  margin-top: 12px;
+  padding-top: 12px;
+  border-top: 1px solid var(--mp-border-soft);
+}
+
+.periodDates :global(.mantine-DatePicker-levelsGroup) {
+  justify-content: center;
+}
+
+.applyPeriod {
+  width: 100%;
+  margin-top: 12px;
+  padding: 8px 12px;
+  border: 0;
+  border-radius: 8px;
+  background: var(--mp-ink);
+  font: inherit;
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--mp-ink-text);
+  cursor: pointer;
+}
+
+.applyPeriod:disabled {
+  cursor: not-allowed;
+  opacity: 0.5;
+}
+
+/* ───────── популярные теги ───────── */
+
+.tags {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  margin-top: 16px;
+}
+
+.tagsLabel {
+  margin-right: 4px;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--mp-muted);
+}
+
+.tag {
+  padding: 6px 12px;
+  border: 1px solid var(--mp-border);
+  border-radius: 999px;
+  background: var(--mp-sunken);
+  font: inherit;
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--mp-text-2);
+  cursor: pointer;
+  transition:
+    transform 180ms ease,
+    color 180ms ease,
+    background-color 180ms ease,
+    border-color 180ms ease;
+}
+
+.tag:hover {
+  border-color: var(--mp-border-strong);
+  transform: translateY(-1px);
+}
+
+:global([data-mantine-color-scheme="dark"]) .tag {
+  border-color: rgb(255 255 255 / 15%);
+  background: rgb(255 255 255 / 5%);
+  color: #c9cdbf;
+}
+
+.tag[data-active],
+:global([data-mantine-color-scheme="dark"]) .tag[data-active] {
+  border-color: var(--mp-accent);
+  background: var(--mp-accent);
+  color: #171914;
 }
 
 .title {
@@ -297,6 +499,16 @@
 @media (max-width: 720px) {
   .hero {
     padding: 20px;
+  }
+
+  .top {
+    flex-direction: column;
+    gap: 16px;
+  }
+
+  .periodButton {
+    width: 100%;
+    justify-content: space-between;
   }
 
   .queryFooter {

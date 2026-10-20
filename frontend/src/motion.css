@@ -1,0 +1,517 @@
+/* Дизайн v2: «сигнальные» мотивы и анимации макета (Figma Make).
+   В макете тёмная тема — класс .theme-dark, у нас — атрибут Mantine data-mantine-color-scheme. */
+
+@keyframes mp-surface-enter {
+  from {
+    opacity: 0;
+    transform: translateY(10px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes mp-popover-in {
+  from {
+    opacity: 0;
+    transform: translateY(-6px) scale(0.97);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
+@keyframes mp-icon-swap {
+  from {
+    opacity: 0;
+    transform: rotate(-35deg) scale(0.7);
+  }
+  to {
+    opacity: 1;
+    transform: rotate(0) scale(1);
+  }
+}
+
+@keyframes mp-accordion-in {
+  from {
+    opacity: 0;
+    transform: translateY(-8px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes mp-choice-pop {
+  0% {
+    transform: scale(0.92);
+  }
+  65% {
+    transform: scale(1.07);
+  }
+  100% {
+    transform: scale(1);
+  }
+}
+
+@keyframes mp-scroll-top-in {
+  from {
+    opacity: 0;
+    transform: translateY(12px) scale(0.85);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
+.mp-page-enter {
+  animation: mp-surface-enter 360ms cubic-bezier(0.22, 1, 0.36, 1) backwards;
+}
+
+.mp-popover-in {
+  transform-origin: top right;
+  animation: mp-popover-in 220ms cubic-bezier(0.22, 1, 0.36, 1) backwards;
+}
+
+.mp-icon-swap {
+  animation: mp-icon-swap 260ms cubic-bezier(0.22, 1, 0.36, 1) backwards;
+}
+
+.mp-accordion-in {
+  transform-origin: top;
+  animation: mp-accordion-in 260ms cubic-bezier(0.22, 1, 0.36, 1) backwards;
+}
+
+.mp-choice-pop {
+  animation: mp-choice-pop 280ms cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+/* карточки списка появляются по очереди */
+.mp-stagger > * {
+  animation: mp-surface-enter 320ms cubic-bezier(0.22, 1, 0.36, 1) backwards;
+}
+
+.mp-stagger > :nth-child(2) {
+  animation-delay: 45ms;
+}
+
+.mp-stagger > :nth-child(3) {
+  animation-delay: 90ms;
+}
+
+.mp-stagger > :nth-child(4) {
+  animation-delay: 135ms;
+}
+
+.mp-stagger > :nth-child(5) {
+  animation-delay: 180ms;
+}
+
+.mp-stagger > :nth-child(n + 6) {
+  animation-delay: 225ms;
+}
+
+/* карточка чуть приподнимается под курсором */
+.mp-motion-card {
+  transform: translateZ(0);
+  transition:
+    transform 220ms cubic-bezier(0.22, 1, 0.36, 1),
+    box-shadow 220ms ease,
+    border-color 220ms ease,
+    background-color 220ms ease,
+    opacity 150ms ease;
+}
+
+@media (hover: hover) and (pointer: fine) {
+  .mp-motion-card:hover {
+    z-index: 1;
+    transform: translateY(-3px) scale(1.01);
+    box-shadow: 0 16px 36px rgb(23 25 20 / 12%);
+  }
+
+  [data-mantine-color-scheme="dark"] .mp-motion-card:hover {
+    box-shadow: 0 18px 40px rgb(0 0 0 / 28%);
+  }
+
+  /* длинные карточки подборки — без масштаба, только подъём: текст не «плывёт» */
+  .mp-motion-card[data-lift="soft"]:hover {
+    transform: translateY(-2px);
+  }
+
+  .mp-press:not(:disabled):active {
+    transform: translateY(1px) scale(0.98);
+  }
+}
+
+/* лаймовая полоска слева у карточки при наведении */
+.mp-signal-card {
+  position: relative;
+  overflow: hidden;
+}
+
+.mp-signal-card::before {
+  position: absolute;
+  top: 16px;
+  bottom: 16px;
+  left: 0;
+  width: 2px;
+  border-radius: 0 999px 999px 0;
+  background: linear-gradient(180deg, transparent, #a3e635 35%, #a3e635 65%, transparent);
+  content: "";
+  opacity: 0;
+  transform: scaleY(0.35);
+  transition:
+    opacity 220ms ease,
+    transform 280ms cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+.mp-signal-card:hover::before,
+.mp-signal-card:focus-visible::before {
+  opacity: 1;
+  transform: scaleY(1);
+}
+
+/* пульс-линия (кардиограмма) — знак сервиса */
+@keyframes mp-data-pulse {
+  0% {
+    stroke-dashoffset: 128;
+  }
+  55%,
+  100% {
+    stroke-dashoffset: -128;
+  }
+}
+
+.mp-data-pulse {
+  display: inline-flex;
+  flex-shrink: 0;
+  width: 64px;
+  height: 28px;
+  align-items: center;
+  color: currentColor;
+}
+
+.mp-data-pulse[data-compact] {
+  width: 32px;
+  height: 16px;
+}
+
+.mp-data-pulse svg {
+  width: 100%;
+  height: 100%;
+  overflow: visible;
+}
+
+.mp-data-pulse path {
+  vector-effect: non-scaling-stroke;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+.mp-data-pulse-track {
+  stroke: currentColor;
+  stroke-width: 1.5;
+  opacity: 0.22;
+}
+
+.mp-data-pulse-beat {
+  stroke: currentColor;
+  stroke-width: 2;
+  stroke-dasharray: 22 106;
+  animation: mp-data-pulse 2.2s linear infinite;
+  filter: drop-shadow(0 0 3px currentColor);
+}
+
+/* сканер-орбита — «обновляется автоматически» */
+@keyframes mp-orbit-scan {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+.mp-scan-orbit {
+  display: inline-flex;
+  flex-shrink: 0;
+  width: 18px;
+  height: 18px;
+}
+
+.mp-scan-orbit svg {
+  width: 100%;
+  height: 100%;
+  overflow: visible;
+}
+
+.mp-scan-orbit-track,
+.mp-scan-orbit-sweep {
+  stroke-width: 1.5;
+}
+
+.mp-scan-orbit-track {
+  stroke: currentColor;
+  opacity: 0.2;
+}
+
+.mp-scan-orbit-sweep {
+  stroke: currentColor;
+  stroke-dasharray: 13 31;
+  stroke-linecap: round;
+  transform-origin: center;
+  animation: mp-orbit-scan 2.4s linear infinite;
+}
+
+.mp-scan-orbit-core {
+  fill: currentColor;
+}
+
+/* полукруглый индикатор близости к запросу; заполнение — из --mp-gauge (0…1) */
+@keyframes mp-gauge-reveal {
+  to {
+    stroke-dashoffset: calc(50 - 50 * var(--mp-gauge, 0.9));
+  }
+}
+
+.mp-gauge {
+  display: inline-flex;
+  flex-shrink: 0;
+  width: 28px;
+  height: 16px;
+}
+
+.mp-gauge svg {
+  width: 100%;
+  height: 100%;
+  overflow: visible;
+}
+
+.mp-gauge path {
+  fill: none;
+  stroke-linecap: round;
+  stroke-width: 2.5;
+}
+
+.mp-gauge-track {
+  stroke: currentColor;
+  opacity: 0.18;
+}
+
+.mp-gauge-value {
+  stroke: currentColor;
+  stroke-dasharray: 50;
+  stroke-dashoffset: 50;
+  animation: mp-gauge-reveal 700ms cubic-bezier(0.22, 1, 0.36, 1) 180ms forwards;
+}
+
+/* плавное раскрытие (подробности публикации) */
+.mp-expand {
+  display: grid;
+  grid-template-rows: 0fr;
+  opacity: 0;
+  transition:
+    grid-template-rows 320ms cubic-bezier(0.22, 1, 0.36, 1),
+    opacity 220ms ease;
+}
+
+.mp-expand > div {
+  min-height: 0;
+  overflow: hidden;
+  transform: translateY(-6px);
+  transition: transform 320ms cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+.mp-expand[data-open] {
+  grid-template-rows: 1fr;
+  opacity: 1;
+}
+
+.mp-expand[data-open] > div {
+  transform: translateY(0);
+}
+
+/* счётчик с лаймовой засечкой сверху справа */
+.mp-signal-counter {
+  position: relative;
+  overflow: hidden;
+}
+
+.mp-signal-counter::after {
+  position: absolute;
+  top: 0;
+  right: 0;
+  width: 40px;
+  height: 2px;
+  background: #a3e635;
+  content: "";
+}
+
+/* три ромба — «стопка источников» */
+.mp-source-stack {
+  position: relative;
+  display: inline-flex;
+  width: 22px;
+  height: 16px;
+  align-items: center;
+}
+
+.mp-source-stack span {
+  position: absolute;
+  width: 10px;
+  height: 10px;
+  border: 1px solid #84cc16;
+  border-radius: 2px;
+  background: #fffefa;
+  transform: rotate(45deg);
+}
+
+.mp-source-stack span:nth-child(1) {
+  left: 0;
+}
+
+.mp-source-stack span:nth-child(2) {
+  left: 6px;
+  background: #d9f99d;
+}
+
+.mp-source-stack span:nth-child(3) {
+  left: 12px;
+  background: #a3e635;
+}
+
+[data-mantine-color-scheme="dark"] .mp-source-stack span {
+  background: #1c1f18;
+}
+
+[data-mantine-color-scheme="dark"] .mp-source-stack span:nth-child(2) {
+  background: #3f6212;
+}
+
+[data-mantine-color-scheme="dark"] .mp-source-stack span:nth-child(3) {
+  background: #a3e635;
+}
+
+/* номер раздела «01» */
+.mp-section-index {
+  display: inline-flex;
+  height: 24px;
+  min-width: 28px;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid #a3e635;
+  border-radius: 6px;
+  background: rgb(190 242 100 / 18%);
+  font-size: 9px;
+  letter-spacing: 0.08em;
+}
+
+/* полоса сканирования внизу блока загрузки */
+@keyframes mp-loading-scan {
+  100% {
+    transform: translateX(100%);
+  }
+}
+
+.mp-signal-loading {
+  position: relative;
+  overflow: hidden;
+}
+
+.mp-signal-loading::after {
+  position: absolute;
+  right: 0;
+  bottom: 0;
+  left: 0;
+  height: 2px;
+  background: linear-gradient(90deg, transparent, #a3e635, transparent);
+  content: "";
+  animation: mp-loading-scan 1.8s ease-in-out infinite;
+  transform: translateX(-100%);
+}
+
+/* лаймовая «сигнальная» отметка с ореолом — над заголовками */
+.mp-pulse-mark {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 96px;
+  height: 56px;
+  margin: 0 auto 24px;
+  border: 1px solid #bef264;
+  border-radius: 16px;
+  background: #d9f99d;
+  color: #171914;
+  box-shadow:
+    0 0 0 8px rgb(190 242 100 / 10%),
+    0 0 0 16px rgb(190 242 100 / 5%);
+}
+
+/* кнопка «Наверх» */
+.mp-scroll-top {
+  position: fixed;
+  right: 24px;
+  bottom: 24px;
+  z-index: 60;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 44px;
+  height: 44px;
+  border: 0;
+  border-radius: 50%;
+  background: var(--mp-accent);
+  color: #171914;
+  box-shadow: 0 20px 25px rgb(23 25 20 / 18%);
+  cursor: pointer;
+  animation: mp-scroll-top-in 260ms cubic-bezier(0.22, 1, 0.36, 1);
+  transition:
+    background-color 150ms ease,
+    transform 150ms ease;
+}
+
+.mp-scroll-top:hover {
+  background: var(--mp-accent-hover);
+  transform: translateY(-2px) scale(1.06);
+}
+
+@media (max-width: 639px) {
+  .mp-scroll-top {
+    right: 16px;
+    bottom: 16px;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .mp-page-enter,
+  .mp-popover-in,
+  .mp-icon-swap,
+  .mp-accordion-in,
+  .mp-choice-pop,
+  .mp-stagger > *,
+  .mp-scroll-top {
+    animation: none;
+  }
+
+  .mp-data-pulse-beat,
+  .mp-scan-orbit-sweep,
+  .mp-signal-loading::after {
+    animation: none;
+    stroke-dasharray: none;
+  }
+
+  .mp-gauge-value {
+    animation: none;
+    stroke-dashoffset: calc(50 - 50 * var(--mp-gauge, 0.9));
+  }
+
+  .mp-motion-card,
+  .mp-motion-card:hover,
+  .mp-signal-card::before,
+  .mp-expand,
+  .mp-expand > div {
+    transform: none;
+    transition: none;
+  }
+}

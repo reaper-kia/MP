@@ -2,6 +2,7 @@ import { Button, Progress } from "@mantine/core";
 
 import type { S } from "../../api/client";
 import { Icon } from "../../components/Icon";
+import { DataPulse } from "../../components/Signal";
 import { fmtNumber } from "../../lib/format";
 import classes from "./SearchProgress.module.css";
 import { isFinal, stageText } from "./status";
@@ -18,9 +19,9 @@ export function SearchProgress({ search }: { search: S["Search"] }) {
   return (
     <div className={classes.wrap}>
       {running && (
-        <div className={`mp-card ${classes.card}`}>
-          <span className={`${classes.icon} mp-pulse`} data-queued={queued || undefined}>
-            <Icon name={queued ? "history" : "search"} size={22} />
+        <div className={`mp-card mp-signal-loading mp-page-enter ${classes.card}`}>
+          <span className={`${classes.icon} ${queued ? "mp-pulse" : ""}`} data-queued={queued || undefined}>
+            {queued ? <Icon name="history" size={22} /> : <DataPulse />}
           </span>
           <div className={classes.body}>
             {queued ? (

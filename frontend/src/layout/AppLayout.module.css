@@ -1,4 +1,5 @@
 .shell {
+  --mp-header-h: 80px;
   min-height: 100vh;
 }
 
@@ -9,7 +10,7 @@
   display: flex;
   align-items: center;
   justify-content: space-between;
-  height: 80px;
+  height: var(--mp-header-h);
   padding: 0 40px;
   border-bottom: 1px solid var(--mp-border);
   background: var(--mp-header);
@@ -23,33 +24,23 @@
   gap: 12px;
 }
 
-.brandName {
-  margin: 0;
-  font-size: 14px;
-  font-weight: 800;
-  letter-spacing: -0.01em;
-  color: var(--mp-text);
-}
-
-.brandSub {
-  margin: 0;
-  font-size: 10px;
-  color: var(--mp-faint);
-}
-
 .roundButton {
   display: flex;
+  flex-shrink: 0;
   align-items: center;
   justify-content: center;
   width: 36px;
   height: 36px;
+  padding: 0;
   border: 1px solid var(--mp-border);
   border-radius: 50%;
   background: var(--mp-surface);
   color: var(--mp-text-2);
   box-shadow: var(--mp-shadow-card);
+  cursor: pointer;
   transition:
     border-color 150ms ease,
+    background-color 150ms ease,
     color 150ms ease;
 }
 
@@ -58,22 +49,184 @@
   color: var(--mp-text);
 }
 
+:global([data-mantine-color-scheme="dark"]) .roundButton:hover {
+  background: var(--mp-surface-2);
+}
+
+/* бургер, который превращается в крестик */
+.menuToggle {
+  margin-right: 4px;
+  color: var(--mp-text);
+}
+
+.menuLines {
+  position: relative;
+  display: block;
+  width: 16px;
+  height: 14px;
+}
+
+.menuLines span {
+  position: absolute;
+  left: 0;
+  width: 100%;
+  height: 2px;
+  border-radius: 999px;
+  background: currentColor;
+  transform-origin: center;
+  transition:
+    top 240ms cubic-bezier(0.22, 1, 0.36, 1),
+    transform 240ms cubic-bezier(0.22, 1, 0.36, 1),
+    opacity 160ms ease;
+}
+
+.menuLines span:nth-child(1) {
+  top: 0;
+}
+
+.menuLines span:nth-child(2) {
+  top: 6px;
+}
+
+.menuLines span:nth-child(3) {
+  top: 12px;
+}
+
+.menuToggle[data-open] .menuLines span:nth-child(1),
+.menuToggle[data-open] .menuLines span:nth-child(3) {
+  top: 6px;
+}
+
+.menuToggle[data-open] .menuLines span:nth-child(1) {
+  transform: rotate(45deg);
+}
+
+.menuToggle[data-open] .menuLines span:nth-child(2) {
+  opacity: 0;
+  transform: scaleX(0);
+}
+
+.menuToggle[data-open] .menuLines span:nth-child(3) {
+  transform: rotate(-45deg);
+}
+
+/* ───────── логотип: знак, под курсором — «МедиаПульс» ───────── */
+
 .logo {
   display: flex;
+  flex-shrink: 0;
   align-items: center;
-  justify-content: center;
-  width: 36px;
-  height: 36px;
+  justify-content: flex-start;
+  width: 64px;
+  height: 44px;
+  padding: 0 12px;
+  overflow: hidden;
   border: 1px solid var(--mp-border);
   border-radius: 12px;
   background: var(--mp-surface);
-  color: #84cc16;
+  color: var(--mp-text);
+  text-decoration: none;
   box-shadow: var(--mp-shadow-card);
+  transition:
+    width 320ms cubic-bezier(0.22, 1, 0.36, 1),
+    color 220ms ease,
+    background-color 220ms ease,
+    border-color 220ms ease;
 }
 
 :global([data-mantine-color-scheme="dark"]) .logo {
   background: #171914;
+  color: #f3f4eb;
+}
+
+.logoSymbol {
+  display: flex;
+  flex-shrink: 0;
+  align-items: center;
+  color: #65a30d;
+  transition:
+    margin-right 280ms cubic-bezier(0.22, 1, 0.36, 1),
+    color 220ms ease;
+}
+
+:global([data-mantine-color-scheme="dark"]) .logoSymbol {
   color: #bef264;
+}
+
+.logoSymbol svg {
+  width: 36px;
+  height: 28px;
+}
+
+@keyframes beacon {
+  0%,
+  100% {
+    opacity: 1;
+    transform: scale(1);
+  }
+  50% {
+    opacity: 0.45;
+    transform: scale(1.45);
+  }
+}
+
+.logoDot {
+  transform-box: fill-box;
+  transform-origin: center;
+  animation: beacon 1.8s ease-in-out infinite;
+}
+
+.logoWord {
+  display: inline-flex;
+  align-items: center;
+  max-width: 0;
+  overflow: hidden;
+  font-size: 16px;
+  font-weight: 800;
+  letter-spacing: -0.02em;
+  white-space: nowrap;
+  opacity: 0;
+  transform: translateX(-6px);
+  transition:
+    max-width 320ms cubic-bezier(0.22, 1, 0.36, 1),
+    opacity 180ms ease 40ms,
+    transform 280ms cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+.logoDivider {
+  flex-shrink: 0;
+  width: 1px;
+  height: 16px;
+  margin-inline: 8px;
+  background: currentColor;
+  opacity: 0.32;
+}
+
+.logoPulse {
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+}
+
+.logo:hover,
+.logo:focus-visible {
+  width: 160px;
+  border-color: #a3e635;
+  background: #bef264;
+  color: #171914;
+}
+
+.logo:hover .logoSymbol,
+.logo:focus-visible .logoSymbol {
+  margin-right: 4px;
+  color: #171914;
+}
+
+.logo:hover .logoWord,
+.logo:focus-visible .logoWord {
+  max-width: 112px;
+  opacity: 1;
+  transform: translateX(0);
 }
 
 .actions {
@@ -104,27 +257,146 @@
   color: var(--mp-text);
 }
 
+.pillChevron {
+  transition: transform 200ms ease;
+}
+
+.flip {
+  transform: rotate(180deg);
+}
+
+.popover {
+  border-color: var(--mp-border) !important;
+  background: var(--mp-surface) !important;
+}
+
+.popoverHead {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 16px;
+}
+
+.popoverClose {
+  display: flex;
+  padding: 6px;
+  border-radius: 8px;
+  color: var(--mp-faint);
+}
+
+.popoverClose:hover {
+  background: var(--mp-surface-2);
+  color: var(--mp-text);
+}
+
+.popoverLabel {
+  margin: 0 0 6px;
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--mp-faint);
+}
+
+.popoverValue {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 12px;
+  border: 1px solid var(--mp-border);
+  border-radius: 12px;
+  font-size: 14px;
+  font-weight: 600;
+}
+
+.popoverFoot {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-top: 16px;
+  padding-top: 16px;
+  border-top: 1px solid var(--mp-border-soft);
+}
+
+.popoverLink {
+  flex-shrink: 0;
+  padding: 8px 16px;
+  border-radius: 8px;
+  background: var(--mp-accent);
+  color: #171914;
+  font-size: 12px;
+  font-weight: 700;
+  text-decoration: none;
+}
+
+.popoverLink:hover {
+  background: var(--mp-accent-hover);
+}
+
 .main {
   padding-bottom: 64px;
 }
 
-/* ───────── шторка меню ───────── */
+/* ───────── шторка меню (слева, под шапкой) ───────── */
 
-.drawer {
-  background: var(--mp-surface);
-  border-left: 1px solid var(--mp-border);
+.backdrop {
+  position: fixed;
+  inset: var(--mp-header-h) 0 0;
+  z-index: 90;
+  padding: 0;
+  border: 0;
+  background: rgb(23 25 20 / 30%);
+  backdrop-filter: blur(4px);
+  -webkit-backdrop-filter: blur(4px);
+  cursor: default;
+  visibility: hidden;
+  opacity: 0;
+  pointer-events: none;
+  transition:
+    opacity 240ms ease,
+    visibility 0s linear 280ms;
 }
 
-.drawerBody {
+.backdrop[data-open] {
+  visibility: visible;
+  opacity: 1;
+  pointer-events: auto;
+  transition-delay: 0s;
+}
+
+.drawer {
+  position: fixed;
+  top: var(--mp-header-h);
+  bottom: 0;
+  left: 0;
+  z-index: 95;
   display: flex;
   flex-direction: column;
-  height: 100%;
+  width: 320px;
+  padding: 24px;
+  border-right: 1px solid var(--mp-border);
+  background: var(--mp-surface);
+  box-shadow: 0 25px 50px rgb(23 25 20 / 25%);
+  visibility: hidden;
+  transform: translateX(-100%);
+  transition:
+    transform 300ms cubic-bezier(0.22, 1, 0.36, 1),
+    visibility 0s linear 320ms;
+}
+
+:global([data-mantine-color-scheme="dark"]) .drawer {
+  background: #11130e;
+}
+
+.drawer[data-open] {
+  visibility: visible;
+  transform: translateX(0);
+  transition-delay: 0s;
 }
 
 .drawerHead {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
   margin-bottom: 40px;
 }
 
@@ -140,24 +412,37 @@
   color: var(--mp-muted);
 }
 
-.closeButton {
-  display: flex;
-  padding: 8px;
-  border: 1px solid var(--mp-border);
-  border-radius: 50%;
-  color: var(--mp-muted);
-  transition: background-color 150ms ease;
-}
-
-.closeButton:hover {
-  background: var(--mp-surface-2);
-  color: var(--mp-text);
-}
-
 .nav {
   display: flex;
   flex-direction: column;
   gap: 8px;
+}
+
+.drawer[data-open] .navItem {
+  animation: navIn 260ms cubic-bezier(0.22, 1, 0.36, 1) backwards;
+}
+
+.drawer[data-open] .navItem:nth-child(2) {
+  animation-delay: 35ms;
+}
+
+.drawer[data-open] .navItem:nth-child(3) {
+  animation-delay: 70ms;
+}
+
+.drawer[data-open] .navItem:nth-child(4) {
+  animation-delay: 105ms;
+}
+
+@keyframes navIn {
+  from {
+    opacity: 0;
+    transform: translateY(10px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
 }
 
 .navItem {
@@ -168,6 +453,7 @@
   padding: 16px;
   border-radius: 16px;
   color: var(--mp-text-2);
+  text-decoration: none;
   transition:
     background-color 150ms ease,
     color 150ms ease;
@@ -178,13 +464,23 @@
   color: var(--mp-text);
 }
 
+:global([data-mantine-color-scheme="dark"]) .navItem:hover {
+  background: rgb(255 255 255 / 5%);
+}
+
 .navItem[data-active] {
   background: var(--mp-surface-2);
   color: var(--mp-text);
 }
 
+:global([data-mantine-color-scheme="dark"]) .navItem[data-active] {
+  background: #f3f4eb;
+  color: #171914;
+}
+
 .navIcon {
   display: flex;
+  flex-shrink: 0;
   align-items: center;
   justify-content: center;
   width: 40px;
@@ -192,6 +488,10 @@
   border-radius: 12px;
   background: var(--mp-surface);
   color: var(--mp-muted);
+}
+
+:global([data-mantine-color-scheme="dark"]) .navIcon {
+  background: rgb(255 255 255 / 10%);
 }
 
 .navItem[data-active] .navIcon {
@@ -212,6 +512,10 @@
   color: var(--mp-muted);
 }
 
+:global([data-mantine-color-scheme="dark"]) .navItem[data-active] .navDescription {
+  color: #575b4e;
+}
+
 .status {
   display: flex;
   align-items: center;
@@ -226,13 +530,63 @@
   color: var(--mp-text-2);
 }
 
+:global([data-mantine-color-scheme="dark"]) .status {
+  background: rgb(255 255 255 / 5%);
+}
+
+.up {
+  transform: rotate(-90deg);
+}
+
 @media (max-width: 720px) {
-  .header {
-    padding: 0 16px;
-    height: 64px;
+  .shell {
+    --mp-header-h: 64px;
   }
 
-  .pillLabel {
+  .header {
+    padding: 0 16px;
+  }
+
+  .pillLabel,
+  .pillChevron {
     display: none;
+  }
+
+  /* на телефоне логотип не раскрывается: место в шапке нужно кнопкам */
+  .logo:hover,
+  .logo:focus-visible {
+    width: 64px;
+  }
+
+  .logo:hover .logoWord,
+  .logo:focus-visible .logoWord {
+    max-width: 0;
+    opacity: 0;
+  }
+
+  .logo:hover .logoSymbol,
+  .logo:focus-visible .logoSymbol {
+    margin-right: 0;
+  }
+
+  .drawer {
+    width: 100%;
+    padding: 16px;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .menuLines span,
+  .backdrop,
+  .drawer,
+  .logo,
+  .logoWord,
+  .logoSymbol {
+    transition: none;
+  }
+
+  .logoDot,
+  .drawer[data-open] .navItem {
+    animation: none;
   }
 }

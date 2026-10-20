@@ -1,4 +1,4 @@
-import { Button, Center, Select, Skeleton, Switch, Tabs } from "@mantine/core";
+import { Button, Center, Skeleton, Switch, Tabs } from "@mantine/core";
 import { useQueryClient } from "@tanstack/react-query";
 import { useEffect, useState } from "react";
 
@@ -16,10 +16,11 @@ import { ResultCard } from "./ResultCard";
 import classes from "./ResultsView.module.css";
 import { useExclusion, useGroupList, useResultList } from "./useResults";
 
+// Сортировки макета v2 — те, что умеет GET /results (sort); «Популярное» и «Официальное» API не поддерживает
 const SORT_OPTIONS: { value: Sort; label: string }[] = [
-  { value: "relevance", label: "Сначала самые близкие к запросу" },
-  { value: "date_desc", label: "Сначала новые" },
-  { value: "date_asc", label: "Сначала старые" },
+  { value: "relevance", label: "По релевантности" },
+  { value: "date_desc", label: "Новое" },
+  { value: "date_asc", label: "Старое" },
 ];
 
 const cut = (s: string, n: number) => {
@@ -136,18 +137,21 @@ export function ResultsView({ search }: { search: S["Search"] }) {
           </div>
         )}
         {!grouped && (
-          <Select
-            size="xs"
-            radius="md"
-            ml="auto"
-            w={260}
-            allowDeselect={false}
-            value={f.sort}
-            onChange={(v) => update({ sort: (v ?? "relevance") as Sort })}
-            data={SORT_OPTIONS}
-            leftSection={<Icon name="filter" size={14} />}
-            aria-label="Сортировка"
-          />
+          <div className={classes.sorts} role="group" aria-label="Сортировка">
+            {SORT_OPTIONS.map((o) => (
+              <button
+                key={o.value}
+                type="button"
+                className={classes.sort}
+                data-active={f.sort === o.value || undefined}
+                aria-pressed={f.sort === o.value}
+                onClick={() => update({ sort: o.value })}
+              >
+                {o.label}
+                <span className={classes.sortIndicator} />
+              </button>
+            ))}
+          </div>
         )}
       </div>
 
@@ -251,7 +255,7 @@ export function ResultsView({ search }: { search: S["Search"] }) {
       {/* скелетон, пока список грузится или поиск идёт, а публикаций ещё нет */}
       {(active.isPending || (running && active.isSuccess && total === 0)) && <ListSkeleton />}
 
-      <div className={classes.list}>
+      <div className={`${classes.list} mp-stagger`}>
         {grouped
           ? (groups.data?.pages ?? []).flatMap((p) =>
               p.items.map((g) => (
@@ -293,7 +297,7 @@ function ListSkeleton() {
   return (
     <div className={classes.list} aria-busy="true" aria-label="Загрузка подборки">
       {[0, 1, 2].map((i) => (
-        <div key={i} className={classes.skeleton}>
+        <div key={i} className={`${classes.skeleton} mp-signal-loading`}>
           <Skeleton height={40} width={40} radius="md" />
           <div style={{ flex: 1 }}>
             <Skeleton height={14} width="55%" mb="sm" />

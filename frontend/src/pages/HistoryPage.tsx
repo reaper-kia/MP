@@ -6,6 +6,7 @@ import { Link } from "react-router";
 import { api, unwrap, type S } from "../api/client";
 import { Icon } from "../components/Icon";
 import { PlatformLogo } from "../components/PlatformLogo";
+import { ScanOrbit } from "../components/Signal";
 import { isFinal, SEARCH_STATUS } from "../features/search/status";
 import { fmtDateTime, fmtPeriod } from "../lib/dates";
 import { errorText } from "../lib/errors";
@@ -41,11 +42,11 @@ export function HistoryPage() {
   const items = history.data?.pages.flatMap((p) => p.items) ?? [];
 
   return (
-    <div className={`mp-container ${classes.page}`}>
+    <div className={`mp-container mp-page-enter ${classes.page}`}>
       <div className={classes.head}>
         <div>
           <div className="mp-eyebrow">
-            <span className="mp-dot" style={{ background: "#84cc16" }} />
+            <ScanOrbit />
             Обновляется автоматически
           </div>
           <h1 className="mp-page-title" style={{ marginTop: 12 }}>
@@ -53,7 +54,7 @@ export function HistoryPage() {
           </h1>
           <p className="mp-page-lead">Ваши подборки в этом браузере — с параметрами и результатами. Другим пользователям они не видны.</p>
         </div>
-        <Link to="/search" className="mp-accent-button">
+        <Link to="/search" className="mp-accent-button mp-press">
           <Icon name="plus" /> Новый поиск
         </Link>
       </div>
@@ -74,7 +75,7 @@ export function HistoryPage() {
         </div>
       )}
 
-      <div className={classes.list}>
+      <div className={`${classes.list} mp-stagger`}>
         {history.isPending &&
           [0, 1, 2, 3].map((i) => (
             <div key={i} className={classes.card}>
@@ -103,7 +104,7 @@ function HistoryCard({ s }: { s: S["SearchSummary"] }) {
   const p = s.params;
   const running = !isFinal(s.status);
   return (
-    <Link to={`/search/${s.id}`} className={classes.card} aria-label={`Открыть поиск «${cut(p.query, 60)}»`}>
+    <Link to={`/search/${s.id}`} className={`${classes.card} mp-signal-card mp-motion-card`} data-lift="soft" aria-label={`Открыть поиск «${cut(p.query, 60)}»`}>
       <div className={classes.cardTop}>
         <span className={classes.status}>
           <span className={`mp-dot ${running ? "mp-pulse" : ""}`} style={{ background: DOT[s.status] }} />

@@ -1,7 +1,10 @@
-// Главная по макету: «С чего начнём?» — две карточки-входа и блок «О сервисе».
+// Главная по макету v2: пульс-отметка, «С чего начнём?», живая строка охвата, две карточки-входа и «О сервисе».
 import { Link } from "react-router";
 
 import { Icon, type IconName } from "../components/Icon";
+import { DataPulse } from "../components/Signal";
+import { useAllSources, usePlatforms } from "../features/search/useCatalog";
+import { fmtNumber, plural } from "../lib/format";
 import classes from "./HomePage.module.css";
 
 const FEATURES: { icon: IconName; title: string; text: string }[] = [
@@ -13,19 +16,21 @@ const FEATURES: { icon: IconName; title: string; text: string }[] = [
 
 export function HomePage() {
   return (
-    <div className={classes.page}>
+    <div className={`${classes.page} mp-page-enter`}>
       <section className={classes.hero}>
         <div className={classes.heroInner}>
-          <div className={classes.heroBadge}>
-            <Icon name="sparkles" size={24} />
+          <div className="mp-pulse-mark">
+            <DataPulse />
           </div>
           <h1 className={classes.heroTitle}>С чего начнём?</h1>
           <p className={classes.heroLead}>
             Найдите публикации по теме или вернитесь к подборкам, которые уже собирали.
           </p>
 
-          <div className={classes.entries}>
-            <Link to="/search" className={classes.entry}>
+          <CoverageRow />
+
+          <div className={`${classes.entries} mp-stagger`}>
+            <Link to="/search" className={`${classes.entry} mp-motion-card`}>
               <span className={`${classes.entryIcon} ${classes.entryIconInk}`}>
                 <Icon name="search" size={20} />
               </span>
@@ -35,7 +40,7 @@ export function HomePage() {
                 Перейти к поиску <Icon name="arrow" className={classes.entryArrow} />
               </span>
             </Link>
-            <Link to="/history" className={classes.entry}>
+            <Link to="/history" className={`${classes.entry} mp-motion-card`}>
               <span className={`${classes.entryIcon} ${classes.entryIconAccent}`}>
                 <Icon name="history" size={20} />
               </span>
@@ -60,7 +65,9 @@ export function HomePage() {
       <section id="about-service" className={classes.about}>
         <div className={classes.aboutGrid}>
           <div>
-            <p className="mp-eyebrow">О сервисе</p>
+            <p className="mp-eyebrow">
+              <span className="mp-section-index">01</span> О сервисе
+            </p>
             <h2 className={classes.aboutTitle}>Находите важное, не просматривая всё вручную</h2>
             <p className={classes.aboutLead}>
               МедиаПульс собирает публикации из социальных сетей и новостных сайтов, проверяет их связь с запросом и
@@ -80,16 +87,41 @@ export function HomePage() {
           </div>
         </div>
 
-        <div className={classes.cta}>
+        <div className={`${classes.cta} mp-motion-card`}>
           <div>
             <p className={classes.ctaTitle}>Готовы начать?</p>
             <p className={classes.ctaText}>Сформулируйте запрос своими словами — остальное сделает сервис.</p>
           </div>
-          <Link to="/search" className="mp-accent-button">
+          <Link to="/search" className="mp-accent-button mp-press">
             Найти публикации
           </Link>
         </div>
       </section>
+    </div>
+  );
+}
+
+/** «3 площадки · 24 источника · Прямой мониторинг» — из GET /platforms и GET /sources, а не из макета. */
+function CoverageRow() {
+  const platforms = usePlatforms();
+  const sources = useAllSources();
+  const working = (platforms.data ?? []).filter((p) => p.status !== "unavailable").length;
+  const total = sources.data?.total;
+
+  return (
+    <div className={classes.coverage}>
+      <span className={classes.coveragePulse}>
+        <DataPulse compact />
+      </span>
+      <span>
+        {platforms.isSuccess ? `${fmtNumber(working)} ${plural(working, ["площадка", "площадки", "площадок"])}` : "Площадки…"}
+      </span>
+      <span className={classes.separator} />
+      <span>
+        {total !== undefined ? `${fmtNumber(total)} ${plural(total, ["источник", "источника", "источников"])}` : "Источники…"}
+      </span>
+      <span className={classes.separator} />
+      <span>Прямой мониторинг</span>
     </div>
   );
 }

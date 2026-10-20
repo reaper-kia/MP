@@ -31,8 +31,9 @@
   color: var(--mp-text);
   text-decoration: none;
   transition:
+    transform 220ms cubic-bezier(0.22, 1, 0.36, 1),
     border-color 150ms ease,
-    box-shadow 150ms ease;
+    box-shadow 220ms ease;
 }
 
 a.card:hover {

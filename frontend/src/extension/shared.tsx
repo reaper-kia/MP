@@ -1,6 +1,7 @@
 // Общее для окошка и настроек расширения: тема сайта, React Query.
 import "@mantine/core/styles.css";
 import "../styles.css";
+import "../motion.css";
 
 import { MantineProvider } from "@mantine/core";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";

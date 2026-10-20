@@ -7,8 +7,8 @@
 .card {
   display: flex;
   align-items: flex-start;
-  gap: 16px;
-  padding: 20px 24px;
+  gap: 24px;
+  padding: 24px 28px;
 }
 
 .icon {
@@ -16,15 +16,18 @@
   flex-shrink: 0;
   align-items: center;
   justify-content: center;
-  width: 48px;
+  width: 80px;
   height: 48px;
   border-radius: 16px;
   background: #d9f99d;
   color: #171914;
-  box-shadow: 0 4px 6px rgb(23 25 20 / 12%);
+  box-shadow:
+    0 0 0 8px rgb(190 242 100 / 10%),
+    0 0 0 16px rgb(190 242 100 / 5%);
 }
 
 .icon[data-queued] {
+  width: 48px;
   background: var(--mp-surface-2);
   color: var(--mp-text-2);
   box-shadow: none;

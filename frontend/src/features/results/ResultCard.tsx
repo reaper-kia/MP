@@ -4,6 +4,7 @@ import { useState } from "react";
 import type { S } from "../../api/client";
 import { Icon } from "../../components/Icon";
 import { PlatformLogo } from "../../components/PlatformLogo";
+import { RelevanceGauge } from "../../components/Signal";
 import { fmtDateTime } from "../../lib/dates";
 import { fmtNumber } from "../../lib/format";
 import classes from "./ResultCard.module.css";
@@ -32,7 +33,8 @@ export function ResultCard({ result: r, selected, onSelect, onExclude, compact }
 
   return (
     <article
-      className={classes.card}
+      className={`${classes.card} ${compact ? "" : "mp-signal-card mp-motion-card"}`}
+      data-lift="soft"
       data-compact={compact || undefined}
       data-excluded={r.excluded || undefined}
       data-selected={selected || undefined}
@@ -59,7 +61,10 @@ export function ResultCard({ result: r, selected, onSelect, onExclude, compact }
             </span>
           )}
           <Tooltip label="Насколько публикация близка к запросу" withArrow>
-            <span className={classes.score}>{Math.round(r.score * 100)}%</span>
+            <span className={classes.score} aria-label={`Близость к запросу ${Math.round(r.score * 100)}%`}>
+              <RelevanceGauge value={r.score} />
+              {Math.round(r.score * 100)}%
+            </span>
           </Tooltip>
         </div>
 
@@ -92,21 +97,23 @@ export function ResultCard({ result: r, selected, onSelect, onExclude, compact }
           {r.excerpt_parts.map((p, i) => (p.highlight ? <mark key={i}>{p.text}</mark> : <span key={i}>{p.text}</span>))}
         </p>
 
-        {expanded && (
-          <div className={classes.details}>
-            <p className={classes.explanation}>
-              <Icon name="sparkles" size={14} />
-              {r.explanation}
-            </p>
-            {(metrics.length > 0 || r.sentiment) && (
-              <p className={classes.metrics}>
-                {[...metrics, r.sentiment ? `тональность: ${SENTIMENT[r.sentiment].label}` : null]
-                  .filter(Boolean)
-                  .join(" · ")}
+        <div className="mp-expand" data-open={expanded || undefined} aria-hidden={!expanded}>
+          <div>
+            <div className={classes.details}>
+              <p className={classes.explanation}>
+                <Icon name="sparkles" size={14} />
+                {r.explanation}
               </p>
-            )}
+              {(metrics.length > 0 || r.sentiment) && (
+                <p className={classes.metrics}>
+                  {[...metrics, r.sentiment ? `тональность: ${SENTIMENT[r.sentiment].label}` : null]
+                    .filter(Boolean)
+                    .join(" · ")}
+                </p>
+              )}
+            </div>
           </div>
-        )}
+        </div>
 
         {/* оценка и действия */}
         <div className={classes.footer}>

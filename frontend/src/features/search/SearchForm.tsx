@@ -1,7 +1,7 @@
-import { SegmentedControl, Textarea, Tooltip } from "@mantine/core";
+import { Popover, SegmentedControl, Textarea, Tooltip } from "@mantine/core";
 // @mantine/dates — только здесь: календарь грузится вместе со страницей поиска, а не на главной (FE-16)
 import "@mantine/dates/styles.css";
-import { DatePickerInput, DatesProvider } from "@mantine/dates";
+import { DatePicker, DatesProvider } from "@mantine/dates";
 import { useDebouncedValue, useDisclosure } from "@mantine/hooks";
 import { notifications } from "@mantine/notifications";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
@@ -11,11 +11,12 @@ import { useNavigate } from "react-router";
 import { api, unwrap, type S } from "../../api/client";
 import { Icon } from "../../components/Icon";
 import { PlatformLogo } from "../../components/PlatformLogo";
+import { DataPulse } from "../../components/Signal";
 import { todayYmd } from "../../lib/dates";
 import { errorText, fieldErrors } from "../../lib/errors";
 import { sourcesCount } from "../../lib/format";
 import { PLATFORM_NAME, PLATFORM_TITLE } from "../../lib/platforms";
-import { detectPreset, presetPeriod, type Period, type PeriodPreset } from "./period";
+import { detectPreset, periodLabel, presetPeriod, PRESETS, type Period, type PeriodPreset } from "./period";
 import classes from "./SearchForm.module.css";
 import { loadSelection, saveSelection } from "./sourceSelection";
 import { SourcePicker } from "./SourcePicker";
@@ -46,6 +47,18 @@ interface Props {
   /** Сообщает, отличаются ли текущие значения формы от initial (для баннера «Параметры изменены»). */
   onDirtyChange?: (dirty: boolean) => void;
 }
+
+// Частые темы края из макета v2 — просто дописываются в текст запроса
+const POPULAR_TAGS = ["#Красноярск", "#КрасноярскийКрай", "#БезопасныеДороги", "#Дороги", "#ГИБДД"];
+
+const tagRe = (tag: string) => new RegExp(`(^|\\s)${tag}(?=\\s|$)`, "iu");
+const hasTag = (q: string, tag: string) => tagRe(tag).test(q);
+const toggleTag = (q: string, tag: string) =>
+  hasTag(q, tag)
+    ? q.replace(tagRe(tag), "$1").replace(/\s{2,}/g, " ").trim()
+    : q.trim()
+      ? `${q.trim()} ${tag}`
+      : tag;
 
 const sameSet = (a: string[], b: string[]) => a.length === b.length && a.every((x) => b.includes(x));
 
@@ -183,16 +196,30 @@ export function SearchForm({ initial, onDirtyChange }: Props) {
         }
       }}
     >
-      <div className="mp-eyebrow">
-        <Icon name="sparkles" />
-        Умный поиск по смыслу
+      <div className={classes.top}>
+        <div>
+          <div className={`mp-eyebrow ${classes.eyebrow}`}>
+            <DataPulse compact />
+            Умный поиск по смыслу
+          </div>
+          <h1 className={classes.title}>Что будем искать?</h1>
+          {!initial && (
+            <p className={classes.lead}>
+              Опишите тему, событие или человека своими словами. Также можно вставить полный текст исходной новости.
+            </p>
+          )}
+        </div>
+        <PeriodButton
+          preset={preset}
+          period={period}
+          error={!!errors.period}
+          onChange={(p, value) => {
+            setPreset(p);
+            setPeriod(value);
+            setErrors((x) => ({ ...x, period: undefined }));
+          }}
+        />
       </div>
-      <h1 className={classes.title}>Что будем искать?</h1>
-      {!initial && (
-        <p className={classes.lead}>
-          Опишите тему, событие или человека своими словами. Также можно вставить полный текст исходной новости.
-        </p>
-      )}
 
       {/* 1. Запрос */}
       <div className={classes.queryBox} data-error={!!errors.query || undefined}>
@@ -225,6 +252,29 @@ export function SearchForm({ initial, onDirtyChange }: Props) {
       </div>
       {errors.query && <p className={classes.error}>{errors.query}</p>}
 
+      {/* частые темы края — дописываются в запрос; повторный клик убирает */}
+      <div className={classes.tags}>
+        <span className={classes.tagsLabel}>Популярные теги</span>
+        {POPULAR_TAGS.map((tag) => {
+          const on = hasTag(query, tag);
+          return (
+            <button
+              key={tag}
+              type="button"
+              className={`${classes.tag} ${on ? "mp-choice-pop" : ""}`}
+              data-active={on || undefined}
+              aria-pressed={on}
+              onClick={() => {
+                setQuery((q) => toggleTag(q, tag));
+                setErrors((x) => ({ ...x, query: undefined }));
+              }}
+            >
+              {tag}
+            </button>
+          );
+        })}
+      </div>
+
       {showAnalysis && (
         <div className={classes.analysis}>
           <div className={classes.chipRow}>
@@ -255,51 +305,6 @@ export function SearchForm({ initial, onDirtyChange }: Props) {
 
       {/* 2. Параметры: период · режим · площадки · источники */}
       <div className={classes.params}>
-        <div className={classes.paramGroup}>
-          <Icon name="calendar" className={classes.paramIcon} />
-          <span className={classes.paramLabel}>Период</span>
-          <SegmentedControl
-            size="xs"
-            radius="md"
-            value={preset}
-            onChange={(v) => {
-              const p = v as PeriodPreset;
-              setPreset(p);
-              if (p !== "custom") setPeriod(presetPeriod(p));
-              setErrors((x) => ({ ...x, period: undefined }));
-            }}
-            data={[
-              { value: "today", label: "Сегодня" },
-              { value: "7d", label: "7 дней" },
-              { value: "30d", label: "30 дней" },
-              { value: "custom", label: "Свой" },
-            ]}
-            classNames={{ root: classes.segment }}
-          />
-          <DatesProvider settings={{ locale: "ru", firstDayOfWeek: 1 }}>
-            <DatePickerInput
-              type="range"
-              size="xs"
-              value={period}
-              onChange={(v) => {
-                setPeriod([v[0], v[1]]);
-                setPreset("custom");
-                setErrors((x) => ({ ...x, period: undefined }));
-              }}
-              maxDate={todayYmd()}
-              allowSingleDateInRange
-              valueFormat="DD.MM.YYYY"
-              placeholder="Выберите даты"
-              error={!!errors.period}
-              aria-label="Период публикации"
-              w={184}
-              classNames={{ input: classes.dateInput }}
-            />
-          </DatesProvider>
-        </div>
-
-        <span className={classes.divider} />
-
         <SegmentedControl
           size="xs"
           radius="md"
@@ -399,5 +404,95 @@ export function SearchForm({ initial, onDirtyChange }: Props) {
         />
       )}
     </form>
+  );
+}
+
+/** Кнопка периода в углу формы (макет v2): быстрые периоды, календарь на диапазон и «Применить период». */
+function PeriodButton({
+  preset,
+  period,
+  error,
+  onChange,
+}: {
+  preset: PeriodPreset;
+  period: Period;
+  error: boolean;
+  onChange: (preset: PeriodPreset, period: Period) => void;
+}) {
+  const [opened, setOpened] = useState(false);
+  const [draft, setDraft] = useState<Period>(period);
+  useEffect(() => {
+    if (opened) setDraft(period);
+  }, [opened]); // eslint-disable-line react-hooks/exhaustive-deps -- черновик берём при открытии
+
+  return (
+    <Popover
+      opened={opened}
+      onChange={setOpened}
+      position="bottom-end"
+      shadow="xl"
+      radius="lg"
+      withinPortal
+      transitionProps={{ transition: "pop-top-right", duration: 200 }}
+    >
+      <Popover.Target>
+        <button
+          type="button"
+          className={`${classes.periodButton} mp-press`}
+          data-error={error || undefined}
+          aria-expanded={opened}
+          aria-label={`Период публикации: ${periodLabel(preset, period)}`}
+          onClick={() => setOpened((x) => !x)}
+        >
+          <Icon name="calendar" />
+          {periodLabel(preset, period)}
+          <Icon name="chevron" size={14} className={opened ? classes.flip : undefined} />
+        </button>
+      </Popover.Target>
+      <Popover.Dropdown p="sm" className={classes.periodDropdown}>
+        <p className={classes.periodCaption}>Быстрый период</p>
+        <div className={classes.presetGrid}>
+          {PRESETS.map((p) => (
+            <button
+              key={p.value}
+              type="button"
+              className={classes.preset}
+              data-active={preset === p.value || undefined}
+              onClick={() => {
+                onChange(p.value, presetPeriod(p.value));
+                setOpened(false);
+              }}
+            >
+              {p.short}
+            </button>
+          ))}
+        </div>
+        <div className={classes.periodDates}>
+          <p className={classes.periodCaption}>Выбрать даты</p>
+          <DatesProvider settings={{ locale: "ru", firstDayOfWeek: 1 }}>
+            <DatePicker
+              type="range"
+              size="xs"
+              value={draft}
+              onChange={(v) => setDraft([v[0], v[1]])}
+              maxDate={todayYmd()}
+              allowSingleDateInRange
+              defaultDate={draft[1] ?? undefined}
+            />
+          </DatesProvider>
+          <button
+            type="button"
+            className={classes.applyPeriod}
+            disabled={!draft[0] || !draft[1]}
+            onClick={() => {
+              onChange(detectPreset(draft), draft);
+              setOpened(false);
+            }}
+          >
+            Применить период
+          </button>
+        </div>
+      </Popover.Dropdown>
+    </Popover>
   );
 }

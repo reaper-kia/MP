@@ -1,21 +1,8 @@
-// Управление источниками (FE-08): таблица с поиском и фильтром, переключатели, заметки, добавление, удаление.
-// Импорт из Excel спрятан, пока бэкенд отвечает 501 (B2-10).
-import {
-  ActionIcon,
-  Alert,
-  Anchor,
-  Button,
-  Group,
-  Modal,
-  Pagination,
-  SegmentedControl,
-  Skeleton,
-  Switch,
-  Table,
-  Text,
-  TextInput,
-  Tooltip,
-} from "@mantine/core";
+// Источники по макету v2: карточки площадок, под ними — раскрывающиеся блоки с карточками сообществ.
+// Отметка на карточке = «активный» (участвует в поиске «Везде» и выбран по умолчанию) — PATCH is_active.
+// В макете сообщества «загружаются» из аккаунта соцсети; у нас входа нет (контракт: все ручки анонимные),
+// поэтому каталог наполняется по ссылке (AddSource), а кнопка площадки просто раскрывает её блок.
+import { Button, Group, Modal, Skeleton, Text, TextInput, Tooltip } from "@mantine/core";
 import { useDebouncedValue } from "@mantine/hooks";
 import { notifications } from "@mantine/notifications";
 import { useEffect, useState } from "react";
@@ -24,201 +11,182 @@ import { useSearchParams } from "react-router";
 import type { S } from "../api/client";
 import { Icon } from "../components/Icon";
 import { PlatformLogo } from "../components/PlatformLogo";
+import { SourceStack } from "../components/Signal";
 import { useAllSources, usePlatforms } from "../features/search/useCatalog";
 import { AddSource } from "../features/sources/AddSource";
-import { SOURCES_PAGE, useDeleteSource, useSourcePage, useUpdateSource } from "../features/sources/useSources";
+import { useDeleteSource, usePlatformSources, useUpdateSource } from "../features/sources/useSources";
 import { errorText } from "../lib/errors";
-import { sourcesCount } from "../lib/format";
+import { fmtNumber, sourcesCount } from "../lib/format";
 import { PLATFORM_NAME } from "../lib/platforms";
 import classes from "./SourcesPage.module.css";
 
-const PLATFORM_FILTER = [
-  { value: "all", label: "Все площадки" },
-  { value: "vk", label: "VK" },
-  { value: "ok", label: "OK" },
-  { value: "max", label: "MAX" },
-  { value: "news", label: "Новости" },
-];
+const STATUS_VIEW: Record<S["PlatformInfo"]["status"], { label: string; color: string }> = {
+  ok: { label: "Работает", color: "#34d399" },
+  degraded: { label: "С ограничениями", color: "#fbbf24" },
+  unavailable: { label: "Не подключена", color: "#f87171" },
+};
+
+const host = (url: string) => {
+  try {
+    return new URL(url).host.replace(/^www\./, "") + new URL(url).pathname.replace(/\/$/, "");
+  } catch {
+    return url;
+  }
+};
 
 export function SourcesPage() {
+  const platforms = usePlatforms();
+  const all = useAllSources();
   const [q, setQ] = useState("");
   const [debouncedQ] = useDebouncedValue(q.trim(), 300);
-  const [platform, setPlatform] = useState<S["Platform"] | null>(null);
-  const [page, setPage] = useState(1);
+  // раскрытые блоки площадок; null — «как по умолчанию»: раскрыты все, где есть источники
+  const [expanded, setExpanded] = useState<S["Platform"][] | null>(null);
   const [highlight, setHighlight] = useState<string | null>(null);
   const [toDelete, setToDelete] = useState<S["Source"] | null>(null);
   // ?add=<ссылка> — расширение Chrome (FE-10) прислало адрес открытой вкладки: сразу проверяем его
   const [params] = useSearchParams();
   const addUrl = params.get("add") ?? undefined;
 
-  // Сменили фильтр — на первую страницу
-  useEffect(() => setPage(1), [debouncedQ, platform]);
+  const list = platforms.data ?? [];
+  const items = all.data?.items ?? [];
+  const activeCount = items.filter((s) => s.is_active).length;
+  const withSources = list.filter((p) => items.some((s) => s.platform === p.code)).map((p) => p.code);
+  const open = expanded ?? withSources;
+  // ищем по всем площадкам — блоки, где могут быть совпадения, раскрыты
+  const shown = debouncedQ ? list.map((p) => p.code) : open;
 
-  const sources = useSourcePage({ q: debouncedQ, platform, page });
-  const update = useUpdateSource();
-  const data = sources.data;
-  const pages = data ? Math.max(1, Math.ceil(data.total / SOURCES_PAGE)) : 1;
+  const toggle = (code: S["Platform"]) =>
+    setExpanded(open.includes(code) ? open.filter((c) => c !== code) : [...open, code]);
 
-  // После удаления последней строки страницы — на предыдущую
-  useEffect(() => {
-    if (data && page > pages) setPage(pages);
-  }, [data, page, pages]);
-
-  // Подсвеченная строка («Уже в списке» → «Показать в таблице») — прокрутить к ней
-  useEffect(() => {
-    if (!highlight || !data?.items.some((s) => s.id === highlight)) return;
-    document.getElementById(`source-${highlight}`)?.scrollIntoView({ block: "center", behavior: "smooth" });
-  }, [highlight, data]);
-
-  const showExisting = (p: S["SourcePreview"]) => {
-    setQ(p.name);
-    setPlatform(p.platform);
-    setHighlight(p.existing_source_id);
+  const reveal = (id: string, platform: S["Platform"], name: string) => {
+    setQ(name);
+    setExpanded([...new Set([...open, platform])]);
+    setHighlight(id);
   };
 
-  // Добавили — снимаем фильтры, чтобы новая строка была видна, и подсвечиваем её
-  const showAdded = (s: S["Source"]) => {
-    setQ("");
-    setPlatform(null);
-    setHighlight(s.id);
-  };
+  // Подсвеченная карточка («Уже в списке» → «Показать», только что добавленная) — прокрутить к ней
+  useEffect(() => {
+    if (!highlight) return;
+    const timer = window.setTimeout(
+      () => document.getElementById(`source-${highlight}`)?.scrollIntoView({ block: "center", behavior: "smooth" }),
+      350,
+    );
+    return () => window.clearTimeout(timer);
+  }, [highlight, debouncedQ]);
 
   return (
-    <div className={`mp-container ${classes.page}`}>
-      <div>
-        <h1 className="mp-page-title">Источники</h1>
-        <p className="mp-page-lead">Управляйте группами, сообществами и каналами без изменения настроек системы.</p>
+    <div className={`mp-container mp-page-enter ${classes.page}`}>
+      <div className={classes.head}>
+        <div>
+          <h1 className="mp-page-title">Источники</h1>
+          <p className="mp-page-lead">
+            Добавьте группы, сообщества, каналы и сайты по ссылке и отметьте те, публикации которых должны попадать в
+            поиск по умолчанию.
+          </p>
+        </div>
+        <div className={`${classes.counter} mp-signal-counter`}>
+          <p className={classes.counterLabel}>Выбрано</p>
+          <p className={classes.counterValue}>
+            <SourceStack />
+            {all.isSuccess ? `${fmtNumber(activeCount)} из ${fmtNumber(all.data.total)}` : "…"}
+          </p>
+        </div>
       </div>
 
-      <PlatformStats />
+      <div className={`${classes.platforms} mp-stagger`}>
+        {list.map((p) => {
+          const n = items.filter((s) => s.platform === p.code).length;
+          const active = items.filter((s) => s.platform === p.code && s.is_active).length;
+          const st = STATUS_VIEW[p.status];
+          const isOpen = open.includes(p.code);
+          return (
+            <div key={p.code} className={`${classes.platform} mp-signal-card mp-motion-card`}>
+              <div className={classes.platformHead}>
+                <PlatformLogo platform={p.code} title={null} />
+                <div className={classes.platformText}>
+                  <p className={classes.platformName}>{PLATFORM_NAME[p.code]}</p>
+                  <p className={classes.platformMeta}>
+                    {all.isSuccess ? (n ? `${active} из ${n} выбрано` : "Источников пока нет") : "…"}
+                  </p>
+                </div>
+              </div>
+              <Tooltip label={p.note ?? ""} disabled={!p.note} multiline maw={280}>
+                <p className={classes.platformStatus}>
+                  <span className="mp-dot" style={{ background: st.color }} />
+                  {st.label}
+                  {p.global_mode ? " · поиск «Везде»" : " · только по списку"}
+                </p>
+              </Tooltip>
+              <button
+                type="button"
+                className={`${classes.platformButton} mp-press`}
+                data-open={isOpen || undefined}
+                disabled={n === 0}
+                onClick={() => toggle(p.code)}
+                aria-expanded={isOpen}
+              >
+                <Icon name={isOpen ? "check" : n === 0 ? "plus" : "sources"} size={14} />
+                {n === 0 ? "Нет источников" : isOpen ? "Скрыть сообщества" : "Показать сообщества"}
+              </button>
+            </div>
+          );
+        })}
+        {platforms.isPending &&
+          [0, 1, 2].map((i) => (
+            <div key={i} className={classes.platform}>
+              <Skeleton height={40} width={40} radius="md" mb="md" />
+              <Skeleton height={12} width="60%" />
+            </div>
+          ))}
+      </div>
 
-      <AddSource key={addUrl} initialUrl={addUrl} onShowExisting={showExisting} onAdded={showAdded} />
+      <AddSource
+        key={addUrl}
+        initialUrl={addUrl}
+        onShowExisting={(p) => p.existing_source_id && reveal(p.existing_source_id, p.platform, p.name)}
+        onAdded={(s) => reveal(s.id, s.platform, "")}
+      />
 
-      <Group gap="sm" wrap="wrap">
+      <div className={classes.listHead}>
+        <div>
+          <h2 className={classes.listTitle}>Доступные сообщества</h2>
+          <p className={classes.listHint}>Нажмите на карточку, чтобы включить или исключить источник из поиска по умолчанию.</p>
+        </div>
         <TextInput
           placeholder="Поиск по названию или ссылке"
           leftSection={<Icon name="search" />}
           value={q}
           onChange={(e) => setQ(e.currentTarget.value)}
-          w={320}
+          w={300}
+          radius="md"
           aria-label="Поиск по источникам"
         />
-        <SegmentedControl
-          value={platform ?? "all"}
-          onChange={(v) => setPlatform(v === "all" ? null : (v as S["Platform"]))}
-          data={PLATFORM_FILTER}
-        />
-        {data && (
-          <Text size="sm" c="dimmed" ml="auto">
-            {debouncedQ || platform ? `Найдено: ${sourcesCount(data.total)}` : `Всего: ${sourcesCount(data.total)}`}
-          </Text>
-        )}
-      </Group>
-
-      {sources.isError && !data && (
-        <Alert color="red" title="Не удалось загрузить источники">
-          {errorText(sources.error)}{" "}
-          <Anchor component="button" type="button" size="sm" onClick={() => sources.refetch()}>
-            Повторить
-          </Anchor>
-        </Alert>
-      )}
-
-      <div className={classes.tableCard}>
-      <Table
-        highlightOnHover
-        verticalSpacing="sm"
-        horizontalSpacing="md"
-        classNames={{ th: classes.th, tr: classes.tr }}
-        style={{ opacity: sources.isPlaceholderData ? 0.6 : 1 }}
-      >
-        <Table.Thead>
-          <Table.Tr>
-            <Table.Th w={70}>Площадка</Table.Th>
-            <Table.Th>Название</Table.Th>
-            <Table.Th w={140}>Город</Table.Th>
-            <Table.Th w={120}>Региональный</Table.Th>
-            <Table.Th w={150}>
-              Активный
-              <Text size="xs" c="dimmed" fw={400} tt="none" lts={0}>
-                участвует в поиске «Везде»
-              </Text>
-            </Table.Th>
-            <Table.Th>Заметка</Table.Th>
-            <Table.Th w={60} />
-          </Table.Tr>
-        </Table.Thead>
-        <Table.Tbody>
-          {sources.isPending &&
-            [0, 1, 2, 3].map((i) => (
-              <Table.Tr key={i}>
-                <Table.Td colSpan={7}>
-                  <Skeleton height={14} />
-                </Table.Td>
-              </Table.Tr>
-            ))}
-          {data?.items.map((s) => (
-            <Table.Tr
-              key={s.id}
-              id={`source-${s.id}`}
-              bg={s.id === highlight ? "var(--mp-accent-soft)" : undefined}
-            >
-              <Table.Td>
-                <PlatformLogo platform={s.platform} size="sm" />
-              </Table.Td>
-              <Table.Td>
-                <Anchor href={s.url} target="_blank" rel="noopener noreferrer" size="sm" fw={700} c="var(--mp-text)">
-                  {s.name}
-                </Anchor>
-              </Table.Td>
-              <Table.Td>
-                <Text size="sm">{s.city ?? "—"}</Text>
-              </Table.Td>
-              <Table.Td>
-                <Switch
-                  checked={s.is_regional}
-                  onChange={(e) => update.mutate({ id: s.id, patch: { is_regional: e.currentTarget.checked } })}
-                  aria-label={`Региональный: ${s.name}`}
-                />
-              </Table.Td>
-              <Table.Td>
-                <Switch
-                  checked={s.is_active}
-                  onChange={(e) => update.mutate({ id: s.id, patch: { is_active: e.currentTarget.checked } })}
-                  aria-label={`Активный: ${s.name}`}
-                />
-              </Table.Td>
-              <Table.Td>
-                <NoteCell source={s} onSave={(notes) => update.mutate({ id: s.id, patch: { notes } })} />
-              </Table.Td>
-              <Table.Td>
-                <Tooltip label="Удалить источник">
-                  <ActionIcon variant="subtle" color="red" onClick={() => setToDelete(s)} aria-label={`Удалить ${s.name}`}>
-                    <Icon name="trash" />
-                  </ActionIcon>
-                </Tooltip>
-              </Table.Td>
-            </Table.Tr>
-          ))}
-          {data && data.items.length === 0 && (
-            <Table.Tr>
-              <Table.Td colSpan={7}>
-                <Text c="dimmed" ta="center" py="md">
-                  {debouncedQ || platform
-                    ? "Под эти условия источников нет."
-                    : "Список пуст — добавьте первый источник по ссылке выше."}
-                </Text>
-              </Table.Td>
-            </Table.Tr>
-          )}
-        </Table.Tbody>
-      </Table>
       </div>
 
-      {pages > 1 && (
-        <Group justify="center">
-          <Pagination value={page} onChange={setPage} total={pages} />
-        </Group>
+      {all.isSuccess && items.length === 0 && !debouncedQ ? (
+        <div className={classes.empty}>
+          <span className={classes.emptyIcon}>
+            <Icon name="sources" size={20} />
+          </span>
+          <p className={classes.emptyTitle}>Подключите первый источник</p>
+          <p className={classes.emptyText}>Вставьте ссылку на группу VK, Одноклассников, канал MAX или сайт — он появится здесь.</p>
+        </div>
+      ) : (
+        <div className={`${classes.sections} mp-stagger`}>
+          {list
+            .filter((p) => shown.includes(p.code))
+            .map((p) => (
+              <PlatformSection
+                key={p.code}
+                platform={p.code}
+                q={debouncedQ}
+                expanded={open.includes(p.code) || !!debouncedQ}
+                onToggle={() => toggle(p.code)}
+                highlight={highlight}
+                onDelete={setToDelete}
+              />
+            ))}
+        </div>
       )}
 
       <DeleteModal source={toDelete} onClose={() => setToDelete(null)} />
@@ -226,61 +194,160 @@ export function SourcesPage() {
   );
 }
 
-const STATUS_VIEW: Record<S["PlatformInfo"]["status"], { label: string; color: string; fill: number }> = {
-  ok: { label: "Работает", color: "#34d399", fill: 100 },
-  degraded: { label: "Работает с ограничениями", color: "#fbbf24", fill: 60 },
-  unavailable: { label: "Не подключена", color: "#f87171", fill: 8 },
-};
+function PlatformSection({
+  platform,
+  q,
+  expanded,
+  onToggle,
+  highlight,
+  onDelete,
+}: {
+  platform: S["Platform"];
+  q: string;
+  expanded: boolean;
+  onToggle: () => void;
+  highlight: string | null;
+  onDelete: (s: S["Source"]) => void;
+}) {
+  const sources = usePlatformSources(platform, q, true);
+  const update = useUpdateSource();
+  const pages = sources.data?.pages ?? [];
+  const items = pages.flatMap((p) => p.items);
+  const total = pages[0]?.total ?? 0;
+  const active = items.filter((s) => s.is_active).length;
 
-/** Карточки площадок из макета: сколько источников в каталоге и состояние площадки из GET /platforms. */
-function PlatformStats() {
-  const platforms = usePlatforms();
-  const all = useAllSources();
-  const list = platforms.data ?? [];
-  if (list.length === 0) return null;
-  const items = all.data?.items ?? [];
+  // при поиске пустые площадки не показываем
+  if (q && sources.isSuccess && total === 0) return null;
 
   return (
-    <div className={classes.stats}>
-      {list.map((p) => {
-        const n = items.filter((s) => s.platform === p.code).length;
-        const active = items.filter((s) => s.platform === p.code && s.is_active).length;
-        const st = STATUS_VIEW[p.status];
-        return (
-          <Tooltip
-            key={p.code}
-            label={p.note ?? (p.status === "unavailable" ? "Площадка не подключена" : "")}
-            disabled={!p.note && p.status !== "unavailable"}
-            multiline
-            maw={280}
-          >
-            <div className={classes.stat}>
-              <div className={classes.statHead}>
-                <PlatformLogo platform={p.code} title={null} />
-                <div>
-                  <p className={classes.statName}>{PLATFORM_NAME[p.code]}</p>
-                  <p className={classes.statMeta}>
-                    {all.isSuccess ? `${sourcesCount(n)} · активных ${active}` : "…"}
-                  </p>
-                </div>
+    <section className={`${classes.section} mp-motion-card`} data-lift="soft">
+      <button type="button" className={classes.sectionHead} onClick={onToggle} aria-expanded={expanded}>
+        <PlatformLogo platform={platform} size="sm" title={null} />
+        <span className={classes.sectionText}>
+          <span className={classes.sectionName}>{PLATFORM_NAME[platform]}</span>
+          <span className={classes.sectionMeta}>
+            {sources.isSuccess
+              ? q
+                ? `Найдено: ${sourcesCount(total)}`
+                : `${active} из ${total} выбрано`
+              : "Загружаем…"}
+          </span>
+        </span>
+        <span className={classes.sectionToggle}>{expanded ? "Свернуть" : "Показать"}</span>
+        <Icon name="chevron" className={expanded ? classes.flip : undefined} />
+      </button>
+
+      {expanded && (
+        <div className={`${classes.grid} mp-accordion-in`}>
+          {sources.isError && !sources.data && (
+            <p className={classes.error}>
+              {errorText(sources.error)}{" "}
+              <button type="button" className={classes.link} onClick={() => sources.refetch()}>
+                Повторить
+              </button>
+            </p>
+          )}
+          {sources.isPending &&
+            [0, 1].map((i) => (
+              <div key={i} className={classes.community}>
+                <Skeleton height={40} width={40} radius="md" />
+                <Skeleton height={12} width="60%" />
               </div>
-              <div className={classes.bar}>
-                <div style={{ width: `${st.fill}%`, background: st.color }} />
-              </div>
-              <p className={classes.statStatus}>
-                {st.label}
-                {p.global_mode ? " · поиск «Везде»" : " · только по списку"}
-              </p>
-            </div>
-          </Tooltip>
-        );
-      })}
+            ))}
+          {items.map((s) => (
+            <CommunityCard
+              key={s.id}
+              source={s}
+              highlighted={s.id === highlight}
+              onToggleActive={() => update.mutate({ id: s.id, patch: { is_active: !s.is_active } })}
+              onToggleRegional={() => update.mutate({ id: s.id, patch: { is_regional: !s.is_regional } })}
+              onSaveNote={(notes) => update.mutate({ id: s.id, patch: { notes } })}
+              onDelete={() => onDelete(s)}
+            />
+          ))}
+          {sources.hasNextPage && (
+            <Group justify="center" className={classes.more}>
+              <Button variant="default" size="xs" loading={sources.isFetchingNextPage} onClick={() => sources.fetchNextPage()}>
+                Показать ещё
+              </Button>
+            </Group>
+          )}
+        </div>
+      )}
+    </section>
+  );
+}
+
+function CommunityCard({
+  source: s,
+  highlighted,
+  onToggleActive,
+  onToggleRegional,
+  onSaveNote,
+  onDelete,
+}: {
+  source: S["Source"];
+  highlighted: boolean;
+  onToggleActive: () => void;
+  onToggleRegional: () => void;
+  onSaveNote: (notes: string) => void;
+  onDelete: () => void;
+}) {
+  return (
+    <div
+      id={`source-${s.id}`}
+      className={classes.community}
+      data-selected={s.is_active || undefined}
+      data-highlight={highlighted || undefined}
+    >
+      <button
+        type="button"
+        role="checkbox"
+        aria-checked={s.is_active}
+        className={classes.communityMain}
+        onClick={onToggleActive}
+        title={s.is_active ? "Исключить из поиска по умолчанию" : "Включить в поиск по умолчанию"}
+      >
+        <PlatformLogo platform={s.platform} title={null} />
+        <span className={classes.communityText}>
+          <span className={classes.communityName}>
+            <span className={classes.truncate}>{s.name}</span>
+            {s.is_regional && <Icon name="check" size={14} className={classes.regionalMark} />}
+          </span>
+          <span className={classes.communityMeta}>
+            {[s.city, host(s.url)].filter(Boolean).join(" · ")}
+          </span>
+        </span>
+        <span className={classes.checkbox} data-on={s.is_active || undefined} aria-hidden="true">
+          <Icon name="check" size={14} />
+        </span>
+      </button>
+      <div className={classes.communityActions}>
+        <button
+          type="button"
+          className={classes.chip}
+          data-on={s.is_regional || undefined}
+          aria-pressed={s.is_regional}
+          onClick={onToggleRegional}
+          title="Источник относится к Красноярскому краю"
+        >
+          <Icon name="location" size={12} />
+          {s.is_regional ? "Региональный" : "Не региональный"}
+        </button>
+        <NoteButton source={s} onSave={onSaveNote} />
+        <a href={s.url} target="_blank" rel="noopener noreferrer" className={classes.iconAction} aria-label={`Открыть ${s.name}`}>
+          <Icon name="external" size={14} />
+        </a>
+        <button type="button" className={`${classes.iconAction} ${classes.danger}`} onClick={onDelete} aria-label={`Удалить ${s.name}`}>
+          <Icon name="trash" size={14} />
+        </button>
+      </div>
     </div>
   );
 }
 
 /** Заметка: текст, по клику — поле; Enter / уход с поля — сохранить, Esc — отменить. */
-function NoteCell({ source, onSave }: { source: S["Source"]; onSave: (notes: string) => void }) {
+function NoteButton({ source, onSave }: { source: S["Source"]; onSave: (notes: string) => void }) {
   const [editing, setEditing] = useState(false);
   const [value, setValue] = useState(source.notes);
   useEffect(() => setValue(source.notes), [source.notes]);
@@ -297,6 +364,7 @@ function NoteCell({ source, onSave }: { source: S["Source"]; onSave: (notes: str
         autoFocus
         value={value}
         maxLength={1000}
+        className={classes.noteInput}
         onChange={(e) => setValue(e.currentTarget.value)}
         onBlur={save}
         onKeyDown={(e) => {
@@ -311,9 +379,9 @@ function NoteCell({ source, onSave }: { source: S["Source"]; onSave: (notes: str
     );
   }
   return (
-    <Anchor component="button" type="button" size="sm" c={source.notes ? undefined : "dimmed"} onClick={() => setEditing(true)} ta="left">
+    <button type="button" className={classes.note} data-empty={!source.notes || undefined} onClick={() => setEditing(true)} title={source.notes || undefined}>
       {source.notes || "+ заметка"}
-    </Anchor>
+    </button>
   );
 }
 
@@ -350,4 +418,3 @@ function DeleteModal({ source, onClose }: { source: S["Source"] | null; onClose:
     </Modal>
   );
 }
-
