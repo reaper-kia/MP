@@ -64,7 +64,7 @@ def key(query: str = "ДТП Красноярск", **kw: object) -> str:
 def test_key_normalizes_query_and_order() -> None:
     assert key("  ДТП   Красноярск ") == key("дтп красноярск")
     assert key(targets=[src(B_ID, "ok"), src(A_ID), src(A_ID)]) == key()
-    assert key().startswith("mp:search:v3:") and "дтп" not in key().lower()
+    assert key().startswith("mp:search:v4:") and "дтп" not in key().lower()
 
 
 def test_key_differs_by_period_and_where_we_search() -> None:
@@ -421,7 +421,7 @@ async def test_cache_logs_hit_miss_store_without_query_text(stand: Stand) -> Non
     with structlog.testing.capture_logs() as logs:
         await wait_final(stub, (await start(stub, [source_id])).id)
         await start(stub, [source_id])
-    events = [e["event"] for e in logs if str(e.get("key", "")).startswith("mp:search:v3:")]
+    events = [e["event"] for e in logs if str(e.get("key", "")).startswith("mp:search:v4:")]
     assert events == ["cache miss", "cache store", "cache hit"]
     assert not any("дорожного" in str(e) for e in logs if e["event"].startswith("cache"))
 
