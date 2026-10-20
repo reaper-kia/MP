@@ -159,7 +159,7 @@ def build_container(settings: Settings) -> Container:
         show_degraded_warning=settings.ml_show_degraded_warning,
         cache=cache,
     )
-    runner = AsyncioSearchRunner(pipeline)
+    runner = AsyncioSearchRunner(pipeline, settings.search_max_parallel)
     return Container(
         engine=engine,
         uow=uow,

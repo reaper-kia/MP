@@ -37,6 +37,8 @@ class Settings(BaseSettings):
 
     # пайплайн (B2-04)
     collect_concurrency: int = 5
+    # очередь поисков (B2-15): сколько поисков идёт одновременно, остальные ждут в queued
+    search_max_parallel: int = 1
     target_timeout: int = 60  # одна цель (источник / площадка) целиком
 
     # кэш готовых подборок в Redis (B2-20). false — всё как до кэша

@@ -38,6 +38,8 @@ services:
       ML_GRPC_TARGET: ml_service:50055
       # false — не показывать «ML работал в упрощённом режиме» (эвристики), ML-15
       ML_SHOW_DEGRADED_WARNING: ${ML_SHOW_DEGRADED_WARNING:-true}
+      # очередь поисков (B2-15): сколько поисков идёт одновременно (модели на одной видеокарте)
+      SEARCH_MAX_PARALLEL: ${SEARCH_MAX_PARALLEL:-1}
       # кэш в Redis (B2-20): CACHE_ENABLED=false — выключен, всё как до кэша
       CACHE_ENABLED: ${CACHE_ENABLED:-true}
       REDIS_URL: ${REDIS_URL:-redis://redis:6379/0}
