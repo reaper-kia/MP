@@ -126,7 +126,9 @@ def build_connectors(settings: Settings, http: httpx.AsyncClient) -> list[Platfo
     )
     vk = build_vk(settings, http)
     return [
-        WithSearchFallback(vk, SiteSearch(yandex, "vk.com", vk)),
+        WithSearchFallback(
+            vk, SiteSearch(yandex, "vk.com", vk), native=settings.vk_newsfeed_search
+        ),
         WithSiteSearch(ok, SiteSearch(yandex, "ok.ru", ok)),
         MaxConnector(max_api),
         NewsConnector(

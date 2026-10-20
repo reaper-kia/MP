@@ -7,6 +7,9 @@ class StubCollector:
     async def resolve_source(self, url: str) -> SourceInfo:
         raise NotImplementedError("collector service not wired yet")
 
+    async def global_platforms(self) -> set[str]:
+        return set()
+
     async def collect_from_source(self, **kw: object) -> CollectResult:
         return CollectResult(posts=[], truncated=False, warnings=[])
 

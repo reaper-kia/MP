@@ -321,7 +321,7 @@ export function SearchForm({ initial, onDirtyChange }: Props) {
             const hints = [
               unavailable ? `${PLATFORM_NAME[p.code]} — недоступна` : PLATFORM_NAME[p.code],
               p.note ?? (unavailable ? "Площадка не подключена" : null),
-              sourcesOnly ? "В режиме «Везде» ищем только в ваших источниках этой площадки" : null,
+              sourcesOnly ? "«Везде» здесь — все активные источники каталога" : null,
             ].filter(Boolean);
             return (
               <Tooltip key={p.code} label={hints.join(" · ")} multiline maw={280}>

@@ -19,6 +19,7 @@ from search_service.applications.ports.collector_client import (
     RawPost,
     SourceInfo,
 )
+from search_service.domain.enums import Platform
 from search_service.domain.errors import CollectorError
 
 log = structlog.get_logger()
@@ -163,6 +164,9 @@ class StubCollectorClient:
         self._raise_if_down(platform)
         posts = [self._to_raw(p) for p in _FIXTURES if p["platform"] == platform]
         return self._pack(posts, start_utc, end_utc, max_posts)
+
+    async def global_platforms(self) -> set[str]:
+        return {p.value for p in Platform} - set(self._fail)
 
     def _raise_if_down(self, platform: str) -> None:
         if platform in self._fail:

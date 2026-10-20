@@ -38,7 +38,8 @@ const NONE: NoGlobal = new Set();
 
 /**
  * Цель «поиск по площадке» там, где площадка его не умеет (MAX в режиме «Везде»).
- * Сервер всё равно создаёт такую цель и она падает — показываем это как пометку, а не как ошибку.
+ * Сервер такие цели больше не создаёт, но они есть в старых поисках из истории — показываем
+ * их как пометку, а не как ошибку.
  */
 export const isUnsupportedGlobal = (t: S["SearchTarget"], noGlobal: NoGlobal) =>
   t.kind === "platform_search" && t.status !== "done" && noGlobal.has(t.platform);

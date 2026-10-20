@@ -43,6 +43,10 @@ class CollectResult:
 
 class CollectorClient(Protocol):
     async def resolve_source(self, url: str) -> SourceInfo: ...
+    async def global_platforms(self) -> set[str]:
+        """Площадки, которые сейчас умеют искать по всей площадке (GetPlatforms: global_mode)."""
+        ...
+
     async def collect_from_source(
         self,
         *,

@@ -17,7 +17,7 @@ from search_service.applications.ports.ml_client import (
 )
 from search_service.applications.request_context import current_request_id
 from search_service.domain.entities import Publication, Search, SearchResult, SearchTarget, Source
-from search_service.domain.enums import DateStatus, QueryType, Relevance
+from search_service.domain.enums import DateStatus, Platform, QueryType, Relevance
 
 
 class InMemorySources:
@@ -206,6 +206,14 @@ class FakeCollector:
         self.calls: list[str] = []
         self.request_ids: list[str] = []  # request_id в момент каждого вызова (B2-12)
         self.delay = 0.0  # секунды на сбор — для отмены «на лету»
+        self.no_global: set[str] = set()  # площадки без поиска по всей площадке
+        self.platforms_down = False  # GetPlatforms не отвечает
+
+    async def global_platforms(self) -> set[str]:
+        self.calls.append("platforms")
+        if self.platforms_down:
+            raise UpstreamError("collector", "COLLECTOR_UNAVAILABLE", "collector недоступен")
+        return {p.value for p in Platform} - self.no_global
 
     async def resolve_source(self, url: str) -> SourceInfo:
         self.calls.append(f"resolve:{url}")

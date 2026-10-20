@@ -198,10 +198,11 @@ class Yandex:
         return [SearchHit(url=u, title="", snippet="") for u in self.urls] if page == 0 else []
 
 
-def fallback_vk(vk: ScriptedVk, yandex: Yandex) -> WithSearchFallback:
+def fallback_vk(vk: ScriptedVk, yandex: Yandex, *, native: bool = True) -> WithSearchFallback:
     api = VkApiClient(vk, token="t", version="5.199", limiter=RateLimiter(0), sleep=no_sleep)
     connector = VkConnector(api)
-    return WithSearchFallback(connector, SiteSearch(yandex, "vk.com", connector))  # type: ignore[arg-type]
+    site = SiteSearch(yandex, "vk.com", connector)  # type: ignore[arg-type]
+    return WithSearchFallback(connector, site, native=native)
 
 
 async def test_1051_switches_to_yandex_and_opens_posts() -> None:
@@ -237,6 +238,27 @@ async def test_native_search_is_kept_when_it_works() -> None:
     yandex = Yandex([])
     pages = await gather(fallback_vk(vk, yandex).search(["ДТП"], PERIOD, []))
     assert sum(len(p.posts) for p in pages) == 1 and yandex.texts == []
+
+
+async def test_native_search_off_is_not_tried_and_global_mode_is_off() -> None:
+    """VK_NEWSFEED_SEARCH=false: newsfeed.search не зовём, «везде» во VK — источники каталога."""
+    vk = ScriptedVk(users_get=ok([{"id": 1}]), newsfeed_search=vk_error(1051))
+    wrapped = fallback_vk(vk, Yandex([], configured=False), native=False)
+    info = await wrapped.health()
+    assert info.health is Health.OK and info.source_mode_supported
+    assert not info.global_mode_supported and "1051" in info.note
+    with pytest.raises(PlatformUnavailableError, match="не настроен"):
+        await gather(wrapped.search(["ДТП"], PERIOD, []))
+    assert vk.params("newsfeed.search") == []
+
+    yandex = Yandex(["https://vk.com/wall-10_5"])
+    vk = ScriptedVk(
+        newsfeed_search=vk_error(1051),
+        wall_getById=ok({"items": [ITEM], "groups": [{"id": 10, "name": "Новости"}]}),
+    )
+    pages = await gather(fallback_vk(vk, yandex, native=False).search(["ДТП"], PERIOD, []))
+    assert sum(len(p.posts) for p in pages) == 1 and yandex.texts == ["ДТП site:vk.com"]
+    assert vk.params("newsfeed.search") == []
 
 
 def test_1051_is_method_unavailable() -> None:

@@ -28,6 +28,9 @@ from search_service.infra.clients.common import (
     upstream_error,
 )
 
+# GetPlatforms: collector ждёт каждую площадку не дольше 3.5 с и отвечает из кэша
+PLATFORMS_TIMEOUT = 5.0
+
 
 def _platform_to_proto(platform: str) -> platform_pb2.Platform:
     try:
@@ -64,6 +67,21 @@ class GrpcCollectorClient(CollectorClient):
             members_count=s.members_count if s.HasField("members_count") else None,
             is_closed=s.is_closed,
         )
+
+    async def global_platforms(self) -> set[str]:
+        try:
+            response: pb.GetPlatformsResponse = await self._stub.GetPlatforms(
+                pb.GetPlatformsRequest(context=context_to_proto()), timeout=PLATFORMS_TIMEOUT
+            )
+        except grpc.aio.AioRpcError as e:
+            raise upstream_error("collector", e) from e
+        return {
+            PLATFORM_FROM_PROTO[p.platform].value
+            for p in response.platforms
+            if p.platform in PLATFORM_FROM_PROTO
+            and p.global_mode_supported
+            and p.health != pb.PLATFORM_HEALTH_UNAVAILABLE
+        }
 
     async def collect_from_source(
         self,

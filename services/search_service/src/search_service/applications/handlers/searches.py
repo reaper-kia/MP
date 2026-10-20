@@ -3,14 +3,18 @@ from __future__ import annotations
 import uuid
 from dataclasses import dataclass
 
+import structlog
+
 from search_service.applications.commands.searches import (
     CancelSearchCommand,
     RetrySearchCommand,
     StartSearchCommand,
 )
+from search_service.applications.exceptions import UpstreamError
 from search_service.applications.handlers.control import ControlHandler
 from search_service.applications.handlers.errors import domain_errors
 from search_service.applications.handlers.views import counts_view, search_view
+from search_service.applications.ports.collector_client import CollectorClient
 from search_service.applications.ports.runner import SearchRunner
 from search_service.applications.ports.uow import UnitOfWork
 from search_service.applications.queries.searches import GetSearchQuery, ListSearchesQuery
@@ -21,6 +25,12 @@ from search_service.domain.errors import NotFoundError, SearchInvalidParams
 from search_service.domain.value_objects import Period
 
 GLOBAL_CATALOG_LIMIT = 200  # сколько источников каталога подключаем к «везде»
+NO_GLOBAL_TARGETS = (
+    "на выбранных площадках нет активных источников в каталоге, а поиска по всей площадке нет — "
+    "добавьте источники на странице «Источники»"
+)
+
+log = structlog.get_logger()
 
 
 @dataclass
@@ -34,9 +44,26 @@ class StartSearchRequest:
 
 
 class SearchHandler:
-    def __init__(self, uow: UnitOfWork, runner: SearchRunner) -> None:
+    def __init__(
+        self, uow: UnitOfWork, runner: SearchRunner, collector: CollectorClient | None = None
+    ) -> None:
         self.uow = uow
         self.runner = runner
+        self.collector = collector
+
+    async def _global_platforms(self, platforms: list[str]) -> set[str]:
+        """Где «везде» добавляет поиск по всей площадке: только там, где collector его умеет.
+
+        Без collector (старые тесты) — на всех выбранных. collector не ответил — ни на одной:
+        «везде» всё равно читает все источники каталога, а заведомо падающих целей не создаём.
+        """
+        if self.collector is None:
+            return set(platforms)
+        try:
+            return await self.collector.global_platforms()
+        except UpstreamError as e:
+            log.warning("global platforms unknown — only catalog sources", error=str(e))
+            return set()
 
     async def start(self, req: StartSearchRequest) -> Search:
         # валидация
@@ -59,6 +86,9 @@ class SearchHandler:
             raise SearchInvalidParams("platforms", "выберите хотя бы одну площадку")
 
         platforms = list(dict.fromkeys(req.platforms))
+        searchable: set[str] = set()
+        if req.mode is SearchMode.GLOBAL:
+            searchable = await self._global_platforms(platforms)
         async with self.uow:
             # снимок источников
             targets: list[SearchTarget] = []
@@ -83,22 +113,24 @@ class SearchHandler:
                         )
                     )
             else:
+                # «везде» = все активные источники каталога на выбранных площадках + поиск по
+                # всей площадке там, где collector его умеет (новостные сайты — RSS; VK / OK —
+                # только с ключом Yandex Search API). Привязку к краю у нерегиональных источников
+                # проверяет оценка по тексту (scoring.py), поэтому их тоже читаем
                 for p in platforms:
-                    targets.append(
-                        SearchTarget(
-                            kind=TargetKind.PLATFORM_SEARCH,
-                            platform=p,
-                            name=p.upper(),
+                    if p in searchable:
+                        targets.append(
+                            SearchTarget(
+                                kind=TargetKind.PLATFORM_SEARCH,
+                                platform=p,
+                                name=p.upper(),
+                            )
                         )
-                    )
-                # «везде» = поиск по площадке + стены всех активных региональных источников
-                # каталога на этих площадках: поиск площадки (VK — Яндекс site:vk.com) неполный
-                # и может быть недоступен, а свои проверенные паблики читаются всегда
                 catalog, _ = await self.uow.sources.list(
                     platforms=platforms, is_active=True, limit=GLOBAL_CATALOG_LIMIT
                 )
                 for src in catalog:
-                    if src.is_alive and src.is_regional and src.platform in platforms:
+                    if src.is_alive and src.platform in platforms:
                         targets.append(
                             SearchTarget(
                                 kind=TargetKind.SOURCE,
@@ -108,6 +140,8 @@ class SearchHandler:
                                 source_id=src.id,
                             )
                         )
+                if not targets:
+                    raise SearchInvalidParams("platforms", NO_GLOBAL_TARGETS)
 
             search = Search(
                 query=req.query,
@@ -160,13 +194,14 @@ async def load_search_view(uow: UnitOfWork, search_id: uuid.UUID) -> SearchView:
 class StartSearchCommandHandler:
     uow: UnitOfWork
     runner: SearchRunner
+    collector: CollectorClient | None = None
 
     async def handle(self, cmd: StartSearchCommand) -> SearchView:
         """1) валидация → SearchInvalidParamsError("<поле>: <текст>"); период — по Красноярску;
         2) Search + цели (снимок name/url) в одной транзакции;
         3) пайплайн запускается фоновой задачей (B2-04), сразу возвращаем status=QUEUED."""
         with domain_errors():
-            search = await SearchHandler(self.uow, self.runner).start(
+            search = await SearchHandler(self.uow, self.runner, self.collector).start(
                 StartSearchRequest(
                     query=cmd.query,
                     period_from=cmd.period_from.isoformat(),

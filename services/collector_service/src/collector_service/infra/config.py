@@ -26,6 +26,10 @@ class Settings(BaseSettings):
     vk_id_client_id: str = "54832790"
     vk_api_version: str = "5.199"
     vk_requests_per_second: float = 3.0
+    # Свой поиск VK по всей площадке (newsfeed.search). VK закрыл его и сервисному ключу, и токену
+    # VK ID (ошибка 1051), поэтому по умолчанию не пробуем: «везде» во VK — источники каталога
+    # (и Яндекс site:vk.com, если задан YC_SEARCH_API_KEY)
+    vk_newsfeed_search: bool = False
 
     # Yandex Search API — глобальный поиск по OK / MAX / сайтам (B1-06)
     yc_folder_id: str = ""

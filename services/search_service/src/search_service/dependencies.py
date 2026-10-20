@@ -154,7 +154,7 @@ def build_mediator(uow: UnitOfWork, collector: CollectorClient, runner: SearchRu
     m.register(DeleteSourceCommand, DeleteSourceCommandHandler(uow, collector))
     m.register(ImportSourcesCommand, ImportSourcesCommandHandler(uow, collector))
     # поиск
-    m.register(StartSearchCommand, StartSearchCommandHandler(uow, runner))
+    m.register(StartSearchCommand, StartSearchCommandHandler(uow, runner, collector))
     m.register(GetSearchQuery, GetSearchQueryHandler(uow))
     m.register(ListSearchesQuery, ListSearchesQueryHandler(uow, runner))
     m.register(RetrySearchCommand, RetrySearchCommandHandler(uow, runner))

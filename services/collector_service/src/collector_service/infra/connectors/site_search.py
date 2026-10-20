@@ -131,7 +131,7 @@ class WithSiteSearch:
         if not info.source_mode_supported:
             return info
         if not self._site_search.configured:
-            note = "Поиск «везде» не настроен: нужен ключ Yandex Search API"
+            note = "Поиск по всей площадке — только через Yandex Search API (ключ не задан)"
             return _with(info, global_mode=False, note=note)
         return _with(info, global_mode=True, note=f"Поиск «везде»: {COVERAGE_NOTE}")
 
@@ -152,12 +152,17 @@ class WithSiteSearch:
 class WithSearchFallback:
     """Декоратор коннектора со своим поиском: пока площадка ищет сама — её поиск; если метод поиска
     ключу закрыт (MethodUnavailableError) — дальше «везде» через SiteSearch, без повторных попыток.
+
+    native=False — свой поиск площадки не пробуем вовсе (VK_NEWSFEED_SEARCH=false): заранее
+    известно, что он закрыт, а пробная ошибка в первом поиске после старта только пугает.
     """
 
-    def __init__(self, base: PlatformConnector, site_search: SiteSearch) -> None:
+    def __init__(
+        self, base: PlatformConnector, site_search: SiteSearch, *, native: bool = True
+    ) -> None:
         self._base = base
         self._site_search = site_search
-        self._native_closed = False
+        self._native_closed = not native
         self.platform = base.platform
         self.title = base.title
         self.hosts = base.hosts
@@ -167,7 +172,7 @@ class WithSearchFallback:
         if not self._native_closed or not info.source_mode_supported:
             return info
         if not self._site_search.configured:
-            note = "Поиск «везде» закрыт для этого ключа VK, а ключ Yandex Search API не задан"
+            note = "Поиск по всей площадке VK закрыт для ключа приложения (ошибка 1051)"
             return _with(info, global_mode=False, note=note)
         return _with(info, global_mode=True, note=self._fallback_note)
 
