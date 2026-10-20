@@ -38,6 +38,12 @@ class Settings(BaseSettings):
     collect_concurrency: int = 5
     target_timeout: int = 60  # одна цель (источник / площадка) целиком
 
+    # кэш готовых подборок в Redis (B2-20). false — всё как до кэша
+    cache_enabled: bool = True
+    redis_url: str = "redis://localhost:6379/0"
+    redis_timeout_seconds: float = 0.2
+    cache_search_ttl_seconds: int = 1800
+
     model_config = SettingsConfigDict(env_file=".env", env_file_encoding="utf-8", extra="ignore")
 
 

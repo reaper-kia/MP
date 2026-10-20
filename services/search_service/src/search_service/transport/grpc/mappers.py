@@ -326,6 +326,13 @@ def search_to_proto(s: SearchView) -> pb.Search:
         message.started_at.CopyFrom(to_timestamp(s.started_at))
     if s.finished_at is not None:
         message.finished_at.CopyFrom(to_timestamp(s.finished_at))
+    if s.cache is not None:
+        message.cache.CopyFrom(
+            pb.SearchCacheInfo(
+                from_search_id=str(s.cache.from_search_id),
+                created_at=to_timestamp(s.cache.created_at),
+            )
+        )
     return message
 
 

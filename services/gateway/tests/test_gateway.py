@@ -306,3 +306,39 @@ async def test_unavailable_hides_transport_details(client: Any) -> None:
     assert r.status_code == 503
     assert r.json()["error"]["code"] == "SERVICE_UNAVAILABLE"
     assert "refused" not in r.json()["error"]["message"]
+
+
+async def test_search_from_cache_and_fresh_flag(client: Any) -> None:
+    """B2-20: fresh уходит в search_service, cache — null у обычного поиска и заполнен у копии."""
+    c, fakes = client
+    body = {
+        "query": "Безопасность дорожного движения",
+        "period_from": "2026-10-01",
+        "period_to": "2026-10-19",
+        "mode": "global",
+        "platforms": ["vk"],
+    }
+    r = await c.post("/api/v1/searches", json=body)
+    assert r.status_code == 202 and r.json()["cache"] is None
+    assert fakes.search.last.fresh is False
+
+    origin = str(uuid4())
+
+    async def cached(req: Any, **_: Any) -> pb.StartSearchResponse:
+        fakes.search.last = req
+        message = search_message()
+        message.status = pb.SEARCH_STATUS_COMPLETED
+        message.cache.CopyFrom(pb.SearchCacheInfo(from_search_id=origin, created_at=NOW))
+        return pb.StartSearchResponse(search=message)
+
+    fakes.search.StartSearch = cached
+    r = await c.post("/api/v1/searches", json={**body, "fresh": True})
+    assert fakes.search.last.fresh is True
+    assert r.json()["cache"] == {"from_search_id": origin, "created_at": "2026-10-19T05:00:00Z"}
+
+
+async def test_ready_shows_redis_without_failing_status(client: Any) -> None:
+    c, _ = client
+    r = await c.get("/health/ready")
+    assert r.status_code == 200
+    assert r.json() == {"status": "ok", "services": {}, "redis": "off"}

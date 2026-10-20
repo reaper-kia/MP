@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import dataclasses
 import uuid
 from datetime import datetime
 from typing import Any
@@ -52,8 +53,44 @@ class InMemorySources:
 
 
 class InMemorySearches:
-    def __init__(self):
+    def __init__(self, targets=None, results=None):
         self.store: dict[uuid.UUID, Search] = {}
+        # для clone_finished: копия поиска переносит цели и результаты (как INSERT … SELECT)
+        self._targets = targets
+        self._results = results
+
+    async def clone_finished(self, source_id, new_id, created_at):
+        src = self.store.get(source_id)
+        if src is None or src.status not in {"completed", "partial"}:
+            return False
+        new_targets = {}
+        for t in await self._targets.list_by_search(source_id):
+            new_targets[t.id] = dataclasses.replace(t, id=uuid.uuid4(), search_id=new_id)
+            self._targets.store[new_targets[t.id].id] = new_targets[t.id]
+        copy = dataclasses.replace(
+            src,
+            id=new_id,
+            targets=list(new_targets.values()),
+            warnings=list(src.warnings),
+            created_at=created_at,
+            started_at=created_at,
+            finished_at=created_at,
+            cached_from_search_id=src.id,
+            cached_at=src.finished_at,
+        )
+        self.store[new_id] = copy
+        for r in await self._results.get_by_search(source_id):
+            clone = dataclasses.replace(
+                r,
+                id=uuid.uuid4(),
+                search_id=new_id,
+                target_id=new_targets[r.target_id].id,
+                highlights=[list(h) for h in r.highlights],
+                excluded=False,
+                excluded_at=None,
+            )
+            self._results.store[clone.id] = clone
+        return True
 
     async def get_by_id(self, i):
         return self.store.get(i)
@@ -173,10 +210,10 @@ class InMemoryResults:
 class InMemoryUoW:
     def __init__(self):
         self.sources = InMemorySources()
-        self.searches = InMemorySearches()
         self.targets = InMemoryTargets()
         self.publications = InMemoryPublications()
         self.results = InMemoryResults()
+        self.searches = InMemorySearches(self.targets, self.results)
 
     async def __aenter__(self):
         return self

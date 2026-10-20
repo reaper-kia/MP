@@ -35,6 +35,10 @@ class SearchCreateIn(BaseModel):
     source_ids: list[UUID] = Field(
         default_factory=list, description="Обязательно при mode=selected"
     )
+    fresh: bool = Field(
+        default=False,
+        description="true — не брать готовую подборку из кэша, искать заново («Обновить»)",
+    )
 
 
 class RetryIn(BaseModel):
@@ -134,6 +138,19 @@ class SearchProgressOut(BaseModel):
     percent: int
 
 
+class SearchCacheOut(BaseModel):
+    """Подборка из кэша: копия поиска from_search_id, собранного в created_at."""
+
+    from_search_id: UUID
+    created_at: datetime
+
+    @classmethod
+    def from_proto(cls, s: Any) -> "SearchCacheOut | None":
+        if not s.HasField("cache"):
+            return None
+        return cls(from_search_id=UUID(s.cache.from_search_id), created_at=ts(s.cache.created_at))
+
+
 class SearchOut(BaseModel):
     id: UUID
     status: SearchStatus
@@ -147,6 +164,9 @@ class SearchOut(BaseModel):
     created_at: datetime
     started_at: datetime | None
     finished_at: datetime | None
+    cache: SearchCacheOut | None = Field(
+        description="Не null — подборка взята из кэша: копия недавнего такого же поиска"
+    )
 
     @classmethod
     def from_proto(cls, s: Any) -> "SearchOut":
@@ -171,6 +191,7 @@ class SearchOut(BaseModel):
             created_at=ts(s.created_at),
             started_at=opt_ts(s, "started_at"),
             finished_at=opt_ts(s, "finished_at"),
+            cache=SearchCacheOut.from_proto(s),
         )
 
 

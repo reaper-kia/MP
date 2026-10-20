@@ -3,6 +3,7 @@ from __future__ import annotations
 import builtins
 import uuid
 from collections.abc import Iterable
+from datetime import datetime
 from typing import Protocol
 
 from search_service.domain.entities import Publication, Search, SearchResult, SearchTarget, Source
@@ -32,6 +33,9 @@ class SearchRepository(Protocol):
     async def list_running_or_queued(self) -> builtins.list[Search]: ...
     async def add(self, search: Search) -> None: ...
     async def save(self, search: Search) -> None: ...
+    async def clone_finished(
+        self, source_id: uuid.UUID, new_id: uuid.UUID, created_at: datetime
+    ) -> bool: ...
 
 
 class TargetRepository(Protocol):

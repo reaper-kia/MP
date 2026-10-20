@@ -178,6 +178,7 @@ class SearchServiceServicer:
     def StartSearch(self, request, context):
         """── поиск ──
         Создаёт задачу и сразу возвращает её (status=QUEUED). Выполнение — в фоне внутри search_service.
+        Тот же поиск недавно уже был (B2-20) — сразу копия готовой подборки: финальный статус и cache.
         """
         context.set_code(grpc.StatusCode.UNIMPLEMENTED)
         context.set_details('Method not implemented!')

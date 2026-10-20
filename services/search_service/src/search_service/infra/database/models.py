@@ -76,6 +76,11 @@ class SearchModel(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
     started_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     finished_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    # подборка из кэша (B2-20): с какого поиска снята копия и когда тот завершился
+    cached_from_search_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True), nullable=True
+    )
+    cached_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
 
     targets: Mapped[list[SearchTargetModel]] = relationship(
         "SearchTargetModel", back_populates="search", cascade="all, delete-orphan"

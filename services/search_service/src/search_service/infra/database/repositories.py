@@ -3,8 +3,24 @@ from __future__ import annotations
 import builtins
 import uuid
 from collections.abc import Iterable
+from datetime import datetime
 
-from sqlalchemy import and_, case, func, or_, select, update
+from sqlalchemy import (
+    DateTime,
+    and_,
+    case,
+    column,
+    false,
+    func,
+    insert,
+    literal,
+    null,
+    or_,
+    select,
+    update,
+    values,
+)
+from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from search_service.domain.entities import Publication, Search, SearchResult, SearchTarget, Source
@@ -60,6 +76,8 @@ def _search_to_entity(m: SearchModel) -> Search:
         created_at=m.created_at,
         started_at=m.started_at,
         finished_at=m.finished_at,
+        cached_from_search_id=m.cached_from_search_id,
+        cached_at=m.cached_at,
     )
 
 
@@ -268,8 +286,169 @@ class SearchRepo:
             created_at=e.created_at,
             started_at=e.started_at,
             finished_at=e.finished_at,
+            cached_from_search_id=e.cached_from_search_id,
+            cached_at=e.cached_at,
         )
         self.s.add(m)
+
+    async def clone_finished(
+        self, source_id: uuid.UUID, new_id: uuid.UUID, created_at: datetime
+    ) -> bool:
+        """Копия готового поиска для кэша (B2-20): поиск, цели, результаты и группы — тремя
+        INSERT … SELECT в транзакции вызывающего. У результатов excluded=false: исключения одного
+        пользователя не переезжают к другому. Исходный поиск не completed/partial → False."""
+        src = (
+            await self.s.execute(select(SearchModel).where(SearchModel.id == source_id))
+        ).scalar_one_or_none()
+        if src is None or src.status not in (SearchStatus.COMPLETED, SearchStatus.PARTIAL):
+            return False
+        new_search = literal(new_id, UUID(as_uuid=True))
+        await self.s.execute(
+            insert(SearchModel).from_select(
+                [
+                    "id",
+                    "query",
+                    "query_type",
+                    "period_from",
+                    "period_to",
+                    "mode",
+                    "platforms",
+                    "source_ids",
+                    "query_analysis",
+                    "status",
+                    "stage",
+                    "warnings",
+                    "created_at",
+                    "started_at",
+                    "finished_at",
+                    "cached_from_search_id",
+                    "cached_at",
+                ],
+                select(
+                    new_search,
+                    SearchModel.query,
+                    SearchModel.query_type,
+                    SearchModel.period_from,
+                    SearchModel.period_to,
+                    SearchModel.mode,
+                    SearchModel.platforms,
+                    SearchModel.source_ids,
+                    SearchModel.query_analysis,
+                    SearchModel.status,
+                    SearchModel.stage,
+                    SearchModel.warnings,
+                    literal(created_at, DateTime(timezone=True)),
+                    literal(created_at, DateTime(timezone=True)),
+                    literal(created_at, DateTime(timezone=True)),
+                    SearchModel.id,
+                    SearchModel.finished_at,
+                ).where(SearchModel.id == source_id),
+            )
+        )
+        old_targets = (
+            (
+                await self.s.execute(
+                    select(SearchTargetModel.id).where(SearchTargetModel.search_id == source_id)
+                )
+            )
+            .scalars()
+            .all()
+        )
+        if not old_targets:
+            return True
+        # старый id цели → новый: результаты ссылаются на цель, через которую найдены
+        ids = values(
+            column("old_id", UUID(as_uuid=True)),
+            column("new_id", UUID(as_uuid=True)),
+            name="target_ids",
+        ).data([(old, uuid.uuid4()) for old in old_targets])
+        t = SearchTargetModel
+        await self.s.execute(
+            insert(t).from_select(
+                [
+                    "id",
+                    "search_id",
+                    "kind",
+                    "platform",
+                    "source_id",
+                    "name",
+                    "url",
+                    "status",
+                    "fetched",
+                    "matched",
+                    "attempts",
+                    "error_code",
+                    "error_message",
+                    "started_at",
+                    "finished_at",
+                ],
+                select(
+                    ids.c.new_id,
+                    new_search,
+                    t.kind,
+                    t.platform,
+                    t.source_id,
+                    t.name,
+                    t.url,
+                    t.status,
+                    t.fetched,
+                    t.matched,
+                    t.attempts,
+                    t.error_code,
+                    t.error_message,
+                    t.started_at,
+                    t.finished_at,
+                ).join(ids, ids.c.old_id == t.id),
+            )
+        )
+        r = SearchResultModel
+        await self.s.execute(
+            insert(r).from_select(
+                [
+                    "id",
+                    "search_id",
+                    "publication_id",
+                    "target_id",
+                    "relevance",
+                    "score",
+                    "explanation",
+                    "region_by_source",
+                    "region_by_content",
+                    "region_evidence",
+                    "sentiment",
+                    "excerpt_start",
+                    "excerpt_end",
+                    "highlights",
+                    "group_id",
+                    "date_status",
+                    "excluded",
+                    "excluded_at",
+                ],
+                select(
+                    func.gen_random_uuid(),
+                    new_search,
+                    r.publication_id,
+                    ids.c.new_id,
+                    r.relevance,
+                    r.score,
+                    r.explanation,
+                    r.region_by_source,
+                    r.region_by_content,
+                    r.region_evidence,
+                    r.sentiment,
+                    r.excerpt_start,
+                    r.excerpt_end,
+                    r.highlights,
+                    r.group_id,
+                    r.date_status,
+                    false(),
+                    null(),
+                )
+                .join(ids, ids.c.old_id == r.target_id)
+                .where(r.search_id == source_id),
+            )
+        )
+        return True
 
     async def save(self, e: Search) -> None:
         await self.s.execute(

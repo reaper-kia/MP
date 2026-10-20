@@ -18,7 +18,7 @@ class TtlCache:
         self._max = max_items
         self._clock = clock
 
-    def get(self, key: str) -> Any | None:
+    async def get(self, key: str) -> Any | None:
         entry = self._items.get(key)
         if entry is None:
             return None
@@ -28,7 +28,7 @@ class TtlCache:
             return None
         return value
 
-    def set(self, key: str, value: Any, ttl_seconds: float) -> None:
+    async def set(self, key: str, value: Any, ttl_seconds: float) -> None:
         self._items[key] = (self._clock() + ttl_seconds, value)
         self._items.move_to_end(key)
         while len(self._items) > self._max:

@@ -119,6 +119,9 @@ class Search:
     created_at: datetime = field(default_factory=utcnow)
     started_at: datetime | None = None
     finished_at: datetime | None = None
+    # подборка из кэша (B2-20): копия поиска cached_from_search_id, завершённого в cached_at
+    cached_from_search_id: uuid.UUID | None = None
+    cached_at: datetime | None = None
 
     def start(self) -> None:
         if self.status is not SearchStatus.QUEUED:

@@ -17,7 +17,7 @@ deploy_env = $(foreach k,$(DEPLOY_KEYS),$(k)="$${$(k):-$$(grep -s '^$(k)=' .env 
 # Адрес сайта на сервере из inventory (для seed/smoke после деплоя)
 SERVER_URL ?= http://109.196.167.204:8080
 
-.PHONY: help env install lock proto docs mock up down reset ps logs db run migration \
+.PHONY: help env install lock proto docs mock up down reset ps logs cache-flush db run migration \
         lint fmt typecheck test check smoke seed front-dev deploy release vk-login \
         llm-tunnel-key llm-tunnel-server llm-tunnel-install llm-tunnel-status llm-tunnel-uninstall
 
@@ -61,6 +61,9 @@ ps: ## статус контейнеров
 
 logs: ## логи: make logs [s=gateway]
 	$(COMPOSE) logs -f --tail=100 $(s)
+
+cache-flush: ## сбросить кэш Redis (готовые подборки и сбор, B2-20)
+	$(COMPOSE) exec redis redis-cli FLUSHDB
 
 # ───────── локальная разработка ─────────
 db: env ## поднять только базы (*_db) — сервисы запускаешь локально через make run

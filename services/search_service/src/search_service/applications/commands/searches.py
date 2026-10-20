@@ -17,6 +17,7 @@ class StartSearchCommand(Command[SearchView]):
     mode: SearchMode
     platforms: list[Platform]
     source_ids: list[UUID] = field(default_factory=list)
+    fresh: bool = False  # true — мимо кэша готовых подборок («Обновить»), B2-20
 
 
 @dataclass(frozen=True)

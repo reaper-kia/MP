@@ -34,6 +34,7 @@ async def drain(pages: AsyncIterator[Page], acc: PostAccumulator, budget: Budget
             remaining = budget.remaining()
             if remaining <= 0:
                 acc.truncated = True
+                acc.complete = False
                 acc.warn(time_warning(budget))
                 return
             try:
@@ -43,6 +44,7 @@ async def drain(pages: AsyncIterator[Page], acc: PostAccumulator, budget: Budget
                 return
             except TimeoutError:
                 acc.truncated = True
+                acc.complete = False
                 acc.warn(time_warning(budget))
                 return
             except CollectorError as exc:
@@ -50,6 +52,7 @@ async def drain(pages: AsyncIterator[Page], acc: PostAccumulator, budget: Budget
                     raise
                 logger.warning("сбор прерван после %d стр.: %s", received_pages, log_text(exc))
                 acc.truncated = True
+                acc.complete = False
                 acc.warn(f"Сбор прерван: {exc}. Отданы публикации, полученные до ошибки")
                 return
             received_pages += 1

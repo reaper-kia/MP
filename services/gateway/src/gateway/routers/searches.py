@@ -31,6 +31,7 @@ async def start_search(body: SearchCreateIn, ctx: Ctx, clients: Clients) -> Sear
             mode=MODE_TO_PROTO[body.mode],
             platforms=[PLATFORM_TO_PROTO[p] for p in body.platforms],
             source_ids=[str(s) for s in body.source_ids],
+            fresh=body.fresh,
         )
     )
     return SearchOut.from_proto(result.search)

@@ -136,6 +136,14 @@ class SearchProgressView:
 
 
 @dataclass(frozen=True, slots=True)
+class SearchCacheView:
+    """Подборка из кэша (B2-20): копия поиска from_search_id, завершённого в created_at."""
+
+    from_search_id: UUID
+    created_at: datetime
+
+
+@dataclass(frozen=True, slots=True)
 class SearchView:
     id: UUID
     status: SearchStatus
@@ -149,6 +157,7 @@ class SearchView:
     created_at: datetime
     started_at: datetime | None
     finished_at: datetime | None
+    cache: SearchCacheView | None = None
 
 
 @dataclass(frozen=True, slots=True)

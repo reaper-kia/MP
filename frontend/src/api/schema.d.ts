@@ -134,6 +134,16 @@ export interface paths {
          * @description Возвращает задачу сразу (`status=queued`). Дальше фронт опрашивает `GET /searches/{id}`
          *     каждые 1.5 с, пока `status` не станет одним из `completed | partial | failed | cancelled`.
          *     id текущего поиска держать в URL (`/search/<id>`) — так подборка всегда привязана к своим параметрам.
+         *
+         *     `mode=selected`: ищем только по `source_ids`, площадки берутся из самих источников, а `platforms`
+         *     игнорируется (передавайте площадки этих источников). `mode=global`: `source_ids` пустой, ищем по
+         *     всей площадке из `platforms` и по активным источникам каталога.
+         *
+         *     Кэш (B2-20): такой же поиск (тот же запрос без учёта регистра и лишних пробелов, период, режим,
+         *     площадки / источники) уже завершился за последние 30 минут → в ответе сразу копия готовой
+         *     подборки: новый `id`, финальный `status`, `cache.from_search_id` и `cache.created_at` (когда
+         *     собрана). Показать плашку «Подборка из кэша · собрана N мин назад · Обновить»; «Обновить»
+         *     и «Повторить» шлют `fresh=true` — настоящий поиск мимо кэша.
          */
         post: operations["startSearch"];
         delete?: never;
@@ -194,7 +204,10 @@ export interface paths {
         };
         get?: never;
         put?: never;
-        /** Остановить поиск (незавершённые источники → skipped) */
+        /**
+         * Остановить поиск (незавершённые источники → skipped)
+         * @description Если поиск уже завершён (`completed | partial | failed | cancelled`) — ничего не меняет, отвечает 200 с текущим состоянием, не ошибкой.
+         */
         post: operations["cancelSearch"];
         delete?: never;
         options?: never;
@@ -339,7 +352,8 @@ export interface components {
          *     }
          */
         QueryAnalysis: {
-            query_type: components["schemas"]["QueryType"];
+            /** @description null — тип не определён (ML в упрощённом режиме): показать «тип запроса не определён» */
+            query_type: components["schemas"]["QueryType"] | null;
             summary: string;
             search_queries: string[];
             needs_clarification: boolean;
@@ -445,6 +459,21 @@ export interface components {
             platforms: components["schemas"]["Platform"][];
             /** @description Обязательно непустой при mode=selected */
             source_ids: string[];
+            /** @description По умолчанию false. true — не брать готовую подборку из кэша, искать заново («Обновить») */
+            fresh?: boolean;
+        };
+        /** @description Подборка взята из кэша — копия недавнего такого же поиска (B2-20) */
+        SearchCache: {
+            /**
+             * Format: uuid
+             * @description Исходный поиск, с которого снята копия
+             */
+            from_search_id: string;
+            /**
+             * Format: date-time
+             * @description Когда исходный поиск завершился («собрана N мин назад»)
+             */
+            created_at: string;
         };
         SearchParams: {
             query: string;
@@ -535,6 +564,8 @@ export interface components {
             started_at: string | null;
             /** Format: date-time */
             finished_at: string | null;
+            /** @description Не null — подборка из кэша */
+            cache: components["schemas"]["SearchCache"] | null;
         };
         SearchSummary: {
             /** Format: uuid */
@@ -755,6 +786,44 @@ export interface components {
                 "application/json": components["schemas"]["ErrorResponse"];
             };
         };
+        /** @description Площадка ограничила частоту запросов (RATE_LIMITED) — повторить позже */
+        RateLimited: {
+            headers: {
+                [name: string]: unknown;
+            };
+            content: {
+                /**
+                 * @example {
+                 *       "error": {
+                 *         "code": "RATE_LIMITED",
+                 *         "message": "Превышен лимит запросов к площадке",
+                 *         "request_id": "7f3c2a",
+                 *         "details": []
+                 *       }
+                 *     }
+                 */
+                "application/json": components["schemas"]["ErrorResponse"];
+            };
+        };
+        /** @description Возможность ещё не включена (NOT_IMPLEMENTED), например выгрузка в DOCX */
+        NotImplemented: {
+            headers: {
+                [name: string]: unknown;
+            };
+            content: {
+                /**
+                 * @example {
+                 *       "error": {
+                 *         "code": "NOT_IMPLEMENTED",
+                 *         "message": "Выгрузка в DOCX пока недоступна",
+                 *         "request_id": "7f3c2a",
+                 *         "details": []
+                 *       }
+                 *     }
+                 */
+                "application/json": components["schemas"]["ErrorResponse"];
+            };
+        };
         /** @description Площадка или сервис недоступны (PLATFORM_UNAVAILABLE, SERVICE_UNAVAILABLE) */
         Unavailable: {
             headers: {
@@ -937,6 +1006,7 @@ export interface operations {
             };
             409: components["responses"]["Conflict"];
             422: components["responses"]["ValidationError"];
+            429: components["responses"]["RateLimited"];
             503: components["responses"]["Unavailable"];
         };
     };
@@ -969,6 +1039,7 @@ export interface operations {
             };
             404: components["responses"]["NotFound"];
             422: components["responses"]["ValidationError"];
+            429: components["responses"]["RateLimited"];
             503: components["responses"]["Unavailable"];
         };
     };
@@ -1262,6 +1333,9 @@ export interface operations {
                 /** @description По умолчанию direct+indirect+disputed. `rejected` — вкладка «Отсеяно системой». */
                 relevance?: components["parameters"]["RelevanceFilter"];
                 platform?: components["parameters"]["PlatformFilter"];
+                /** @description Показать найденное в конкретном источнике (клик по строке в «Охвате») */
+                target_id?: components["parameters"]["TargetFilter"];
+                date_status?: components["parameters"]["DateStatusFilter"];
                 include_excluded?: components["parameters"]["IncludeExcluded"];
                 limit?: components["parameters"]["Limit"];
                 offset?: components["parameters"]["Offset"];
@@ -1330,6 +1404,9 @@ export interface operations {
                 /** @description По умолчанию direct+indirect+disputed. `rejected` — вкладка «Отсеяно системой». */
                 relevance?: components["parameters"]["RelevanceFilter"];
                 platform?: components["parameters"]["PlatformFilter"];
+                /** @description Показать найденное в конкретном источнике (клик по строке в «Охвате») */
+                target_id?: components["parameters"]["TargetFilter"];
+                date_status?: components["parameters"]["DateStatusFilter"];
                 sort?: components["parameters"]["Sort"];
             };
             header?: never;
@@ -1353,6 +1430,7 @@ export interface operations {
                 };
             };
             404: components["responses"]["NotFound"];
+            501: components["responses"]["NotImplemented"];
         };
     };
 }

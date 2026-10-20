@@ -15,6 +15,7 @@ from search_service.applications.results.read_models import (
     RegionView,
     ResultSourceView,
     ResultView,
+    SearchCacheView,
     SearchCountsView,
     SearchParamsView,
     SearchProgressView,
@@ -141,6 +142,14 @@ def search_view(s: Search, counts: SearchCountsView, *, with_targets: bool = Tru
         created_at=s.created_at,
         started_at=s.started_at,
         finished_at=s.finished_at,
+        cache=(
+            SearchCacheView(
+                from_search_id=s.cached_from_search_id,
+                created_at=s.cached_at or s.created_at,
+            )
+            if s.cached_from_search_id is not None
+            else None
+        ),
     )
 
 

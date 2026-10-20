@@ -413,7 +413,7 @@ class QueryAnalysisView(_message.Message):
     def __init__(self, query_type: _Optional[_Union[QueryType, str]] = ..., summary: _Optional[str] = ..., search_queries: _Optional[_Iterable[str]] = ..., needs_clarification: _Optional[bool] = ..., clarification_hint: _Optional[str] = ...) -> None: ...
 
 class Search(_message.Message):
-    __slots__ = ("id", "status", "stage", "progress", "params", "query_analysis", "targets", "counts", "warnings", "created_at", "started_at", "finished_at")
+    __slots__ = ("id", "status", "stage", "progress", "params", "query_analysis", "targets", "counts", "warnings", "created_at", "started_at", "finished_at", "cache")
     ID_FIELD_NUMBER: _ClassVar[int]
     STATUS_FIELD_NUMBER: _ClassVar[int]
     STAGE_FIELD_NUMBER: _ClassVar[int]
@@ -426,6 +426,7 @@ class Search(_message.Message):
     CREATED_AT_FIELD_NUMBER: _ClassVar[int]
     STARTED_AT_FIELD_NUMBER: _ClassVar[int]
     FINISHED_AT_FIELD_NUMBER: _ClassVar[int]
+    CACHE_FIELD_NUMBER: _ClassVar[int]
     id: str
     status: SearchStatus
     stage: SearchStage
@@ -438,10 +439,19 @@ class Search(_message.Message):
     created_at: _timestamp_pb2.Timestamp
     started_at: _timestamp_pb2.Timestamp
     finished_at: _timestamp_pb2.Timestamp
-    def __init__(self, id: _Optional[str] = ..., status: _Optional[_Union[SearchStatus, str]] = ..., stage: _Optional[_Union[SearchStage, str]] = ..., progress: _Optional[_Union[SearchProgress, _Mapping]] = ..., params: _Optional[_Union[SearchParams, _Mapping]] = ..., query_analysis: _Optional[_Union[QueryAnalysisView, _Mapping]] = ..., targets: _Optional[_Iterable[_Union[SearchTarget, _Mapping]]] = ..., counts: _Optional[_Union[SearchCounts, _Mapping]] = ..., warnings: _Optional[_Iterable[str]] = ..., created_at: _Optional[_Union[datetime.datetime, _timestamp_pb2.Timestamp, _Mapping]] = ..., started_at: _Optional[_Union[datetime.datetime, _timestamp_pb2.Timestamp, _Mapping]] = ..., finished_at: _Optional[_Union[datetime.datetime, _timestamp_pb2.Timestamp, _Mapping]] = ...) -> None: ...
+    cache: SearchCacheInfo
+    def __init__(self, id: _Optional[str] = ..., status: _Optional[_Union[SearchStatus, str]] = ..., stage: _Optional[_Union[SearchStage, str]] = ..., progress: _Optional[_Union[SearchProgress, _Mapping]] = ..., params: _Optional[_Union[SearchParams, _Mapping]] = ..., query_analysis: _Optional[_Union[QueryAnalysisView, _Mapping]] = ..., targets: _Optional[_Iterable[_Union[SearchTarget, _Mapping]]] = ..., counts: _Optional[_Union[SearchCounts, _Mapping]] = ..., warnings: _Optional[_Iterable[str]] = ..., created_at: _Optional[_Union[datetime.datetime, _timestamp_pb2.Timestamp, _Mapping]] = ..., started_at: _Optional[_Union[datetime.datetime, _timestamp_pb2.Timestamp, _Mapping]] = ..., finished_at: _Optional[_Union[datetime.datetime, _timestamp_pb2.Timestamp, _Mapping]] = ..., cache: _Optional[_Union[SearchCacheInfo, _Mapping]] = ...) -> None: ...
+
+class SearchCacheInfo(_message.Message):
+    __slots__ = ("from_search_id", "created_at")
+    FROM_SEARCH_ID_FIELD_NUMBER: _ClassVar[int]
+    CREATED_AT_FIELD_NUMBER: _ClassVar[int]
+    from_search_id: str
+    created_at: _timestamp_pb2.Timestamp
+    def __init__(self, from_search_id: _Optional[str] = ..., created_at: _Optional[_Union[datetime.datetime, _timestamp_pb2.Timestamp, _Mapping]] = ...) -> None: ...
 
 class StartSearchRequest(_message.Message):
-    __slots__ = ("context", "query", "period_from", "period_to", "mode", "platforms", "source_ids")
+    __slots__ = ("context", "query", "period_from", "period_to", "mode", "platforms", "source_ids", "fresh")
     CONTEXT_FIELD_NUMBER: _ClassVar[int]
     QUERY_FIELD_NUMBER: _ClassVar[int]
     PERIOD_FROM_FIELD_NUMBER: _ClassVar[int]
@@ -449,6 +459,7 @@ class StartSearchRequest(_message.Message):
     MODE_FIELD_NUMBER: _ClassVar[int]
     PLATFORMS_FIELD_NUMBER: _ClassVar[int]
     SOURCE_IDS_FIELD_NUMBER: _ClassVar[int]
+    FRESH_FIELD_NUMBER: _ClassVar[int]
     context: _common_pb2.RequestContext
     query: str
     period_from: str
@@ -456,7 +467,8 @@ class StartSearchRequest(_message.Message):
     mode: SearchMode
     platforms: _containers.RepeatedScalarFieldContainer[_platform_pb2.Platform]
     source_ids: _containers.RepeatedScalarFieldContainer[str]
-    def __init__(self, context: _Optional[_Union[_common_pb2.RequestContext, _Mapping]] = ..., query: _Optional[str] = ..., period_from: _Optional[str] = ..., period_to: _Optional[str] = ..., mode: _Optional[_Union[SearchMode, str]] = ..., platforms: _Optional[_Iterable[_Union[_platform_pb2.Platform, str]]] = ..., source_ids: _Optional[_Iterable[str]] = ...) -> None: ...
+    fresh: bool
+    def __init__(self, context: _Optional[_Union[_common_pb2.RequestContext, _Mapping]] = ..., query: _Optional[str] = ..., period_from: _Optional[str] = ..., period_to: _Optional[str] = ..., mode: _Optional[_Union[SearchMode, str]] = ..., platforms: _Optional[_Iterable[_Union[_platform_pb2.Platform, str]]] = ..., source_ids: _Optional[_Iterable[str]] = ..., fresh: _Optional[bool] = ...) -> None: ...
 
 class StartSearchResponse(_message.Message):
     __slots__ = ("search",)

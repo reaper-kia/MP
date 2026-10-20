@@ -153,6 +153,7 @@ class SearchServicer(pb_grpc.SearchServiceServicer):
                 mode=mode_from_proto(request.mode),
                 platforms=platforms_from_proto(request.platforms),
                 source_ids=parse_uuids(request.source_ids, "source_ids"),
+                fresh=request.fresh,
             )
         )
         return pb.StartSearchResponse(search=search_to_proto(search))

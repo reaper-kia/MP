@@ -38,6 +38,10 @@ services:
       ML_GRPC_TARGET: ml_service:50055
       # false — не показывать «ML работал в упрощённом режиме» (эвристики), ML-15
       ML_SHOW_DEGRADED_WARNING: ${ML_SHOW_DEGRADED_WARNING:-true}
+      # кэш в Redis (B2-20): CACHE_ENABLED=false — выключен, всё как до кэша
+      CACHE_ENABLED: ${CACHE_ENABLED:-true}
+      REDIS_URL: ${REDIS_URL:-redis://redis:6379/0}
+      CACHE_SEARCH_TTL_SECONDS: ${CACHE_SEARCH_TTL_SECONDS:-1800} # готовая подборка
     ports:
       - "127.0.0.1:50053:50053"
     depends_on:
@@ -46,6 +50,9 @@ services:
       collector_service:
         condition: service_started
       ml_service:
+        condition: service_started
+      # Redis упал — поиск работает без кэша (fail-open), поэтому только «запущен», не «здоров»
+      redis:
         condition: service_started
 
   search_db:
@@ -61,6 +68,19 @@ services:
       - search_db_data:/var/lib/postgresql/data
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U search -d search"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  # ───────── кэш (B2-20): готовые подборки и сбор с площадок ─────────
+  # Только кэш: на диск не пишем (--save ""), при нехватке памяти вытесняем старое (allkeys-lru).
+  # Наружу порт не публикуем. Сбросить: make cache-flush
+  redis:
+    image: redis:7-alpine
+    restart: unless-stopped
+    command: redis-server --maxmemory ${REDIS_MAXMEMORY:-256mb} --maxmemory-policy allkeys-lru --save ""
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
       interval: 5s
       timeout: 3s
       retries: 10
@@ -91,11 +111,19 @@ services:
       # сколько постов на одну цель уходит в ML: локальная модель проверяет ~3 поста/с на всех
       DEFAULT_MAX_POSTS_SEARCH: ${DEFAULT_MAX_POSTS_SEARCH:-200} # «везде» по площадке
       DEFAULT_MAX_POSTS_SOURCE: ${DEFAULT_MAX_POSTS_SOURCE:-150} # стена одного источника
+      # кэш в Redis (B2-20): CACHE_ENABLED=false — выключен, всё как до кэша
+      CACHE_ENABLED: ${CACHE_ENABLED:-true}
+      REDIS_URL: ${REDIS_URL:-redis://redis:6379/0}
+      CACHE_COLLECT_TTL_SECONDS: ${CACHE_COLLECT_TTL_SECONDS:-600} # посты источника / поиск по площадке
+      CACHE_RESOLVE_TTL_SECONDS: ${CACHE_RESOLVE_TTL_SECONDS:-600} # карточка источника по ссылке
     volumes:
       - ./.vk:/vk
       - ./infra/certs:/certs:ro
     ports:
       - "127.0.0.1:50054:50054"
+    depends_on:
+      redis:
+        condition: service_started
 
   # ───────── анализ текста (ML), без БД ─────────
   ml_service:

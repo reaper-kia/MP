@@ -56,6 +56,19 @@
   color: var(--mp-text-2);
 }
 
+.cache {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 6px;
+  padding: 8px 12px;
+  border-left: 2px solid var(--mp-accent);
+  border-radius: 0 12px 12px 0;
+  background: var(--mp-surface);
+  font-size: 12px;
+  color: var(--mp-text-2);
+}
+
 .again {
   margin-left: auto;
   padding: 6px 12px;
@@ -71,6 +84,11 @@
 
 .again:hover {
   background: var(--mp-accent-hover);
+}
+
+.again:disabled {
+  opacity: 0.6;
+  cursor: default;
 }
 
 @media (max-width: 720px) {

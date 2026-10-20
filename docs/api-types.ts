@@ -105,6 +105,16 @@ export interface SearchCreateIn {
   platforms: Platform[];
   /** Обязательно непустой при mode=selected */
   source_ids: string[];
+  /** По умолчанию false. true — не брать готовую подборку из кэша, искать заново («Обновить») */
+  fresh?: boolean;
+}
+
+/** Подборка взята из кэша — копия недавнего такого же поиска (B2-20) */
+export interface SearchCache {
+  /** Исходный поиск, с которого снята копия */
+  from_search_id: string;
+  /** Когда исходный поиск завершился («собрана N мин назад») */
+  created_at: string;
 }
 
 export interface SearchParams {
@@ -179,6 +189,8 @@ export interface Search {
   created_at: string;
   started_at: string | null;
   finished_at: string | null;
+  /** Не null — подборка из кэша */
+  cache: SearchCache | null;
 }
 
 export interface SearchSummary {

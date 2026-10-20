@@ -5,7 +5,7 @@
 
 import logging
 import time
-from collections.abc import Callable
+from collections.abc import Callable, Mapping
 from typing import Any, Protocol, runtime_checkable
 
 from collector_service.applications.mediator import Next, Query
@@ -13,6 +13,7 @@ from collector_service.applications.ports.cache import Cache
 from collector_service.domain.exceptions import log_text
 
 logger = logging.getLogger("collector_service.queries")
+cache_logger = logging.getLogger("collector_service.cache")
 
 
 class LoggingBehavior:
@@ -50,20 +51,37 @@ class Cacheable(Protocol):
 
 
 class CachingBehavior:
-    """Успешный ответ на Cacheable-запрос живёт в кэше ttl_seconds. Ошибки не кэшируются:
-    площадка могла просто моргнуть."""
+    """Успешный ответ на Cacheable-запрос живёт в кэше ttl секунд. Ошибки не кэшируются:
+    площадка могла просто моргнуть. Оборванный сбор (`complete=False`: кончился бюджет времени,
+    площадка упала посреди сбора) — тоже.
 
-    def __init__(self, cache: Cache, ttl_seconds: float) -> None:
+    ttl_by_type — своё время жизни для типа запроса (посты — 10 мин, карточка источника — 10 мин,
+    B2-20); ttl <= 0 — этот тип не кэшируем (CACHE_ENABLED=false для сбора).
+    Кэш недоступен — реализация порта отвечает промахом, запрос идёт на площадку (fail-open).
+    """
+
+    def __init__(
+        self,
+        cache: Cache,
+        ttl_seconds: float,
+        ttl_by_type: Mapping[type[Any], float] | None = None,
+    ) -> None:
         self._cache = cache
         self._ttl = ttl_seconds
+        self._ttl_by_type = dict(ttl_by_type or {})
 
     async def __call__(self, query: Query[Any], call_next: Next) -> Any:
         key = query.cache_key() if isinstance(query, Cacheable) else None
-        if key is None:
+        ttl = self._ttl_by_type.get(type(query), self._ttl)
+        if key is None or ttl <= 0:
             return await call_next()
-        cached = self._cache.get(key)
+        cached = await self._cache.get(key)
         if cached is not None:
+            cache_logger.info("cache hit key=%s", key)
             return cached
+        cache_logger.info("cache miss key=%s", key)
         result = await call_next()
-        self._cache.set(key, result, self._ttl)
+        if getattr(result, "complete", True):
+            await self._cache.set(key, result, ttl)
+            cache_logger.info("cache store key=%s ttl=%.0fs", key, ttl)
         return result

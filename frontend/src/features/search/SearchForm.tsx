@@ -229,7 +229,8 @@ export function SearchForm({ initial, onDirtyChange }: Props) {
         <div className={classes.analysis}>
           <div className={classes.chipRow}>
             <span className={classes.chipLabel}>Как понят запрос</span>
-            <span className={`${classes.chip} ${classes.chipActive}`}>{QUERY_TYPE_TEXT[analysis.data.query_type]}</span>
+            <span className={`${classes.chip} ${classes.chipActive}`}>{analysis.data.query_type ? QUERY_TYPE_TEXT[analysis.data.query_type] : "Тип запроса не определён"}
+            </span>
             <span className={classes.summary}>{analysis.data.summary}</span>
           </div>
           {analysis.data.search_queries.length > 0 && (

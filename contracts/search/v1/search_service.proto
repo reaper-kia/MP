@@ -29,6 +29,7 @@ service SearchService {
 
   // ── поиск ──
   // Создаёт задачу и сразу возвращает её (status=QUEUED). Выполнение — в фоне внутри search_service.
+  // Тот же поиск недавно уже был (B2-20) — сразу копия готовой подборки: финальный статус и cache.
   rpc StartSearch(StartSearchRequest) returns (StartSearchResponse);
   rpc GetSearch(GetSearchRequest) returns (GetSearchResponse);
   rpc ListSearches(ListSearchesRequest) returns (ListSearchesResponse);
@@ -284,6 +285,16 @@ message Search {
   google.protobuf.Timestamp created_at = 10;
   optional google.protobuf.Timestamp started_at = 11;
   optional google.protobuf.Timestamp finished_at = 12;
+  // Подборка из кэша (B2-20): копия готового поиска с теми же параметрами. Нет — настоящий поиск
+  optional SearchCacheInfo cache = 13;
+}
+
+// Откуда взята подборка из кэша
+message SearchCacheInfo {
+  // исходный поиск, с которого снята копия
+  string from_search_id = 1;
+  // когда исходный поиск завершился — «собрана N мин назад»
+  google.protobuf.Timestamp created_at = 2;
 }
 
 message StartSearchRequest {
@@ -295,6 +306,8 @@ message StartSearchRequest {
   // GLOBAL — площадки, по которым ищем. SELECTED — игнорируется: площадки берутся из source_ids.
   repeated common.v1.Platform platforms = 6;
   repeated string source_ids = 7;
+  // true — не брать готовую подборку из кэша, искать заново («Обновить», «Повторить»), B2-20
+  bool fresh = 8;
 }
 message StartSearchResponse {
   Search search = 1;

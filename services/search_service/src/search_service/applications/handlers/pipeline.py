@@ -13,12 +13,16 @@ from search_service.applications.handlers.save import SaveHandler
 from search_service.applications.handlers.scoring import ScoringHandler, analysis_to_dict
 from search_service.applications.ports.collector_client import CollectorClient, RawPost
 from search_service.applications.ports.ml_client import MlClient, QueryAnalysis
+from search_service.applications.ports.search_cache import SearchCache
 from search_service.applications.ports.uow import UnitOfWork
+from search_service.applications.search_cache import key_of
 from search_service.domain.entities import Search, SearchTarget
 from search_service.domain.enums import Platform, QueryType, SearchStage, SearchStatus
 from search_service.domain.errors import CollectorError, NotFoundError
 
 log = structlog.get_logger()
+
+CACHEABLE_STATUSES = frozenset({SearchStatus.COMPLETED, SearchStatus.PARTIAL})
 
 # русские сообщения об ошибках по коду
 ERROR_MESSAGES = {
@@ -80,8 +84,10 @@ class Pipeline:
         target_timeout: int = 60,
         *,
         show_degraded_warning: bool = True,
+        cache: SearchCache | None = None,
     ) -> None:
         self.uow = uow
+        self.cache = cache
         self.collector = collector
         self.ml = ml
         self.sem = semaphore
@@ -163,6 +169,10 @@ class Pipeline:
             search.finish()
             await self.uow.searches.save(search)
             await self.uow.commit()
+
+        # 7. готовая подборка → в кэш (B2-20); failed / cancelled не кэшируем
+        if self.cache is not None and search.status in CACHEABLE_STATUSES:
+            await self.cache.put(key_of(search), search.id)
 
     async def _analyze(self, search: Search) -> tuple[QueryAnalysis, str | None]:
         """→ (разбор, warning для поиска или None)."""

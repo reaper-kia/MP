@@ -419,7 +419,7 @@
 | `UpdateSource` | [`UpdateSourceRequest`](#searchv1updatesourcerequest) → [`UpdateSourceResponse`](#searchv1updatesourceresponse) |  |
 | `DeleteSource` | [`DeleteSourceRequest`](#searchv1deletesourcerequest) → [`DeleteSourceResponse`](#searchv1deletesourceresponse) |  |
 | `ImportSources` | [`ImportSourcesRequest`](#searchv1importsourcesrequest) → [`ImportSourcesResponse`](#searchv1importsourcesresponse) |  |
-| `StartSearch` | [`StartSearchRequest`](#searchv1startsearchrequest) → [`StartSearchResponse`](#searchv1startsearchresponse) | ── поиск ── Создаёт задачу и сразу возвращает её (status=QUEUED). Выполнение — в фоне внутри search_service. |
+| `StartSearch` | [`StartSearchRequest`](#searchv1startsearchrequest) → [`StartSearchResponse`](#searchv1startsearchresponse) | ── поиск ── Создаёт задачу и сразу возвращает её (status=QUEUED). Выполнение — в фоне внутри search_service. Тот же поиск недавно уже был (B2-20) — сразу копия готовой подборки: финальный статус и cache. |
 | `GetSearch` | [`GetSearchRequest`](#searchv1getsearchrequest) → [`GetSearchResponse`](#searchv1getsearchresponse) |  |
 | `ListSearches` | [`ListSearchesRequest`](#searchv1listsearchesrequest) → [`ListSearchesResponse`](#searchv1listsearchesresponse) |  |
 | `RetrySearch` | [`RetrySearchRequest`](#searchv1retrysearchrequest) → [`RetrySearchResponse`](#searchv1retrysearchresponse) | Повторить упавшие цели (или указанные). Уже найденное сохраняется. |
@@ -729,6 +729,17 @@ _Пустое сообщение._
 | 10 | `created_at` | Timestamp |  |  |
 | 11 | `started_at` | Timestamp | optional |  |
 | 12 | `finished_at` | Timestamp | optional |  |
+| 13 | `cache` | [`SearchCacheInfo`](#searchv1searchcacheinfo) | optional | Подборка из кэша (B2-20): копия готового поиска с теми же параметрами. Нет — настоящий поиск |
+
+<a id="searchv1searchcacheinfo"></a>
+### message `search.v1.SearchCacheInfo`
+
+Откуда взята подборка из кэша
+
+| № | Поле | Тип | Метка | Описание |
+|---|---|---|---|---|
+| 1 | `from_search_id` | string (str) |  | исходный поиск, с которого снята копия |
+| 2 | `created_at` | Timestamp |  | когда исходный поиск завершился — «собрана N мин назад» |
 
 <a id="searchv1startsearchrequest"></a>
 ### message `search.v1.StartSearchRequest`
@@ -742,6 +753,7 @@ _Пустое сообщение._
 | 5 | `mode` | [`SearchMode`](#searchv1searchmode) |  |  |
 | 6 | `platforms` | [`common.v1.Platform`](#commonv1platform) | repeated | GLOBAL — площадки, по которым ищем. SELECTED — игнорируется: площадки берутся из source_ids. |
 | 7 | `source_ids` | string (str) | repeated |  |
+| 8 | `fresh` | bool |  | true — не брать готовую подборку из кэша, искать заново («Обновить», «Повторить»), B2-20 |
 
 <a id="searchv1startsearchresponse"></a>
 ### message `search.v1.StartSearchResponse`

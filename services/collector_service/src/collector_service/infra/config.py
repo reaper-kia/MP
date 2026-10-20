@@ -1,5 +1,6 @@
 from functools import lru_cache
 
+from pydantic import AliasChoices, Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 # Красноярские новостные сайты. Ленты открылись при пробе 2026-10-19 (docs/collector-spike.md §6);
@@ -71,8 +72,18 @@ class Settings(BaseSettings):
 
     # Бюджет на один сбор: search_service ждёт цель 60 с — отдаём, что успели, раньше (B1-09)
     collect_budget_seconds: float = 50.0
-    # Кэш ResolveSource (B1-09): одна и та же ссылка — один запрос к площадке за 10 минут
-    resolve_cache_ttl_seconds: float = 600.0
+    # Кэш в Redis (B2-20): посты источника / поиск по площадке и карточка источника по ссылке.
+    # CACHE_ENABLED=false — как до B2-20: сбор не кэшируется, карточка — в памяти процесса
+    cache_enabled: bool = True
+    redis_url: str = "redis://localhost:6379/0"
+    redis_timeout_seconds: float = 0.2
+    cache_collect_ttl_seconds: float = 600.0
+    # Кэш ResolveSource (B1-09): одна и та же ссылка — один запрос к площадке за 10 минут.
+    # Старое имя RESOLVE_CACHE_TTL_SECONDS тоже понимаем
+    cache_resolve_ttl_seconds: float = Field(
+        default=600.0,
+        validation_alias=AliasChoices("cache_resolve_ttl_seconds", "resolve_cache_ttl_seconds"),
+    )
 
     model_config = SettingsConfigDict(env_file=".env", env_file_encoding="utf-8", extra="ignore")
 

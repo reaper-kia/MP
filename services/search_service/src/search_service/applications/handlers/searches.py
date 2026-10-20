@@ -16,10 +16,12 @@ from search_service.applications.handlers.errors import domain_errors
 from search_service.applications.handlers.views import counts_view, search_view
 from search_service.applications.ports.collector_client import CollectorClient
 from search_service.applications.ports.runner import SearchRunner
+from search_service.applications.ports.search_cache import SearchCache
 from search_service.applications.ports.uow import UnitOfWork
 from search_service.applications.queries.searches import GetSearchQuery, ListSearchesQuery
 from search_service.applications.results.read_models import SearchPage, SearchView
-from search_service.domain.entities import Search, SearchTarget
+from search_service.applications.search_cache import search_cache_key
+from search_service.domain.entities import Search, SearchTarget, utcnow
 from search_service.domain.enums import SearchMode, TargetKind
 from search_service.domain.errors import NotFoundError, SearchInvalidParams
 from search_service.domain.value_objects import Period
@@ -41,15 +43,43 @@ class StartSearchRequest:
     mode: SearchMode
     platforms: list[str]
     source_ids: list[uuid.UUID]
+    fresh: bool = False  # мимо кэша готовых подборок
 
 
 class SearchHandler:
     def __init__(
-        self, uow: UnitOfWork, runner: SearchRunner, collector: CollectorClient | None = None
+        self,
+        uow: UnitOfWork,
+        runner: SearchRunner,
+        collector: CollectorClient | None = None,
+        cache: SearchCache | None = None,
     ) -> None:
         self.uow = uow
         self.runner = runner
         self.collector = collector
+        self.cache = cache
+
+    async def _from_cache(self, key: str) -> Search | None:
+        """Готовая подборка с теми же параметрами (B2-20) → её копия: новый поиск сразу в
+        финальном статусе. Копия, а не тот же search_id: исключения одного пользователя не должны
+        появляться у другого. Исходного поиска уже нет (или он перезапущен) — промах."""
+        if self.cache is None:
+            return None
+        source_id = await self.cache.get(key)
+        if source_id is None:
+            log.info("cache miss", key=key)
+            return None
+        new_id = uuid.uuid4()
+        search: Search | None = None
+        async with self.uow:
+            if await self.uow.searches.clone_finished(source_id, new_id, utcnow()):
+                await self.uow.commit()
+                search = await self.uow.searches.get_with_targets(new_id)
+        if search is None:
+            log.info("cache miss", key=key, reason="source search gone or not finished")
+            return None
+        log.info("cache hit", key=key, from_search_id=str(source_id), search_id=str(new_id))
+        return search
 
     async def _global_platforms(self, platforms: list[str]) -> set[str]:
         """Где «везде» добавляет поиск по всей площадке: только там, где collector его умеет.
@@ -86,6 +116,20 @@ class SearchHandler:
             raise SearchInvalidParams("platforms", "выберите хотя бы одну площадку")
 
         platforms = list(dict.fromkeys(req.platforms))
+        if self.cache is not None and self.cache.enabled and not req.fresh:
+            cached = await self._from_cache(
+                search_cache_key(
+                    query=req.query,
+                    period_from=pf,
+                    period_to=pt,
+                    mode=req.mode,
+                    platforms=platforms,
+                    source_ids=req.source_ids,
+                )
+            )
+            if cached is not None:
+                return cached
+
         searchable: set[str] = set()
         if req.mode is SearchMode.GLOBAL:
             searchable = await self._global_platforms(platforms)
@@ -195,13 +239,16 @@ class StartSearchCommandHandler:
     uow: UnitOfWork
     runner: SearchRunner
     collector: CollectorClient | None = None
+    cache: SearchCache | None = None
 
     async def handle(self, cmd: StartSearchCommand) -> SearchView:
         """1) валидация → SearchInvalidParamsError("<поле>: <текст>"); период — по Красноярску;
-        2) Search + цели (снимок name/url) в одной транзакции;
-        3) пайплайн запускается фоновой задачей (B2-04), сразу возвращаем status=QUEUED."""
+        2) тот же поиск недавно уже был и fresh=false → копия готовой подборки (B2-20);
+        3) иначе Search + цели (снимок name/url) в одной транзакции;
+        4) пайплайн запускается фоновой задачей (B2-04), сразу возвращаем status=QUEUED."""
         with domain_errors():
-            search = await SearchHandler(self.uow, self.runner, self.collector).start(
+            handler = SearchHandler(self.uow, self.runner, self.collector, self.cache)
+            search = await handler.start(
                 StartSearchRequest(
                     query=cmd.query,
                     period_from=cmd.period_from.isoformat(),
@@ -209,6 +256,7 @@ class StartSearchCommandHandler:
                     mode=cmd.mode,
                     platforms=[p.value for p in cmd.platforms],
                     source_ids=list(cmd.source_ids),
+                    fresh=cmd.fresh,
                 )
             )
             return await load_search_view(self.uow, search.id)

@@ -34,6 +34,7 @@ class PostAccumulator:
         self._warnings: list[str] = []
         self._received = self._empty = self._outside = 0
         self.truncated = False
+        self.complete = True  # False — сбор оборван по времени или ошибке (не кэшировать)
 
     @property
     def kept(self) -> int:
@@ -71,7 +72,12 @@ class PostAccumulator:
             outside_period=self._outside,
         )
         return (
-            CollectResult(posts=list(self._posts), truncated=self.truncated, warnings=warnings),
+            CollectResult(
+                posts=list(self._posts),
+                truncated=self.truncated,
+                warnings=warnings,
+                complete=self.complete,
+            ),
             stats,
         )
 
@@ -84,4 +90,5 @@ def finalize_result(
     for warning in result.warnings:
         acc.warn(warning)
     acc.truncated |= result.truncated
+    acc.complete = result.complete
     return acc.result()

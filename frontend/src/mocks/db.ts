@@ -211,6 +211,7 @@ export function snapshot(rec: SearchRecord, now = Date.now()) {
     finished_at: final
       ? new Date(rec.cancelledAt ?? Math.max(rec.createdAt + T_DONE, lastRetry ? lastRetry + RETRY_DONE : 0)).toISOString()
       : null,
+    cache: null,
   };
   return { search, visible, final };
 }

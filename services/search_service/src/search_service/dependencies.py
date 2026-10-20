@@ -11,6 +11,7 @@ import logging
 from dataclasses import dataclass, field
 
 import grpc
+from redis.asyncio import Redis
 from sqlalchemy.ext.asyncio import AsyncEngine
 
 from search_service.applications.commands.results import SetExcludedCommand
@@ -51,6 +52,7 @@ from search_service.applications.mediator import Mediator
 from search_service.applications.ports.collector_client import CollectorClient
 from search_service.applications.ports.ml_client import MlClient
 from search_service.applications.ports.runner import SearchRunner
+from search_service.applications.ports.search_cache import SearchCache
 from search_service.applications.ports.uow import UnitOfWork
 from search_service.applications.queries.results import (
     ExportSearchQuery,
@@ -69,6 +71,7 @@ from search_service.infra.database.database import create_engine, create_session
 from search_service.infra.database.uow import UnitOfWork as SqlAlchemyUnitOfWork
 from search_service.infra.ml_client import StubMl
 from search_service.infra.runner import SearchRunner as AsyncioSearchRunner
+from search_service.infra.search_cache import DisabledSearchCache, RedisSearchCache
 
 logger = logging.getLogger(__name__)
 
@@ -80,12 +83,33 @@ class Container:
     runner: AsyncioSearchRunner
     mediator: Mediator
     channels: list[grpc.aio.Channel] = field(default_factory=list)
+    cache: SearchCache = field(default_factory=DisabledSearchCache)
+    redis: Redis | None = None
 
     async def close(self) -> None:
         await self.runner.cancel_all()
         for channel in self.channels:
             await channel.close()
+        if self.redis is not None:
+            await self.redis.aclose()
         await self.engine.dispose()
+
+
+def build_cache(settings: Settings) -> tuple[SearchCache, Redis | None]:
+    """CACHE_ENABLED=true — Redis (B2-20); false — кэша нет, всё как раньше."""
+    if not settings.cache_enabled:
+        logger.info("кэш подборок выключен (CACHE_ENABLED=false)")
+        return DisabledSearchCache(), None
+    client = Redis.from_url(
+        settings.redis_url,
+        socket_timeout=settings.redis_timeout_seconds,
+        socket_connect_timeout=settings.redis_timeout_seconds,
+    )
+    logger.info("кэш подборок: Redis, %d с", settings.cache_search_ttl_seconds)
+    cache = RedisSearchCache(
+        client, settings.cache_search_ttl_seconds, settings.redis_timeout_seconds
+    )
+    return cache, client
 
 
 def build_collector(settings: Settings, channels: list[grpc.aio.Channel]) -> CollectorClient:
@@ -124,6 +148,7 @@ def build_container(settings: Settings) -> Container:
     channels: list[grpc.aio.Channel] = []
     collector = build_collector(settings, channels)
     ml = build_ml(settings, channels)
+    cache, redis = build_cache(settings)
 
     pipeline = Pipeline(
         uow,
@@ -132,18 +157,26 @@ def build_container(settings: Settings) -> Container:
         asyncio.Semaphore(settings.collect_concurrency),
         settings.target_timeout,
         show_degraded_warning=settings.ml_show_degraded_warning,
+        cache=cache,
     )
     runner = AsyncioSearchRunner(pipeline)
     return Container(
         engine=engine,
         uow=uow,
         runner=runner,
-        mediator=build_mediator(uow, collector, runner),
+        mediator=build_mediator(uow, collector, runner, cache),
         channels=channels,
+        cache=cache,
+        redis=redis,
     )
 
 
-def build_mediator(uow: UnitOfWork, collector: CollectorClient, runner: SearchRunner) -> Mediator:
+def build_mediator(
+    uow: UnitOfWork,
+    collector: CollectorClient,
+    runner: SearchRunner,
+    cache: SearchCache | None = None,
+) -> Mediator:
     """Единственное место, где сценарии привязываются к командам."""
     m = Mediator()
     # источники
@@ -154,7 +187,7 @@ def build_mediator(uow: UnitOfWork, collector: CollectorClient, runner: SearchRu
     m.register(DeleteSourceCommand, DeleteSourceCommandHandler(uow, collector))
     m.register(ImportSourcesCommand, ImportSourcesCommandHandler(uow, collector))
     # поиск
-    m.register(StartSearchCommand, StartSearchCommandHandler(uow, runner, collector))
+    m.register(StartSearchCommand, StartSearchCommandHandler(uow, runner, collector, cache))
     m.register(GetSearchQuery, GetSearchQueryHandler(uow))
     m.register(ListSearchesQuery, ListSearchesQueryHandler(uow, runner))
     m.register(RetrySearchCommand, RetrySearchCommandHandler(uow, runner))

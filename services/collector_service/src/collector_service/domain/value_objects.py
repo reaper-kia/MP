@@ -80,6 +80,9 @@ class CollectResult:
     posts: list[RawPost] = field(default_factory=list)
     truncated: bool = False
     warnings: list[str] = field(default_factory=list)
+    # False — сбор оборвался (кончился бюджет времени, площадка упала посреди сбора): такой
+    # ответ отдаём, но не кэшируем. Обрезка по max_posts — полный ответ (B2-20)
+    complete: bool = True
 
 
 @dataclass(frozen=True, slots=True)
