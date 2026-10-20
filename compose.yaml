@@ -78,7 +78,7 @@ services:
       YC_SEARCH_API_KEY: ${YC_SEARCH_API_KEY:-}
       # MAX Bot API (B1-11): токен бота; бот — администратор каналов, которые собираем
       MAX_BOT_TOKEN: ${MAX_BOT_TOKEN:-}
-      MAX_API_URL: ${MAX_API_URL:-https://platform-api.max.ru}
+      MAX_API_URL: ${MAX_API_URL:-https://platform-api2.max.ru}
       # корневой сертификат Минцифры для TLS к MAX: положить PEM в infra/certs/ и указать
       # HTTP_CA_BUNDLE=/certs/<файл>.pem (пусто — только certifi и системные корни)
       HTTP_CA_BUNDLE: ${HTTP_CA_BUNDLE:-}

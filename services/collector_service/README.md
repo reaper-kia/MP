@@ -133,7 +133,7 @@ uv run pytest tests/test_ok_real_fixtures.py tests/test_vk_real_fixtures.py
 `MAX_BOT_TOKEN`, `MAX_API_URL`, `HTTP_CA_BUNDLE` пробрасываются в контейнер (`compose.yaml`, на
 сервере — `env.j2`). Если в логе `CERTIFICATE_VERIFY_FAILED` при обращении к MAX — положить корневой
 сертификат Минцифры в `infra/certs/` (см. `infra/certs/README.md`). Старый домен API
-`platform-api.max.ru` закрывается: если он перестал отвечать — `MAX_API_URL=https://platform-api2.max.ru`.
+Адрес по умолчанию — `platform-api2.max.ru` (старый `platform-api.max.ru` закрыт). Для TLS нужен корневой сертификат Минцифры: он лежит в `infra/certs/russian_trusted_root_ca.pem`, в `.env` — `HTTP_CA_BUNDLE=/certs/russian_trusted_root_ca.pem`.
 
 ### Скорость сбора (B1-16)
 

@@ -19,7 +19,7 @@ from collector_service.domain.exceptions import (
 )
 from collector_service.infra.vk_api.limiter import RateLimiter
 
-DEFAULT_API_URL = "https://platform-api.max.ru"
+DEFAULT_API_URL = "https://platform-api2.max.ru"
 
 
 class MaxApiClient:

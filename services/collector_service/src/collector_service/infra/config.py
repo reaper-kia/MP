@@ -33,7 +33,7 @@ class Settings(BaseSettings):
 
     # MAX Bot API (B1-05): токен бота с business.max.ru; бот — администратор нужных каналов
     max_bot_token: str = ""
-    max_api_url: str = "https://platform-api.max.ru"
+    max_api_url: str = "https://platform-api2.max.ru"
 
     # OK (B1-04): страница, по которой проверяем, что ok.ru отдаёт группы без логина
     ok_health_url: str = "https://ok.ru/ngs24"

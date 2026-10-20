@@ -11,7 +11,7 @@ ANSIBLE_ARGS := $(if $(HOST),-i "$(HOST)$(comma)" -e target=all) $(if $(SSH_USER
                 $(if $(HTTP_PORT),-e http_port=$(HTTP_PORT))
 # Ключи API для сервера: из окружения, а если не заданы — из локального .env.
 # LLM_PROVIDER из .env НЕ берём: локально там ollama, а на сервере модели нет (stub из group_vars).
-DEPLOY_KEYS := VK_SERVICE_TOKEN YC_FOLDER_ID YC_API_KEY YC_SEARCH_API_KEY
+DEPLOY_KEYS := VK_SERVICE_TOKEN YC_FOLDER_ID YC_API_KEY YC_SEARCH_API_KEY MAX_BOT_TOKEN MAX_API_URL HTTP_CA_BUNDLE
 deploy_env = $(foreach k,$(DEPLOY_KEYS),$(k)="$${$(k):-$$(grep -s '^$(k)=' .env | cut -d= -f2-)}")
 # Адрес сайта на сервере из inventory (для seed/smoke после деплоя)
 SERVER_URL ?= http://109.196.167.204:8080
