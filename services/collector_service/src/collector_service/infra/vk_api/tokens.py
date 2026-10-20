@@ -17,6 +17,7 @@ from collections.abc import Callable
 from pathlib import Path
 from typing import Any, Protocol
 
+from collector_service.domain import messages
 from collector_service.domain.exceptions import PlatformUnavailableError
 from collector_service.infra.vk_api.transport import FormPoster, TransportError
 
@@ -122,7 +123,10 @@ class VkIdToken:
             if self._state.get("access_token") != seen and self._fresh():
                 return str(self._state["access_token"])
             if not self.refreshable:
-                raise PlatformUnavailableError(f"ВКонтакте: токен VK ID истёк — {REFRESH_HINT}")
+                raise PlatformUnavailableError(
+                    messages.access_denied("ВКонтакте"),
+                    detail=f"VK ID: токен истёк, обновить нечем — {REFRESH_HINT}",
+                )
             form = {
                 "grant_type": "refresh_token",
                 "refresh_token": str(self._state["refresh_token"]),
@@ -134,11 +138,13 @@ class VkIdToken:
                 answer = await self._poster.post_form(VKID_TOKEN_URL, form)
             except TransportError as exc:
                 raise PlatformUnavailableError(
-                    f"ВКонтакте: не удалось обновить токен VK ID ({exc}) — {REFRESH_HINT}"
+                    messages.no_answer("ВКонтакте"),
+                    detail=f"VK ID: не удалось обновить токен ({exc}) — {REFRESH_HINT}",
                 ) from None
             if not isinstance(answer, dict) or "access_token" not in answer:
                 raise PlatformUnavailableError(
-                    f"ВКонтакте: VK ID отказал в обновлении токена — {REFRESH_HINT}"
+                    messages.access_denied("ВКонтакте"),
+                    detail=f"VK ID: отказ в обновлении токена — {REFRESH_HINT}",
                 )
             expires_in = answer.get("expires_in")
             self._state.update(

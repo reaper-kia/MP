@@ -95,20 +95,24 @@ async def test_error_5_refreshes_once_and_retries(tmp_path: Path) -> None:
 
 async def test_error_5_after_refresh_is_reported(tmp_path: Path) -> None:
     vk = ScriptedVk(auth=refreshed(), users_get=vk_error(5))
-    with pytest.raises(PlatformUnavailableError, match="ошибка 5"):
+    with pytest.raises(PlatformUnavailableError, match="ключ доступа недействителен") as info:
         await client(vk, tokens(vk, state_file(tmp_path))).call("users.get", user_ids=1)
+    assert "ошибка 5" in info.value.detail
     assert len(vk.params("auth")) == 1
 
 
 async def test_refresh_failure_tells_how_to_fix(tmp_path: Path) -> None:
     vk = ScriptedVk(auth=network_down())
     source = tokens(vk, state_file(tmp_path, expires_at=NOW - 1))
-    with pytest.raises(PlatformUnavailableError, match="vk_token.py"):
+    with pytest.raises(PlatformUnavailableError) as info:
         await source.token()
+    assert "vk_token.py" in info.value.detail  # как чинить — в лог, не сотруднику
+    assert "vk_token.py" not in str(info.value)
 
     vk = ScriptedVk(auth={"error": "invalid_grant"})
-    with pytest.raises(PlatformUnavailableError, match="vk_token.py"):
+    with pytest.raises(PlatformUnavailableError) as info:
         await tokens(vk, state_file(tmp_path, expires_at=NOW - 1)).token()
+    assert "vk_token.py" in info.value.detail
 
 
 async def test_new_login_on_disk_is_picked_up_without_restart(tmp_path: Path) -> None:
@@ -223,8 +227,9 @@ async def test_1051_switches_to_yandex_and_opens_posts() -> None:
 
 async def test_1051_without_yandex_key_is_clear_error() -> None:
     vk = ScriptedVk(newsfeed_search=vk_error(1051))
-    with pytest.raises(PlatformUnavailableError, match="YC_SEARCH_API_KEY"):
+    with pytest.raises(PlatformUnavailableError, match="не настроен") as info:
         await gather(fallback_vk(vk, Yandex([], configured=False)).search(["ДТП"], PERIOD, []))
+    assert "YC_SEARCH_API_KEY" in info.value.detail and "YC_" not in str(info.value)
 
 
 async def test_native_search_is_kept_when_it_works() -> None:

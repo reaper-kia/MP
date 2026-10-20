@@ -60,11 +60,13 @@ async def test_client_request_and_errors() -> None:
     assert len(hits) == 3
     with pytest.raises(RateLimitedError):
         await client(Poster(status=429, payload={})).search("x")
-    with pytest.raises(PlatformUnavailableError, match="ключ не принят"):
+    with pytest.raises(PlatformUnavailableError, match="отклонил доступ") as info:
         await client(Poster(status=403, payload={})).search("x")
+    assert "ключ не принят" in info.value.detail
     denied = Poster(status=403, payload={"code": 7, "message": "Permission denied"})
-    with pytest.raises(PlatformUnavailableError, match="Permission denied"):
+    with pytest.raises(PlatformUnavailableError) as info:
         await client(denied).search("x")
+    assert "Permission denied" in info.value.detail  # причина от Яндекса — в лог
     with pytest.raises(PlatformUnavailableError, match="не настроен"):
         await client(Poster(), key="").search("x")
 

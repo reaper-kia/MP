@@ -175,4 +175,4 @@ async def test_health() -> None:
     assert not info.global_mode_supported  # «везде» добавляет только WithSiteSearch
     down, _ = connector({"https://ok.ru/ngs24": 403})
     info = await down.health()
-    assert info.health is Health.UNAVAILABLE and "анти-бот" in info.note
+    assert info.health is Health.UNAVAILABLE and "не робот" in info.note

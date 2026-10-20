@@ -11,6 +11,7 @@ from datetime import UTC, datetime
 from typing import Any
 from urllib.parse import parse_qs, urlsplit
 
+from collector_service.domain import messages
 from collector_service.domain.enums import Platform
 from collector_service.domain.exceptions import UnsupportedUrlError
 from collector_service.domain.urls import path_parts
@@ -58,9 +59,14 @@ def owner_id_from_external(external_id: str) -> int:
     try:
         owner_id = int(external_id)
     except ValueError:
-        raise UnsupportedUrlError(f"Некорректный id источника ВКонтакте: {external_id!r}") from None
+        raise UnsupportedUrlError(
+            messages.source_not_found("ВКонтакте"),
+            detail=f"VK: некорректный id источника {external_id!r}",
+        ) from None
     if owner_id == 0:
-        raise UnsupportedUrlError("Некорректный id источника ВКонтакте: 0")
+        raise UnsupportedUrlError(
+            messages.source_not_found("ВКонтакте"), detail="VK: некорректный id источника 0"
+        )
     return owner_id
 
 

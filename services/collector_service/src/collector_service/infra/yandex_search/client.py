@@ -18,6 +18,7 @@ from xml.etree.ElementTree import Element
 
 from defusedxml import ElementTree
 
+from collector_service.domain import messages
 from collector_service.domain.exceptions import (
     CollectorError,
     PlatformUnavailableError,
@@ -69,7 +70,8 @@ class YandexSearchClient:
     async def search(self, query_text: str, page: int = 0) -> list[SearchHit]:
         if not self.configured:
             raise PlatformUnavailableError(
-                "Поиск через Яндекс не настроен (YC_FOLDER_ID, YC_SEARCH_API_KEY)"
+                messages.GLOBAL_SEARCH_NOT_CONFIGURED,
+                detail="Яндекс Поиск: не заданы YC_FOLDER_ID / YC_SEARCH_API_KEY",
             )
         body: dict[str, Any] = {
             "query": {
@@ -96,25 +98,34 @@ class YandexSearchClient:
             API_URL, body, {"Authorization": f"Api-Key {self._api_key}"}
         )
         if status == 429:
-            raise RateLimitedError("Яндекс Поиск: превышена квота запросов")
+            raise RateLimitedError(
+                messages.GLOBAL_SEARCH_QUOTA, detail="Яндекс Поиск: 429, превышена квота запросов"
+            )
         if status in (401, 403):
             # причину Яндекс пишет в message («Permission denied», «billing account…») — без неё
             # не понять, что чинить: ключ, роль сервисного аккаунта или биллинг
             reason = payload.get("message") if isinstance(payload, Mapping) else None
             detail = f": {str(reason)[:160]}" if reason else ""
             raise PlatformUnavailableError(
-                f"Яндекс Поиск: ключ не принят ({status}{detail}) — проверьте YC_SEARCH_API_KEY, "
-                "роль search-api.webSearch.user и биллинг"
+                messages.GLOBAL_SEARCH_DENIED,
+                detail=(
+                    f"Яндекс Поиск: ключ не принят ({status}{detail}) — проверьте "
+                    "YC_SEARCH_API_KEY, роль search-api.webSearch.user и биллинг"
+                ),
             )
         if status >= 400 or not isinstance(payload, Mapping):
-            raise PlatformUnavailableError(f"Яндекс Поиск: ошибка HTTP {status}")
+            raise PlatformUnavailableError(
+                messages.GLOBAL_SEARCH_DOWN, detail=f"Яндекс Поиск: ошибка HTTP {status}"
+            )
         raw = payload.get("rawData")
         if not isinstance(raw, str):
             return []
         try:
             return parse_xml(base64.b64decode(raw))
         except (ValueError, CollectorError) as exc:
-            raise PlatformUnavailableError(f"Яндекс Поиск: непонятный ответ ({exc})") from None
+            raise PlatformUnavailableError(
+                messages.GLOBAL_SEARCH_DOWN, detail=f"Яндекс Поиск: непонятный ответ ({exc})"
+            ) from None
 
 
 def parse_xml(data: bytes) -> list[SearchHit]:
@@ -130,7 +141,10 @@ def parse_xml(data: bytes) -> list[SearchHit]:
     if error is not None:
         if error.get("code") == "15":
             return []
-        raise PlatformUnavailableError(f"Яндекс Поиск: {_text(error)}")
+        raise PlatformUnavailableError(
+            messages.GLOBAL_SEARCH_DOWN,
+            detail=f"Яндекс Поиск: ошибка {error.get('code')} в ответе: {_text(error)}",
+        )
     hits: list[SearchHit] = []
     for doc in root.iterfind(".//results/grouping/group/doc"):
         url = _text(doc.find("url"))

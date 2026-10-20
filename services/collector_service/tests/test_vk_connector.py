@@ -406,7 +406,7 @@ async def test_health_rate_limited_is_degraded() -> None:
 
 async def test_health_network_down_is_unavailable() -> None:
     info = await connector(ScriptedVk(users_get=network_down())).health()
-    assert info.health is Health.UNAVAILABLE and "не отвечает" in info.note
+    assert info.health is Health.UNAVAILABLE and "не ответила" in info.note
 
 
 # ---------- через Mediator: те же гарантии, что у остальных площадок ----------

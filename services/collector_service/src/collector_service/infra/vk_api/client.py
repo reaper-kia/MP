@@ -11,6 +11,7 @@ import logging
 from collections.abc import Awaitable, Callable, Mapping
 from typing import Any
 
+from collector_service.domain import messages
 from collector_service.domain.exceptions import (
     CollectorError,
     MethodUnavailableError,
@@ -33,6 +34,7 @@ NO_ACCESS_CODES = frozenset({15, 18, 30})  # доступ запрещён / с�
 NOT_FOUND_CODES = frozenset({100, 113})  # неверный параметр / неверный id
 INVALID_TOKEN = 5
 METHOD_UNAVAILABLE = 1051  # «Method is not available for this profile type» (newsfeed.search)
+VK = "ВКонтакте"
 
 type Param = str | int
 
@@ -65,7 +67,10 @@ class VkApiClient:
     async def call(self, method: str, **params: Param) -> Any:
         """Поле `response` ответа VK. Любая неудача — исключение из domain/exceptions.py."""
         if not self.configured:
-            raise PlatformUnavailableError("ВКонтакте: не настроен доступ (VK_SERVICE_TOKEN)")
+            raise PlatformUnavailableError(
+                messages.not_configured(VK),
+                detail="VK: нет ни VK_SERVICE_TOKEN, ни токена VK ID (scripts/vk_token.py)",
+            )
         form = {k: str(v) for k, v in params.items()}
         form["access_token"] = await self._tokens.token()
         form["v"] = self._version
@@ -80,7 +85,9 @@ class VkApiClient:
                 payload = await self._poster.post_form(VK_API_URL + method, form)
             except TransportError as exc:
                 if last:
-                    raise PlatformUnavailableError(f"ВКонтакте не отвечает ({exc})") from None
+                    raise PlatformUnavailableError(
+                        messages.no_answer(VK), detail=f"VK {method}: сеть: {exc}"
+                    ) from None
                 await self._retry_pause(method, attempt, f"сеть: {exc}")
                 continue
 
@@ -88,7 +95,9 @@ class VkApiClient:
             if error is None:
                 if isinstance(payload, dict) and "response" in payload:
                     return payload["response"]
-                raise PlatformUnavailableError(f"ВКонтакте: неожиданный ответ на {method}")
+                raise PlatformUnavailableError(
+                    messages.bad_answer(VK), detail=f"VK {method}: неожиданный ответ"
+                )
 
             code = _error_code(error)
             if code == INVALID_TOKEN and self._tokens.refreshable and not refreshed:
@@ -102,7 +111,7 @@ class VkApiClient:
                 continue
             raise _to_domain_error(method, code)
 
-        raise PlatformUnavailableError(f"ВКонтакте: {method} не удался")  # недостижимо
+        raise PlatformUnavailableError(messages.no_answer(VK), detail=f"VK {method}")  # недостижимо
 
     async def _retry_pause(self, method: str, attempt: int, reason: str) -> None:
         delay = self._backoff * 2 ** (attempt - 1)
@@ -123,14 +132,20 @@ def _error_code(error: Any) -> int:
 
 
 def _to_domain_error(method: str, code: int) -> CollectorError:
+    detail = f"VK {method}: ошибка {code}"
     if code == INVALID_TOKEN:
-        return PlatformUnavailableError("ВКонтакте: ключ доступа недействителен (ошибка 5)")
+        return PlatformUnavailableError(messages.access_denied(VK), detail=detail)
     if code == METHOD_UNAVAILABLE:
-        return MethodUnavailableError(f"ВКонтакте: метод {method} недоступен для этого ключа")
+        return MethodUnavailableError(
+            f"{VK}: поиск по всей площадке закрыт для нашего ключа. {messages.VIA_YANDEX_NOTE}",
+            detail=f"{detail} (метод недоступен для этого типа ключа)",
+        )
     if code in NO_ACCESS_CODES:
-        return SourcePrivateError(f"ВКонтакте: страница закрыта, удалена или недоступна ({code})")
+        return SourcePrivateError(f"{VK}: страница закрыта, удалена или недоступна", detail=detail)
     if code in NOT_FOUND_CODES:
-        return SourceNotFoundError(f"ВКонтакте: источник не найден ({code})")
+        return SourceNotFoundError(messages.source_not_found(VK), detail=detail)
     if code in FLOOD_CODES:
-        return RateLimitedError(f"ВКонтакте: превышен лимит запросов ({code})")
-    return PlatformUnavailableError(f"ВКонтакте: ошибка {code} в методе {method}")
+        return RateLimitedError(messages.too_many_requests(VK), detail=detail)
+    if code in RETRY_CODES:
+        return PlatformUnavailableError(messages.no_answer(VK), detail=detail)
+    return PlatformUnavailableError(messages.bad_answer(VK), detail=detail)

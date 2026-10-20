@@ -6,6 +6,7 @@ from typing import Any
 import certifi
 import httpx
 
+from collector_service.domain import messages
 from collector_service.domain.exceptions import PlatformUnavailableError
 from collector_service.infra.config import Settings
 from collector_service.infra.vk_api.transport import TransportError
@@ -68,7 +69,8 @@ class HttpxJsonPoster:
             response = await self._http.post(url, json=dict(body), headers=dict(headers))
         except httpx.HTTPError as exc:
             raise PlatformUnavailableError(
-                f"Яндекс Поиск не отвечает ({type(exc).__name__})"
+                messages.GLOBAL_SEARCH_DOWN,
+                detail=f"Яндекс Поиск не отвечает ({type(exc).__name__})",
             ) from None
         try:
             payload = response.json()

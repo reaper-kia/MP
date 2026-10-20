@@ -122,13 +122,19 @@ class NewsConnector:
         self, queries: Sequence[str], period: Period, region_terms: Sequence[str]
     ) -> AsyncIterator[Page]:
         if not self._sites:
-            raise PlatformUnavailableError("Не задан перечень новостных сайтов (NEWS_SITES)")
+            raise PlatformUnavailableError(
+                "Новостные сайты: перечень сайтов не настроен — обратитесь к администратору",
+                detail="NEWS_SITES пуст",
+            )
         matchers = [m for q in queries if (m := _Matcher.of(q)) is not None]
         sites = list(self._sites.values())
         feeds = await asyncio.gather(*(self._feed(s) for s in sites), return_exceptions=True)
         failed = [s.name for s, f in zip(sites, feeds, strict=True) if isinstance(f, BaseException)]
         if len(failed) == len(sites):
-            raise PlatformUnavailableError("Новостные сайты: ни одна RSS-лента не открылась")
+            raise PlatformUnavailableError(
+                "Новостные сайты: ни один сайт не ответил, повторите позже",
+                detail="ни одна RSS-лента не открылась: " + ", ".join(failed),
+            )
         warnings = [
             f"Новостные сайты: поиск по свежим RSS-лентам {len(sites)} сайтов, не по архиву"
         ]
@@ -187,7 +193,10 @@ class NewsConnector:
         try:
             return parse_feed(page.text.encode())
         except FeedError as exc:
-            raise SourceNotFoundError(f"{site.name}: RSS-лента не разобралась ({exc})") from None
+            raise SourceNotFoundError(
+                f"{site.name}: не удалось прочитать ленту новостей сайта",
+                detail=f"{site.feed_url}: RSS не разобралась ({exc})",
+            ) from None
 
 
 def canonical_url(link: str) -> str:

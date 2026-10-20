@@ -9,12 +9,15 @@
 
 import asyncio
 import contextlib
+import logging
 from collections.abc import AsyncIterator
 
 from collector_service.applications.budget import Budget
-from collector_service.domain.exceptions import CollectorError
+from collector_service.domain.exceptions import CollectorError, log_text
 from collector_service.domain.services import PostAccumulator
 from collector_service.domain.value_objects import Page
+
+logger = logging.getLogger(__name__)
 
 
 def time_warning(budget: Budget) -> str:
@@ -45,6 +48,7 @@ async def drain(pages: AsyncIterator[Page], acc: PostAccumulator, budget: Budget
             except CollectorError as exc:
                 if received_pages == 0:
                     raise
+                logger.warning("сбор прерван после %d стр.: %s", received_pages, log_text(exc))
                 acc.truncated = True
                 acc.warn(f"Сбор прерван: {exc}. Отданы публикации, полученные до ошибки")
                 return

@@ -6,6 +6,7 @@
 
 Что делает: groups.getById, wall.get (первые 20 постов), newsfeed.search за последние 14 дней
 (первые 20 результатов), а также названия найденных источников (groups.getById / users.get).
+newsfeed.search закрыт для части ключей (ошибка 1051) — тогда поиск пропускается, остальное пишется.
 Токен в файлы не попадает: пишем ответ VK и список параметров без access_token.
 После записи `pytest tests/test_vk_real_fixtures.py` проверит, что разбор понимает живые ответы.
 Записанные файлы — это публичные посты VK: перед коммитом просмотрите их глазами.
@@ -31,6 +32,10 @@ USAGE = (
 )
 
 
+class VkError(Exception):
+    pass
+
+
 def call(token: str, method: str, **params: str | int) -> dict[str, Any]:
     form = {k: str(v) for k, v in params.items()} | {"access_token": token, "v": VERSION}
     request = urllib.request.Request(API + method, data=urllib.parse.urlencode(form).encode())
@@ -39,7 +44,7 @@ def call(token: str, method: str, **params: str | int) -> dict[str, Any]:
     time.sleep(PAUSE)
     if "error" in payload:
         error = payload["error"]
-        sys.exit(f"VK {method}: ошибка {error.get('error_code')}: {error.get('error_msg')}")
+        raise VkError(f"VK {method}: ошибка {error.get('error_code')}: {error.get('error_msg')}")
     payload["_recorded"] = {
         "at": datetime.now(UTC).isoformat(timespec="seconds"),
         "method": method,
@@ -64,8 +69,13 @@ def main() -> None:
     token = os.environ.get("VK_SERVICE_TOKEN", "")
     if not token or len(sys.argv) < 3:
         sys.exit(USAGE)
-    handle, query = sys.argv[1], sys.argv[2]
+    try:
+        record(token, sys.argv[1], sys.argv[2])
+    except VkError as exc:
+        sys.exit(str(exc))
 
+
+def record(token: str, handle: str, query: str) -> None:
     group = call(token, "groups.getById", group_id=handle, fields="city,members_count,is_closed")
     save("groups_get_by_id.json", group)
     groups = group["response"]
@@ -75,9 +85,13 @@ def main() -> None:
     save("wall_get.json", call(token, "wall.get", owner_id=owner_id, count=20))
 
     now = int(time.time())
-    search = call(
-        token, "newsfeed.search", q=query, count=20, start_time=now - 14 * 86400, end_time=now
-    )
+    try:
+        search = call(
+            token, "newsfeed.search", q=query, count=20, start_time=now - 14 * 86400, end_time=now
+        )
+    except VkError as exc:
+        print(f"{exc} — поиск пропущен («везде» по VK идёт через Яндекс)")
+        return
     save("newsfeed_search.json", search)
 
     owners = {int(i["owner_id"]) for i in search["response"].get("items", []) if "owner_id" in i}

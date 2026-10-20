@@ -18,11 +18,13 @@ from collections.abc import AsyncIterator, Sequence
 from dataclasses import dataclass
 
 from collector_service.applications.ports.connectors import PlatformConnector, PostReader
+from collector_service.domain import messages
 from collector_service.domain.exceptions import (
     CollectorError,
     MethodUnavailableError,
     PlatformUnavailableError,
     RateLimitedError,
+    log_text,
 )
 from collector_service.domain.value_objects import Page, Period, PlatformInfo, RawPost, SourceInfo
 from collector_service.infra.yandex_search.client import SearchHit, YandexSearchClient
@@ -54,7 +56,7 @@ class SiteSearch:
                 hits = await self._hits(query)
             except CollectorError as exc:
                 first_error = first_error or exc
-                logger.warning("site_search %s: фраза не обработана: %s", self.site, exc)
+                logger.warning("site_search %s: фраза не обработана: %s", self.site, log_text(exc))
                 continue
             succeeded += 1
             urls: list[str] = []
@@ -167,7 +169,12 @@ class WithSearchFallback:
         if not self._site_search.configured:
             note = "Поиск «везде» закрыт для этого ключа VK, а ключ Yandex Search API не задан"
             return _with(info, global_mode=False, note=note)
-        return _with(info, global_mode=True, note=f"Поиск «везде»: {COVERAGE_NOTE}")
+        return _with(info, global_mode=True, note=self._fallback_note)
+
+    @property
+    def _fallback_note(self) -> str:
+        """VK 1051 — не ошибка цели, а заметка площадки (B1-13)."""
+        return f"{self.title}: {messages.VIA_YANDEX_NOTE}, {COVERAGE_NOTE}"
 
     async def resolve(self, url: str) -> SourceInfo:
         return await self._base.resolve(url)
@@ -190,14 +197,27 @@ class WithSearchFallback:
             except MethodUnavailableError as exc:
                 if yielded:
                     raise
-                logger.warning("%s: свой поиск закрыт (%s) — дальше через Яндекс", self.title, exc)
+                logger.warning(
+                    "%s: свой поиск закрыт (%s) — дальше через Яндекс", self.title, log_text(exc)
+                )
                 self._native_closed = True
         if not self._site_search.configured:
             raise PlatformUnavailableError(
-                f"{self.title}: поиск «везде» закрыт для этого ключа, "
-                "а ключ Yandex Search API (YC_SEARCH_API_KEY) не задан"
+                messages.GLOBAL_SEARCH_NOT_CONFIGURED,
+                detail=(
+                    f"{self.title}: свой поиск закрыт для ключа (1051), "
+                    "а YC_FOLDER_ID / YC_SEARCH_API_KEY не заданы"
+                ),
             )
+        first = True
         async for page in self._site_search.search(queries, period):
+            if first:  # заметка — с первой страницей: упадёт Яндекс сразу — это ошибка цели
+                first = False
+                page = Page(
+                    posts=page.posts,
+                    warnings=[self._fallback_note, *page.warnings],
+                    truncated=page.truncated,
+                )
             yield page
 
 

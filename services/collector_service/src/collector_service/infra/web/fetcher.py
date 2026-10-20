@@ -19,6 +19,7 @@ from urllib.parse import urlsplit
 
 import httpx
 
+from collector_service.domain import messages
 from collector_service.domain.exceptions import (
     PlatformUnavailableError,
     RateLimitedError,
@@ -155,7 +156,7 @@ class HttpxWebFetcher:
             except httpx.HTTPError as exc:
                 if attempt == self._max_attempts:
                     raise PlatformUnavailableError(
-                        f"{name}: нет ответа ({type(exc).__name__})"
+                        messages.no_answer(name), detail=f"{url}: {type(exc).__name__}"
                     ) from None
                 await self._pause(name, attempt, type(exc).__name__)
                 continue
@@ -173,7 +174,7 @@ class HttpxWebFetcher:
                 name,
                 retry_after=response.headers.get("retry-after"),
             )
-        raise PlatformUnavailableError(f"{name}: страница не получена")  # недостижимо
+        raise PlatformUnavailableError(messages.no_answer(name), detail=url)  # недостижимо
 
     async def _pause(self, name: str, attempt: int, reason: str) -> None:
         delay = self._backoff * 2 ** (attempt - 1)
@@ -183,18 +184,27 @@ class HttpxWebFetcher:
 
 def check_response(page: WebPage, name: str, retry_after: str | None = None) -> WebPage:
     """Статус и признаки анти-бота → ошибка сервиса; иначе страница как есть."""
+    detail = f"{page.url}: HTTP {page.status}"
     if page.status in (404, 410):
-        raise SourceNotFoundError(f"{name}: страница не найдена ({page.status})")
+        raise SourceNotFoundError(f"{name}: страница не найдена", detail=detail)
     if page.status == 429:
         wait = f", просит подождать {retry_after} с" if retry_after else ""
-        raise RateLimitedError(f"{name}: слишком много запросов{wait}")
+        raise RateLimitedError(messages.too_many_requests(name), detail=detail + wait)
     if page.status == 403:
-        raise PlatformUnavailableError(f"{name}: доступ закрыт (403), похоже на анти-бот")
+        raise PlatformUnavailableError(BLOCKED.format(name=name), detail=f"{detail}, анти-бот?")
+    if page.status >= 500:
+        raise PlatformUnavailableError(messages.no_answer(name), detail=detail)
     if page.status >= 400:
-        raise PlatformUnavailableError(f"{name}: ошибка HTTP {page.status}")
+        raise PlatformUnavailableError(messages.bad_answer(name), detail=detail)
     if looks_like_antibot(page.text):
-        raise PlatformUnavailableError(f"{name}: страница с проверкой «не робот» (анти-бот)")
+        raise PlatformUnavailableError(
+            BLOCKED.format(name=name), detail=f"{page.url}: страница анти-бота «не робот»"
+        )
     return page
+
+
+# 403 и страница «не робот»: площадка приняла нас за бота
+BLOCKED = "{name}: площадка временно ограничила доступ (проверка «не робот»), повторите позже"
 
 
 def looks_like_antibot(text: str) -> bool:

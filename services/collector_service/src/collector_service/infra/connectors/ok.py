@@ -18,6 +18,7 @@ from collections.abc import AsyncIterator, Callable, Sequence
 from datetime import UTC, datetime
 from urllib.parse import urlencode
 
+from collector_service.domain import messages
 from collector_service.domain.enums import Health, Platform
 from collector_service.domain.exceptions import (
     CollectorError,
@@ -129,7 +130,9 @@ class OkConnector:
     ) -> AsyncIterator[Page]:
         gid = source_external_id.strip()
         if not gid.isdigit():
-            raise UnsupportedUrlError(f"Некорректный id группы Одноклассников: {gid!r}")
+            raise UnsupportedUrlError(
+                messages.source_not_found(self.title), detail=f"OK: некорректный id группы {gid!r}"
+            )
         topics_url = f"{group_url(gid)}/topics"
         first = await self._web.get(topics_url, what=self.title)
         if parse_group(first.text) is None and "groups_post" not in first.text:

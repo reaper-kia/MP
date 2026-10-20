@@ -20,6 +20,7 @@ from collector_service.domain.exceptions import (
     RateLimitedError,
     UnsupportedUrlError,
 )
+from collector_service.domain.messages import source_not_found
 from collector_service.domain.urls import path_parts
 from collector_service.domain.value_objects import (
     Page,
@@ -100,7 +101,9 @@ class MaxConnector:
     ) -> AsyncIterator[Page]:
         chat_id = source_external_id.strip()
         if not chat_id.lstrip("-").isdigit():
-            raise UnsupportedUrlError(f"Некорректный id канала MAX: {chat_id!r}")
+            raise UnsupportedUrlError(
+                source_not_found(self.title), detail=f"MAX: некорректный id {chat_id!r}"
+            )
         name, source_url = await self._name(chat_id)
         start_ms = int(period.start.timestamp() * 1000)
         cursor = int(period.end.timestamp() * 1000)

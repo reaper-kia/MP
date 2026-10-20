@@ -6,7 +6,16 @@
 
 
 class CollectorError(Exception):
-    pass
+    """str(exc) — текст для сотрудника: search_service показывает его в интерфейсе как есть.
+    Поэтому в нём нет кодов HTTP, «rpc error» и имён переменных окружения (B1-13).
+
+    detail — подробность для разработчика: статус, ответ площадки, что проверить. Только в лог
+    (log_text), наружу не уходит.
+    """
+
+    def __init__(self, message: str = "", *, detail: str = "") -> None:
+        super().__init__(message)
+        self.detail = detail
 
 
 class UnsupportedUrlError(CollectorError):
@@ -32,3 +41,9 @@ class MethodUnavailableError(PlatformUnavailableError):
 
 class RateLimitedError(CollectorError):
     pass
+
+
+def log_text(exc: BaseException) -> str:
+    """Текст ошибки для лога: сообщение сотруднику + подробность, если есть."""
+    detail = getattr(exc, "detail", "")
+    return f"{exc} [{detail}]" if detail else str(exc)

@@ -10,6 +10,7 @@ from typing import Any, Protocol, runtime_checkable
 
 from collector_service.applications.mediator import Next, Query
 from collector_service.applications.ports.cache import Cache
+from collector_service.domain.exceptions import log_text
 
 logger = logging.getLogger("collector_service.queries")
 
@@ -34,7 +35,7 @@ class LoggingBehavior:
                 request_id,
                 self._clock() - started,
                 type(exc).__name__,
-                exc,
+                log_text(exc),
             )
             raise
         logger.info("%s request_id=%s done in %.2fs", name, request_id, self._clock() - started)

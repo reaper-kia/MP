@@ -52,8 +52,9 @@ async def test_token_and_version_go_in_form_not_in_url() -> None:
 async def test_no_token_means_unavailable_without_calling_vk() -> None:
     vk = ScriptedVk()
     client, _ = make_client(vk, token="")
-    with pytest.raises(PlatformUnavailableError, match="не настроен доступ"):
+    with pytest.raises(PlatformUnavailableError, match="доступ к площадке не настроен") as info:
         await client.call("wall.get", owner_id=-1)
+    assert "VK_SERVICE_TOKEN" in info.value.detail and "VK_SERVICE_TOKEN" not in str(info.value)
     assert vk.calls == []
 
 
@@ -113,15 +114,17 @@ async def test_network_errors_are_retried_then_reported_without_secrets() -> Non
     with pytest.raises(PlatformUnavailableError) as info:
         await client.call("wall.get", owner_id=-1)
     assert len(vk.calls) == 4
-    assert TOKEN not in str(info.value) and "ConnectError" in str(info.value)
+    assert TOKEN not in str(info.value) and TOKEN not in info.value.detail
+    assert "не ответила" in str(info.value) and "ConnectError" in info.value.detail
 
 
 @pytest.mark.parametrize("payload", [[], {"something": 1}, "text"])
 async def test_unexpected_payload_is_platform_unavailable(payload: object) -> None:
     vk = ScriptedVk(wall_get=lambda _: payload)
     client, _ = make_client(vk)
-    with pytest.raises(PlatformUnavailableError, match="неожиданный ответ"):
+    with pytest.raises(PlatformUnavailableError, match="вернула ошибку") as info:
         await client.call("wall.get", owner_id=-1)
+    assert "неожиданный ответ" in info.value.detail
 
 
 async def test_limiter_spaces_requests_by_rate() -> None:
