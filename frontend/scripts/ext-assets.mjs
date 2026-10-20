@@ -1,37 +1,13 @@
-// npm run build:ext — расширение Chrome (FE-10): extension/ → dist-ext/mediapulse/ + dist-ext/mediapulse-extension.zip.
-// MP_SERVER=http://адрес-стенда npm run build:ext — адрес сервера по умолчанию (в панели его можно сменить).
-// Значки PNG рисуются здесь же из логотипа (public/favicon.svg): в manifest Chrome не принимает SVG.
-import { cpSync, mkdirSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
-import { dirname, join, relative } from "node:path";
-import { fileURLToPath } from "node:url";
+// Помощники сборки расширения (FE-17): значки PNG из логотипа (в manifest Chrome не принимает SVG) и zip.
+// Используются в vite.extension.config.ts (значки) и scripts/zip-ext.mjs (архив).
+import { readdirSync, readFileSync } from "node:fs";
+import { join } from "node:path";
 import { crc32, deflateRawSync, deflateSync } from "node:zlib";
 
-const root = join(dirname(fileURLToPath(import.meta.url)), "..");
-const out = join(root, "dist-ext");
-const dir = join(out, "mediapulse");
-const server = (process.env.MP_SERVER ?? "http://localhost").replace(/\/+$/, "");
+export const ICON_SIZES = [16, 32, 48, 128];
 
-rmSync(out, { recursive: true, force: true });
-mkdirSync(join(dir, "icons"), { recursive: true });
-cpSync(join(root, "extension"), dir, { recursive: true });
-
-writeFileSync(
-  join(dir, "config.js"),
-  `// Адрес сервера по умолчанию (собрано npm run build:ext). В панели его можно поменять (⚙).\nself.MP_DEFAULT_SERVER = ${JSON.stringify(server)};\n`,
-);
-
-const SIZES = [16, 32, 48, 128];
-for (const size of SIZES) writeFileSync(join(dir, "icons", `${size}.png`), png(size, renderLogo(size)));
-
-const manifest = JSON.parse(readFileSync(join(dir, "manifest.json"), "utf8"));
-const icons = Object.fromEntries(SIZES.map((s) => [String(s), `icons/${s}.png`]));
-manifest.icons = icons;
-manifest.action = { ...manifest.action, default_icon: icons };
-writeFileSync(join(dir, "manifest.json"), `${JSON.stringify(manifest, null, 2)}\n`);
-
-const zipPath = join(out, "mediapulse-extension.zip");
-writeFileSync(zipPath, zip(dir));
-console.log(`Расширение: ${relative(root, dir)} (адрес сервера ${server})\nАрхив: ${relative(root, zipPath)}`);
+/** PNG значка заданного размера. */
+export const iconPng = (size) => png(size, renderLogo(size));
 
 // ── логотип: тёмный скруглённый квадрат, лаймовые «P», квадрат и круг (координаты favicon.svg, 24×24) ──
 
@@ -118,7 +94,8 @@ function readdirSyncSorted(p) {
   return readdirSync(p, { withFileTypes: true }).sort((a, b) => a.name.localeCompare(b.name));
 }
 
-function zip(base) {
+/** Zip-архив папки (deflate, имена в UTF-8). */
+export function zip(base) {
   const locals = [];
   const centrals = [];
   let offset = 0;
