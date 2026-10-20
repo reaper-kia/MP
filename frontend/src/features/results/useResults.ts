@@ -109,6 +109,8 @@ export function useExclusion(searchId: string) {
     },
     onSuccess: ({ counts }) => {
       queryClient.setQueryData<S["Search"]>(["search", searchId], (s) => (s ? { ...s, counts } : s));
+      // «в подборке N» у источников в «Где искали» сервер тоже пересчитал — перечитать поиск
+      queryClient.invalidateQueries({ queryKey: ["search", searchId] });
     },
     onError: (err, _vars, ctx) => {
       ctx?.snapshot.forEach(([qk, data]) => queryClient.setQueryData(qk, data));
