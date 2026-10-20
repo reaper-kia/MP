@@ -43,11 +43,11 @@ VK / OK / MAX с прямыми ссылками, выдержками, объя
 Это ровно то, что проверяет критерий «Архитектура»: **получение** (collector) · **отбор** (ml) ·
 **хранение и обработка** (search) · **интерфейс** (frontend) — разделены.
 
-| Сервис | Владелец | Порт gRPC | БД | Состояние каркаса |
+| Сервис | Владелец | Порт gRPC | БД | Состояние (20.10, подробно — [`STATUS.md`](STATUS.md)) |
 |---|---|---|---|---|
-| search_service | B2 | 50053 | search_db :5435 | gRPC `search.v1` работает на 50053 (в т.ч. импорт XLSX и выгрузка DOCX); образ Docker не проверен |
-| collector_service | B1 | 50054 | — | 4 RPC работают; fake-площадка готова; коннекторы VK/OK/MAX/сайты → `NOT_IMPLEMENTED` |
-| ml_service | ML | 50055 | — | 3 RPC работают на эвристиках (`degraded=true`); провайдеры LLM/эмбеддингов — stub |
+| search_service | B2 | 50053 | search_db :5435 | каталог, поиски, пайплайн, учёт, XLSX / DOCX, импорт |
+| collector_service | B1 | 50054 | — | VK (API), OK (публичные страницы), новостные сайты (RSS) — вживую; MAX (Bot API) и Yandex Search — код и тесты, без ключей |
+| ml_service | ML | 50055 (+ HTTP `/health` 8085) | — | Ollama `qwen2.5:7b-instruct` + `bge-m3`; цепочка `ollama,yandex` с эвристиками в конце |
 | gateway | TL | 8000 (HTTP) | — | все 17 ручек `openapi.yaml`; авторизации нет (по ТЗ) |
 
 ## 3. Как проходит поиск (пайплайн в search_service)
@@ -62,7 +62,9 @@ VK / OK / MAX с прямыми ссылками, выдержками, объя
    историю не меняет):
    - `selected`: по одной цели `source` на каждый выбранный источник выбранных площадок;
    - `global`: цель `source` на каждый **активный** источник каталога выбранных площадок
-     + цель `platform_search` на каждую площадку с `global_mode=true`.
+     + цель `platform_search` на каждую площадку с `global_mode=true` в `GetPlatforms` (сейчас —
+     новостные сайты; VK / OK — только с ключом Yandex Search API). Collector не ответил — только
+     каталог; нечего искать — 422 с понятным текстом.
 3. **collecting** — параллельно (semaphore 5, таймаут 30–60 с на цель):
    `collector.CollectFromSource` / `collector.SearchPlatform`. Каждая цель получает свой статус:
    `done` / `empty` / `failed(error)`. Падение одной цели не роняет поиск.
@@ -174,13 +176,14 @@ search_results     id, search_id→searches, publication_id→publications, targ
 
 | Что | Зачем | Кто получает | Статус |
 |---|---|---|---|
-| VK сервисный ключ (приложение VK ID) | `wall.get`, `groups.getById`, `newsfeed.search` | B1 | ☐ |
-| OK — способ доступа (API-приложение или публичные страницы) | посты групп | B1 (spike) | ☐ |
-| MAX — способ доступа | посты каналов | B1 (spike) | ☐ |
-| Yandex Cloud: YandexGPT + эмбеддинги | отбор, объяснения | ML | ☐ |
-| Yandex Cloud: Search API | глобальный поиск OK/MAX/сайты | B1 | ☐ |
-| Каталог источников края (стартовые материалы кейса) | seed `sources` | TL | ☐ |
-| Сервер для демо | деплой | TL | ☐ |
+| VK сервисный ключ (приложение VK ID) | `wall.get`, `groups.getById` | B1 | ✔ работает; `newsfeed.search` закрыт ключу (1051) |
+| OK — публичные страницы групп | посты групп | B1 | ✔ без ключа |
+| MAX — токен бота (Bot API) | посты каналов | B1 | ✘ выдают только юрлицу / ИП |
+| Ollama на ноутбуке команды (GPU) | отбор, объяснения | ML | ✔; для сервера — обратный SSH-туннель |
+| Yandex Cloud: YandexGPT + эмбеддинги | запасной отбор | ML | — не подключали (код готов) |
+| Yandex Cloud: Search API | поиск по всей площадке VK / OK | B1 | — не подключали (платный, код готов) |
+| Каталог источников края | seed `sources` | TL | ✔ `seed/sources.xlsx` |
+| Сервер для демо | деплой | TL | ✔ `109.196.167.204:8080` |
 
 Секреты — только в `.env` (в git — `.env.example` с пустыми значениями).
 
@@ -210,4 +213,4 @@ search_results     id, search_id→searches, publication_id→publications, targ
 
 ## 10. Что показываем как «работает / имитация / план» (README и презентация)
 
-Заполняется к H+38 по факту. Шаблон: `docs/STATUS.md` — таблица «функция · статус · как проверить».
+Таблица «функция · статус · как проверено» — [`STATUS.md`](STATUS.md), сводка — в README.
