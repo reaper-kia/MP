@@ -6,6 +6,8 @@ from collections.abc import Iterable
 
 from sqlalchemy import and_, case, func, or_, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy import text
+
 
 from search_service.domain.entities import Publication, Search, SearchResult, SearchTarget, Source
 from search_service.domain.enums import (
@@ -462,7 +464,7 @@ class ResultRepo:
             select(SearchResultModel).where(SearchResultModel.search_id == search_id)
         )
         return [_result_to_entity(m) for m in r.scalars().all()]
-
+    
     async def list_filtered(
         self,
         *,
@@ -618,3 +620,21 @@ class ResultRepo:
             .limit(1)
         )
         return r.scalar_one_or_none() is not None
+
+    async def count_matched_by_target(
+        self, search_id: uuid.UUID, target_id: uuid.UUID
+    ) -> int:
+        """Считает matched посты цели после скоринга (B2-07)."""
+        from sqlalchemy import text
+        
+        query = (
+            "SELECT COUNT(*) FROM search_results "
+            "WHERE search_id = :search_id AND target_id = :target_id "
+            "AND relevance IN ('direct', 'indirect', 'disputed') "
+            "AND excluded = false"
+        )
+        result = await self.s.execute(
+            text(query), 
+            {"search_id": search_id, "target_id": target_id}
+        )
+        return result.scalar() or 0

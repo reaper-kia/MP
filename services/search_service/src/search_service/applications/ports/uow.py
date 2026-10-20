@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from types import TracebackType
 from typing import Protocol
+import uuid
 
 from search_service.applications.ports.repositories import (
     PublicationRepository,
@@ -25,6 +26,7 @@ class UnitOfWork(Protocol):
     @property
     def results(self) -> ResultRepository: ...
 
+
     async def __aenter__(self) -> UnitOfWork: ...
     async def __aexit__(
         self,
@@ -34,3 +36,4 @@ class UnitOfWork(Protocol):
     ) -> None: ...
     async def commit(self) -> None: ...
     async def rollback(self) -> None: ...
+

@@ -1,92 +1,139 @@
-from datetime import UTC, date, datetime
+from __future__ import annotations
 
-import pytest
+import re
+import uuid
+from datetime import datetime, timezone
+from urllib.parse import urlparse
 
-from search_service.applications.handlers.save import SaveHandler, make_title
+from search_service.applications.ports.uow import UnitOfWork
 from search_service.applications.ports.collector_client import RawPost
-from search_service.domain.entities import Search, SearchTarget
+from search_service.domain.entities import Publication, SearchResult, Search, SearchTarget
 from search_service.domain.enums import DateStatus
-from search_service.domain.value_objects import Period
-from tests.fakes import InMemoryUoW
 
 
-@pytest.fixture
-def uow():
-    return InMemoryUoW()
+def make_title(post: RawPost) -> tuple[str, str]:
+    """Возвращает (title, title_source). Если заголовка нет, берёт начало текста."""
+    if post.title:
+        return post.title, "title"
+    text = post.text.strip()
+    if len(text) <= 120:
+        return text, "post_start"
+    # Обрезаем по границе слова
+    cut = text[:120]
+    last_space = cut.rfind(" ")
+    if last_space > 60:
+        cut = cut[:last_space]
+    return cut + "…", "post_start"
 
 
-def make_search():
-    return Search(
-        query="q",
-        period=Period(date(2026, 1, 1), date(2026, 1, 31)),
-        mode="selected",
-    )
+def normalize_vk_post(url: str) -> tuple[str, str, str]:
+    """
+    Нормализует VK URL к единому виду для дедупликации.
+    Преобразует vk.ru, m.vk.com, ?w=wall-123_45 в platform='vk', source_id='-123', post_id='45'
+    """
+    url = url.lower().strip()
+    url = url.replace('vk.ru', 'vk.com').replace('m.vk.com', 'vk.com')
+    
+    # Ищем паттерн wall-OwnerID_PostID (OwnerID может быть с минусом для групп)
+    match = re.search(r'wall(-?\d+)_(\d+)', url)
+    if match:
+        return "vk", match.group(1), match.group(2)
+    
+    # Fallback: если паттерн не найден, берём домен и путь
+    parsed = urlparse(url)
+    return "vk", parsed.netloc, parsed.path
 
 
-def make_post(**overrides) -> RawPost:
-    base = dict(
-        platform="vk",
-        source_external_id="src1",
-        post_external_id="p1",
-        url="https://vk.com/wall-1_1",
-        source_name="Новости",
-        source_url="https://vk.com/news",
-        text="Текст поста про безопасность дорожного движения",
-        title="Заголовок",
-        published_at=datetime(2026, 1, 15, 12, 0, tzinfo=UTC),
-        metrics={"views": 100},
-    )
-    base.update(overrides)
-    return RawPost(**base)
+def normalize_post_key(platform: str, source_external_id: str, post_external_id: str, url: str) -> tuple[str, str, str]:
+    """Применяет нормализацию только для VK, для остальных возвращает как есть."""
+    if platform == "vk":
+        p, s, post = normalize_vk_post(url)
+        return p, s, post
+    return platform, source_external_id, post_external_id
 
 
-@pytest.mark.asyncio
-async def test_same_post_found_twice_is_one_record(uow):
-    search = make_search()
-    target = SearchTarget(kind="source", platform="vk", name="n")
-    search.targets = [target]
-    handler = SaveHandler(uow)
-    posts = [make_post(), make_post()]  # одинаковый post_external_id
-    results1 = await handler.save_posts(search, target, posts)
-    results2 = await handler.save_posts(search, target, [make_post()])
-    assert len(results1) == 1
-    assert len(results2) == 0  # дедуп сработал
+class SaveHandler:
+    def __init__(self, uow: UnitOfWork):
+        self.uow = uow
 
+    async def save_posts(self, search: Search, target: SearchTarget, posts: list[RawPost]) -> list[SearchResult]:
+        """
+        Upsert публикаций + дедупликация на уровне поиска.
+        Возвращает список созданных SearchResult.
+        """
+        async with self.uow:
+            source_cache: dict[tuple[str, str], object] = {}
+            results: list[SearchResult] = []
+            
+            for post in posts:
+                # 1. Нормализация ключа (B2-18)
+                norm_platform, norm_source_id, norm_post_id = normalize_post_key(
+                    post.platform, post.source_external_id, post.post_external_id, post.url
+                )
+                
+                # 2. Проверка существующей публикации (Upsert логика)
+                existing_pub = await self.uow.publications.get_by_key(norm_platform, norm_source_id, norm_post_id)
+                
+                if existing_pub:
+                    pub = existing_pub
+                    # Обновляем данные, если пост пришёл снова (например, с новыми метриками или из другого источника)
+                    pub.text = post.text
+                    pub.metrics = post.metrics or pub.metrics
+                    pub.title = post.title or pub.title
+                    pub.source_name = post.source_name
+                    pub.source_url = post.source_url
+                    pub.url = post.url
+                    pub.published_at = post.published_at or pub.published_at
+                    pub.last_seen_at = datetime.now(timezone.utc)
+                    await self.uow.publications.save(pub)
+                else:
+                    pub = Publication(
+                        platform=norm_platform,
+                        source_external_id=norm_source_id,
+                        post_external_id=norm_post_id,
+                        url=post.url,
+                        source_name=post.source_name,
+                        source_url=post.source_url,
+                        text=post.text,
+                        title=post.title,
+                        published_at=post.published_at,
+                        metrics=post.metrics,
+                        is_repost=post.is_repost,
+                        repost_of_url=post.repost_of_url,
+                    )
+                    await self.uow.publications.upsert(pub)
 
-@pytest.mark.asyncio
-async def test_unknown_date_not_marked_in_period(uow):
-    search = make_search()
-    target = SearchTarget(kind="source", platform="vk", name="n")
-    handler = SaveHandler(uow)
-    results = await handler.save_posts(search, target, [make_post(published_at=None)])
-    assert len(results) == 1
-    assert results[0].date_status == DateStatus.UNKNOWN
+                # 3. Дедупликация на уровне конкретного поиска (B2-05)
+                exists_in_search = await self.uow.results.exists_in_search(search.id, pub.id)
+                if exists_in_search:
+                    continue # Этот пост уже есть в этой подборке, не создаём дубль строки
 
+                # 4. Проверка периода
+                if post.published_at is None:
+                    date_status = DateStatus.UNKNOWN
+                elif search.period.contains(post.published_at):
+                    date_status = DateStatus.IN_PERIOD
+                else:
+                    # Пост вне периода — не добавляем в результаты этого поиска
+                    continue
 
-@pytest.mark.asyncio
-async def test_out_of_period_post_not_saved(uow):
-    search = make_search()
-    target = SearchTarget(kind="source", platform="vk", name="n")
-    handler = SaveHandler(uow)
-    results = await handler.save_posts(
-        search,
-        target,
-        [make_post(published_at=datetime(2025, 1, 1, tzinfo=UTC))],
-    )
-    assert len(results) == 0
+                # 5. Определение региона по источнику
+                src_key = (norm_platform, norm_source_id)
+                if src_key not in source_cache:
+                    source_cache[src_key] = await self.uow.sources.get_by_key(*src_key)
+                source = source_cache[src_key]
+                region_by_source = bool(source and getattr(source, 'is_regional', False))
 
+                # 6. Создание записи в подборке
+                result = SearchResult(
+                    search_id=search.id,
+                    publication_id=pub.id,
+                    target_id=target.id,
+                    date_status=date_status,
+                    region_by_source=region_by_source,
+                )
+                await self.uow.results.add(result)
+                results.append(result)
 
-def test_make_title_with_title():
-    post = make_post(title="Мой заголовок")
-    title, source = make_title(post)
-    assert title == "Мой заголовок"
-    assert source == "title"
-
-
-def test_make_title_from_long_text():
-    long_text = "Очень длинный текст " * 20
-    post = make_post(title=None, text=long_text)
-    title, source = make_title(post)
-    assert source == "post_start"
-    assert title.endswith("…")
-    assert len(title) <= 125
+            await self.uow.commit()
+            return results

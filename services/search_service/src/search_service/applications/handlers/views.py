@@ -191,10 +191,8 @@ def _sentiment(value: str | None) -> Sentiment | None:
         return None
 
 
-def result_view(
-    r: SearchResult, pub: Publication, catalog_source: Source | None, group_size: int
-) -> ResultView:
-    title, title_source = make_title(pub)
+def result_view( r: SearchResult, pub: Publication, catalog_source: Source | None, group_size: int) -> ResultView:
+    title, source = make_title(pub.title, pub.text)
     if r.excerpt_start is not None and r.excerpt_end is not None:
         start, end = r.excerpt_start, r.excerpt_end
     else:
@@ -211,7 +209,7 @@ def result_view(
         ),
         url=pub.url,
         title=title,
-        title_source=TitleSource(title_source),
+        title_source=TitleSource(source),
         excerpt=pub.text[start:end],
         excerpt_parts=excerpt_parts(pub.text, start, end, r.highlights),
         published_at=pub.published_at,

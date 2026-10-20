@@ -169,6 +169,18 @@ class InMemoryResults:
     async def exists_in_search(self, sid, pid):
         return any(r.search_id == sid and r.publication_id == pid for r in self.store.values())
 
+    async def count_matched_by_target(
+        self, search_id: uuid.UUID, target_id: uuid.UUID
+    ) -> int:
+        results = await self.get_by_search(search_id)
+        return sum(
+            1
+            for r in results
+            if r.target_id == target_id
+            and r.relevance in {Relevance.DIRECT, Relevance.INDIRECT, Relevance.DISPUTED}
+            and not r.excluded
+        )
+
 
 class InMemoryUoW:
     def __init__(self):
@@ -303,3 +315,4 @@ class FakeRunner:
 
     async def cancel(self, search_id: uuid.UUID) -> None:
         self.cancelled.append(search_id)
+

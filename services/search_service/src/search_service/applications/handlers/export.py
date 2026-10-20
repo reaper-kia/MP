@@ -164,7 +164,7 @@ class ExportHandler:
                     publication=pub,
                     source_name=source.name if source else pub.source_name,
                     source_url=source.url if source else pub.source_url,
-                    title=make_title(pub)[0],
+                    title=make_title(pub.title, pub.text)[0],
                     excerpt=excerpt,
                     published=local_dt(pub.published_at) if pub.published_at else "недоступна",
                     relevance=RELEVANCE_RU.get(result.relevance, "") if result.relevance else "",
