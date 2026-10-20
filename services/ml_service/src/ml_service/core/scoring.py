@@ -7,6 +7,7 @@
 
 from dataclasses import dataclass
 
+from ml_service.core.anchor import NO_ANCHORS, Anchors, build_anchors, is_specific, strong_stems
 from ml_service.core.excerpt import best_excerpt, highlight_spans
 from ml_service.core.models import Post, PostScore, QueryAnalysis, QueryType, Relevance
 from ml_service.core.region import REGION_STEMS, find_region
@@ -38,6 +39,9 @@ class QueryContext:
     all_stems: set[str]  # всё, что подсвечиваем и по чему ищем выдержку
     exclude: list[tuple[str, set[str]]]  # (понятие, его основы) — «пожарная безопасность»
     person_stems: list[tuple[str, str]]  # (фамилия, основа) — для запроса о человеке
+    anchors: Anchors = NO_ANCHORS  # без чего пост точно не о запросе (anchor.py, ML-16)
+    # сильные слова каждой фразы (длинные основы), параллельно phrases; пусто — проверки нет
+    phrase_strong: tuple[frozenset[str], ...] = ()
 
 
 @dataclass(frozen=True, slots=True)
@@ -49,11 +53,16 @@ class V1Result:
     exclude_hit: str
     person_missing: str
     conflict: str = ""  # «та же новость»: расходятся место / дата / цифры
+    anchored: bool = True  # False — в посте нет якоря темы: выше «спорной» не поднимаем
 
 
 def build_context(query: str, analysis: QueryAnalysis) -> QueryContext:
     sources = [query, *analysis.search_queries, *analysis.must_concepts]
-    phrases = [s for s in (stems(p) - REGION_STEMS for p in sources) if s]
+    # фраза из одних общих слов («соревнования») не говорит о теме: её совпадение — не совпадение
+    specific = [p for p in sources if is_specific(p)] or sources
+    pairs = [(stems(p) - REGION_STEMS, strong_stems(p)) for p in specific]
+    pairs = [(s, strong) for s, strong in pairs if s]
+    phrases = [s for s, _ in pairs]
     if not phrases:
         # запрос целиком из названий края («Красноярск»): тогда регион и есть тема
         phrases = [s for s in (stems(p) for p in sources) if s]
@@ -72,6 +81,8 @@ def build_context(query: str, analysis: QueryAnalysis) -> QueryContext:
         all_stems=all_stems,
         exclude=[(c, stems(c)) for c in analysis.exclude_concepts if stems(c)],
         person_stems=persons,
+        anchors=build_anchors(query, analysis),
+        phrase_strong=tuple(strong for _, strong in pairs),
     )
 
 
@@ -117,11 +128,25 @@ def score_post_v1(
     ctx: QueryContext,
     similarity: float | None,
     thresholds: SimilarityThresholds = BGE_M3,
+    *,
+    anchor_gate: bool = True,
 ) -> V1Result:
     full = post_text(post)
     text_stems = stems(full)
 
-    lexical = max((len(p & text_stems) / len(p) for p in ctx.phrases), default=0.0)
+    # Лексика — доля слов фразы в посте, как раньше; но фраза засчитывается, только если в посте
+    # есть хотя бы одно её СИЛЬНОЕ слово (длинная основа): «кодирование соревнования» не даёт
+    # совпадения посту про ГТО, «программа» не засчитывается за «программирование» (ML-16)
+    have = Anchors.words_in(full)
+
+    def phrase_score(i: int, p: set[str]) -> float:
+        strong = ctx.phrase_strong[i] if i < len(ctx.phrase_strong) else frozenset()
+        if strong and not any(h.startswith(w) for w in strong for h in have):
+            return 0.0
+        return len(p & text_stems) / len(p)
+
+    lexical = max((phrase_score(i, p) for i, p in enumerate(ctx.phrases)), default=0.0)
+    found_anchor = ctx.anchors.found_in(full)
     if similarity is None:
         raw = lexical
     else:
@@ -136,6 +161,17 @@ def score_post_v1(
         person_missing = ctx.person_stems[-1][0]
         raw = min(raw, DISPUTED_AT - 0.01)
 
+    # якорь: в посте есть хотя бы одна фраза темы целиком — или эмбеддинг уверенно близок
+    anchored = (
+        not anchor_gate
+        or bool(person_missing)  # для человека своё правило, строже
+        or found_anchor
+        or (similarity is not None and similarity >= thresholds.high)
+    )
+    capped = not anchored and raw > INDIRECT_AT - 0.01
+    if capped:
+        raw = INDIRECT_AT - 0.01
+
     relevance = relevance_for(raw)
     excerpt = best_excerpt(post.text, ctx.all_stems)
     region = find_region(post.text)
@@ -146,6 +182,7 @@ def score_post_v1(
         thresholds,
         exclude_hit=exclude_hit,
         person_missing=person_missing,
+        missing_anchor=ctx.anchors.label if capped else "",
     )
     score = PostScore(
         id=post.id,
@@ -158,7 +195,7 @@ def score_post_v1(
         excerpt_span=excerpt,
         highlight_spans=highlight_spans(post.text, ctx.all_stems, within=excerpt),
     )
-    return V1Result(score, raw, lexical, similarity, exclude_hit, person_missing)
+    return V1Result(score, raw, lexical, similarity, exclude_hit, person_missing, anchored=anchored)
 
 
 def _explain(
@@ -169,12 +206,15 @@ def _explain(
     *,
     exclude_hit: str,
     person_missing: str,
+    missing_anchor: str = "",
 ) -> str:
     prefix = "Упрощённая проверка" if similarity is None else "Автоматическая оценка"
     if person_missing:
         return short_sentence(f"{prefix}: {person_missing} в посте не упоминается")
     if exclude_hit:
         return short_sentence(f"{prefix}: похоже, пост о другом — «{exclude_hit}»")
+    if missing_anchor:
+        return short_sentence(f"{prefix}: совпадают только общие слова, «{missing_anchor}» нет")
     topic_stems = set().union(*ctx.phrases) if ctx.phrases else set()
     words: list[str] = []
     for t in tokens(text):
@@ -205,10 +245,15 @@ def score_posts_v1(
     posts: list[Post],
     similarities: list[float] | None = None,
     thresholds: SimilarityThresholds = BGE_M3,
+    *,
+    anchor_gate: bool = True,
 ) -> list[V1Result]:
     ctx = build_context(query, analysis)
     sims: list[float | None] = list(similarities) if similarities else [None] * len(posts)
-    return [score_post_v1(p, ctx, s, thresholds) for p, s in zip(posts, sims, strict=True)]
+    return [
+        score_post_v1(p, ctx, s, thresholds, anchor_gate=anchor_gate)
+        for p, s in zip(posts, sims, strict=True)
+    ]
 
 
 def score_posts_heuristic(

@@ -56,7 +56,7 @@ class Token:
     end: int
 
 
-def stem(word: str) -> str:
+def _strip(word: str) -> str:
     w = word.lower().replace("ё", "е")
     if w.isdigit():
         return w
@@ -67,7 +67,16 @@ def stem(word: str) -> str:
     # фамилии: «Котюкова / Котюкову / Котюковым» → «котюк», как «Котюков»
     if w.endswith(("ов", "ев", "ин")) and len(w) >= 6:
         w = w[:-2]
-    return w[:STEM_LEN]
+    return w
+
+
+def stem(word: str) -> str:
+    return _strip(word)[:STEM_LEN]
+
+
+def long_stem(word: str, size: int = 9) -> str:
+    """Основа длиннее обычной — различает «программирование» и «программа» (обе «програ»)."""
+    return _strip(word)[:size]
 
 
 def tokens(text: str) -> Iterator[Token]:

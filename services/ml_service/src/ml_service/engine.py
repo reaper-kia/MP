@@ -67,6 +67,8 @@ class EngineLimits:
     judge_batch_size: int = 6
     judge_concurrency: int = 2
     judge_max_post_chars: int = 1200
+    # якорь темы (core/anchor.py, ML-16): без него пост не выше «спорной»; False — выключить
+    anchor_gate: bool = True
 
 
 class MlEngine:
@@ -159,7 +161,14 @@ class MlEngine:
         if analysis.query_type is QueryType.NEWS_TEXT:
             v1 = score_news_posts(query, posts, similarities, thresholds)
         else:
-            v1 = score_posts_v1(query, analysis, posts, similarities, thresholds)
+            v1 = score_posts_v1(
+                query,
+                analysis,
+                posts,
+                similarities,
+                thresholds,
+                anchor_gate=self._limits.anchor_gate,
+            )
 
         verdicts: dict[str, Verdict] = {}
         stats = JudgeStats()
@@ -212,7 +221,8 @@ class MlEngine:
         if analysis.query_type is QueryType.NEWS_TEXT:
             query_text = query[:MAX_EMBED_CHARS]
         else:
-            parts = [query, analysis.summary, *analysis.must_concepts]
+            # must — с синонимами (ML-16); в вектор запроса — только первые два, не размываем
+            parts = [query, analysis.summary, *analysis.must_concepts[:2]]
             query_text = ". ".join(p for p in parts if p)
         docs = [post_text(p)[:MAX_EMBED_CHARS] for p in posts]
 
@@ -313,12 +323,23 @@ def _worth_judging(result: V1Result, thresholds: SimilarityThresholds) -> bool:
 
 
 def _merge(result: V1Result, verdict: Verdict) -> PostScore:
-    """Класс и объяснение от судьи, позиции и регион — от v1. Резкое расхождение → DISPUTED."""
+    """Класс и объяснение от судьи, позиции и регион — от v1. Резкое расхождение → DISPUTED.
+
+    Без якоря темы (ML-16): «мимо» от судьи — окончательно (совпали только общие слова, и модель
+    тоже говорит «о другом»), а «прямая» / «косвенная» — не выше «спорной»: модель могла
+    купиться на те же общие слова, решает человек.
+    """
     relevance = verdict.relevance
     v1 = result.score.relevance
     gap = ORDER.index(v1) - ORDER.index(relevance)
     explanation = verdict.explanation or result.score.explanation
-    if gap >= 3:
+    if not result.anchored:
+        if relevance in {Relevance.DIRECT, Relevance.INDIRECT}:
+            relevance = Relevance.DISPUTED
+            explanation = short_sentence(
+                f"{explanation.rstrip('.…')}; ключевых слов темы в посте нет — проверьте"
+            )
+    elif gap >= 3:
         # v1 уверен «прямая», модель — «мимо»: полнота важнее, отдаём человеку
         relevance = Relevance.DISPUTED
     if result.conflict and relevance is Relevance.DIRECT:

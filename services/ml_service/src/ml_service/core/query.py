@@ -8,6 +8,7 @@ import re
 
 from pydantic import BaseModel, Field, field_validator
 
+from ml_service.core.anchor import is_specific
 from ml_service.core.llm_json import ask_json
 from ml_service.core.models import Entity, EntityType, QueryAnalysis, QueryType
 from ml_service.core.region import REGION_STEMS, find_all_regions, find_other_places
@@ -52,12 +53,54 @@ AMBIGUOUS: dict[str, list[tuple[str, str]]] = {
         ("пищев", "пищевая безопасность"),
     ],
 }
+# Как тему называют в постах (ML-16): идут в must_concepts — якорь темы, лексика и «Главное» для
+# судьи даже без модели. Во фразы поиска НЕ идут: общие слова («водитель») завалили бы сборщик.
+# Пост о рейде ГИБДД не обязан содержать «безопасность дорожного движения» целиком.
+CONCEPT_SYNONYMS: dict[str, list[str]] = {
+    "безопасность дорожного движения": [
+        "ДТП",
+        "ГИБДД",
+        "Госавтоинспекция",
+        "авария на дороге",
+        "ПДД",
+        "пешеход",
+        "водитель",
+        "дорожное движение",
+        "превышение скорости",
+        "светофор",
+    ],
+}
 CLARIFY_HINTS = {
     "безопа": (
         "Уточните тему: дорожная, пожарная, информационная безопасность, безопасность на воде…"
     ),
 }
 DEFAULT_CLARIFY_HINT = "Уточните запрос: о чём именно, где и когда (например, «ДТП в Ачинске»)"
+
+# Составные термины (ML-16): по отдельности слова значат другое — «спортивное программирование»
+# не про спорт. Нашли все части (подстроки) в запросе → термин целиком в must (якорь),
+# буквальный смысл частей — в exclude, синонимы — во фразы поиска. Модель дополняет, но не может
+# это потерять.
+COMPOSITE_TERMS: list[tuple[tuple[str, ...], str, list[str], list[str]]] = [
+    (
+        ("спортивн", "программ"),
+        "спортивное программирование",
+        [
+            "олимпиада по программированию",
+            "олимпиада по информатике",
+            "чемпионат по программированию",
+            "ICPC",
+            "хакатон",
+        ],
+        ["ГТО", "футбол", "хоккей", "лёгкая атлетика", "спартакиада"],
+    ),
+    (
+        ("киберспорт",),
+        "киберспорт",
+        ["турнир по киберспорту", "компьютерные игры", "Dota 2", "Counter-Strike"],
+        ["футбол", "хоккей", "ГТО", "спартакиада"],
+    ),
+]
 # Слова, которые сами по себе темы не задают: «новости», «новости Красноярска», «что нового».
 # Если кроме них (и региона) в запросе ничего нет — просим уточнить, а не ищем «всё подряд».
 GENERIC_STEMS = frozenset(
@@ -169,6 +212,20 @@ def _ambiguity(text: str) -> tuple[list[str], list[str], str]:
     return [], [], ""
 
 
+def _composite(text: str) -> tuple[list[str], list[str], list[str]]:
+    """(must, синонимы для поиска, exclude) по таблице составных терминов."""
+    low = text.lower().replace("ё", "е")
+    must: list[str] = []
+    synonyms: list[str] = []
+    exclude: list[str] = []
+    for heads, term, extra, traps in COMPOSITE_TERMS:
+        if all(h in low for h in heads):
+            must.append(term)
+            synonyms += extra
+            exclude += traps
+    return must, synonyms, exclude
+
+
 def analyze_query_heuristic(query: str) -> QueryAnalysis:
     text = " ".join(query.split())
     if detect_query_type(text) is QueryType.NEWS_TEXT:
@@ -197,6 +254,13 @@ def analyze_query_heuristic(query: str) -> QueryAnalysis:
         query_type = QueryType.EVENT if has_event else QueryType.TOPIC
         summary = f"{'Событие' if has_event else 'Тема'}: {text}"
         search_queries = [_core_phrase(text), text]
+        c_must, c_synonyms, c_exclude = _composite(text)
+        exclude = [*exclude, *c_exclude]
+        search_queries += c_synonyms  # конкретные термины (ICPC, хакатон) — и для поиска
+        synonyms = [
+            syn for concept in [*c_must, *must] for syn in CONCEPT_SYNONYMS.get(concept, [])
+        ]
+        must = list(dict.fromkeys([*c_must, *must, *c_synonyms, *synonyms]))
 
     hint_text = hint or ("" if topical else DEFAULT_CLARIFY_HINT)
     cleaned_hint = _clean_clarification_hint(hint_text)
@@ -269,7 +333,7 @@ SYSTEM_PROMPT = """Ты помогаешь агентству печати Кр�
  "summary": "одна фраза для пользователя: как ты понял запрос",
  "search_queries": ["3-8 коротких фраз по 1-4 слова для лексического поиска ВКонтакте"],
  "entities": [{"text": "...", "type": "person|organization|location|event|date|number"}],
- "must_concepts": ["без чего пост точно не подходит"],
+ "must_concepts": ["1-4 формулировки главного понятия: без него пост точно не подходит"],
  "exclude_concepts": ["что часто путают с запросом и надо отсекать"],
  "needs_clarification": false,
  "clarification_hint": ""
@@ -279,9 +343,16 @@ SYSTEM_PROMPT = """Ты помогаешь агентству печати Кр�
 person — человек.
 - search_queries влияют на полноту: поиск ищет слова буквально. Дай синонимы, аббревиатуры и \
 разговорные формы: «ДТП», «авария», «ГИБДД», «Госавтоинспекция», «пешеходный переход». Можно \
-добавлять город или край. Не повторяй одну фразу в разных падежах.
-- exclude_concepts — только явные ловушки многозначных слов («пожарная безопасность» для \
-дорожной). Если ловушек нет — пустой список.
+добавлять город или край. Не повторяй одну фразу в разных падежах. Каждая фраза сама \
+должна указывать на тему: НЕ пиши фразы только из общих слов («соревнования», «турнир», \
+«мероприятие», «новости») и не подбирай слова, которыми тему на самом деле не называют.
+- must_concepts — главное понятие запроса и его синонимы. Составной термин пиши ЦЕЛИКОМ \
+(«спортивное программирование», «безопасность дорожного движения», «зелёная экономика»): \
+по отдельности его слова значат другое. НЕ дроби термин и НЕ пиши общие слова \
+(«соревнования», «программирование», «новости») отдельными пунктами.
+- exclude_concepts — ловушки: другое значение многозначного слова («пожарная безопасность» для \
+дорожной) или буквальный смысл частей составного термина (для «киберспорта» — «футбол», \
+«хоккей», «ГТО»: это обычный спорт). Если ловушек нет — пустой список.
 - needs_clarification = true, только если запрос из одного общего слова; тогда в \
 clarification_hint предложи варианты («Уточните тему: дорожная, пожарная, информационная…»).
 - Не предлагай искать «в любом регионе» или «по всей России» — поиск по умолчанию ведётся \
@@ -294,7 +365,14 @@ EXAMPLE = """Пример. Запрос: «Безопасность дорожн
 "Госавтоинспекция Красноярский край", "пешеходный переход", "рейд ГИБДД"], "entities": \
 [{"text": "Красноярский край", "type": "location"}], "must_concepts": ["дорожное движение"], \
 "exclude_concepts": ["пожарная безопасность", "безопасность на воде"], "needs_clarification": \
-false, "clarification_hint": ""}"""
+false, "clarification_hint": ""}
+
+Пример. Запрос: «Чемпионат по киберспорту»
+{"query_type": "event", "summary": "Событие: чемпионат по киберспорту (турниры по компьютерным \
+играм)", "search_queries": ["киберспорт", "турнир по киберспорту", "чемпионат по Dota 2", \
+"турнир Counter-Strike", "компьютерные игры турнир"], "entities": [], "must_concepts": \
+["киберспорт", "турнир по компьютерным играм"], "exclude_concepts": ["футбол", "хоккей", \
+"ГТО", "спартакиада"], "needs_clarification": false, "clarification_hint": ""}"""
 
 NEWS_SYSTEM_PROMPT = """Ты помогаешь агентству печати Красноярского края найти, где в соцсетях \
 перепечатали новость (копии, сокращения, пересказы). Пользователь вставил текст новости. \
@@ -377,7 +455,14 @@ def merge_analysis(answer: _LlmAnalysis, base: QueryAnalysis, query: str) -> Que
     if is_news:
         phrases = [*base.search_queries[:1], *answer.search_queries, *base.search_queries[1:]]
     else:
-        phrases = [*answer.search_queries, *base.search_queries]
+        # фразы из одних общих слов («соревнования») поиску и оценке только вредят (ML-16)
+        model_phrases = [p for p in answer.search_queries if is_specific(p)]
+        composite = {term for _, term, _, _ in COMPOSITE_TERMS}
+        if composite & set(base.must_concepts):
+            # составной термин из таблицы: его синонимы (ICPC, олимпиада…) точнее модели
+            phrases = [*base.search_queries, *model_phrases]
+        else:
+            phrases = [*model_phrases, *base.search_queries]
 
     candidates: list[tuple[str, EntityType | None]] = [
         (e.text, ENTITY_ALIASES.get(e.type.strip().lower())) for e in answer.entities
@@ -397,9 +482,13 @@ def merge_analysis(answer: _LlmAnalysis, base: QueryAnalysis, query: str) -> Que
     raw_hint = answer.clarification_hint.strip() or base.clarification_hint
     hint = _clean_clarification_hint(raw_hint)
     summary = " ".join(answer.summary.split())[:MAX_SUMMARY_CHARS] or base.summary
-    must = _clean_list(answer.must_concepts) or base.must_concepts
-    if query_type is QueryType.PERSON and base.query_type is QueryType.PERSON:
-        must = list(dict.fromkeys([*base.must_concepts, *must]))
+    # общие слова главным понятием не бывают; модель любит дробить термин — оставляем значимое,
+    # а составные термины из таблицы (base) ставим первыми: их модель потерять не может (ML-16)
+    if is_news:
+        must = _clean_list(answer.must_concepts) or base.must_concepts
+    else:
+        model_must = [m for m in _clean_list(answer.must_concepts) if is_specific(m)]
+        must = list(dict.fromkeys([*base.must_concepts, *model_must]))
 
     return QueryAnalysis(
         query_type=query_type,

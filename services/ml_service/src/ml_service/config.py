@@ -100,6 +100,10 @@ class Settings(BaseSettings):
     judge_batch_size: int = 6
     judge_concurrency: int = 2
     judge_max_post_chars: int = 1200
+    # Якорь темы (ML-16, core/anchor.py): пост без главного понятия запроса (совпали только общие
+    # слова — «соревнования», «фестиваль») не выше «спорной», «мимо» от судьи — окончательно.
+    # false — как до ML-16 (аварийный выключатель на демо)
+    anchor_gate: bool = True
 
     embed_batch_size: int = 32
 
