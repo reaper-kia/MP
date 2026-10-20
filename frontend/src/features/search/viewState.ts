@@ -1,5 +1,6 @@
 // Какой экран итога показать — одна функция на всё приложение (FE-06), чтобы состояния не разъехались.
 import type { S } from "../../api/client";
+import { PLATFORM_NAME } from "../../lib/platforms";
 import { isFinal } from "./status";
 
 export type ViewState =
@@ -50,3 +51,7 @@ export const failedTargets = (s: S["Search"], noGlobal: NoGlobal = NONE) =>
 export function failureReason(s: S["Search"], noGlobal: NoGlobal = NONE): string | null {
   return failedTargets(s, noGlobal).find((t) => t.error?.message)?.error?.message ?? s.warnings[0] ?? null;
 }
+
+/** Название цели для людей: у поиска по площадке сервер присылает код («NEWS»). */
+export const targetName = (t: S["SearchTarget"]) =>
+  t.kind === "platform_search" ? `Поиск по всей площадке: ${PLATFORM_NAME[t.platform]}` : t.name;

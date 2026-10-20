@@ -13,7 +13,7 @@ import { useResultFilters } from "../results/filters";
 import classes from "./SearchOutcome.module.css";
 import { useNoGlobal } from "./useCatalog";
 import { useRetry } from "./useSearch";
-import { failedTargets, failureReason, foundCount, viewState } from "./viewState";
+import { failedTargets, failureReason, foundCount, targetName, viewState } from "./viewState";
 
 export function SearchOutcome({ search }: { search: S["Search"] }) {
   const v = viewState(search, useNoGlobal());
@@ -75,8 +75,8 @@ function FailedList({ targets }: { targets: S["SearchTarget"][] }) {
       {shown.map((t) => (
         <p key={t.id} className={classes.failedItem}>
           <PlatformLogo platform={t.platform} size="sm" />
-          <span className="mp-clamp-2" title={t.error?.message ? `${t.name} — ${t.error.message}` : undefined}>
-            <b>{t.name}</b>
+          <span className="mp-clamp-2" title={t.error?.message ? `${targetName(t)} — ${t.error.message}` : undefined}>
+            <b>{targetName(t)}</b>
             {t.error?.message ? ` — ${t.error.message}` : ""}
           </span>
         </p>

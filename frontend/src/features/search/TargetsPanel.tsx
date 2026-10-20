@@ -10,7 +10,7 @@ import { isFinal, TARGET_STATUS } from "./status";
 import classes from "./TargetsPanel.module.css";
 import { useNoGlobal } from "./useCatalog";
 import { useRetry } from "./useSearch";
-import { failedTargets, isUnsupportedGlobal } from "./viewState";
+import { failedTargets, isUnsupportedGlobal, targetName } from "./viewState";
 
 const ITEM = "targets";
 
@@ -173,7 +173,7 @@ function TargetRow({ target: t, active, onToggle, onRetry, retrying }: RowProps)
           </Anchor>
         ) : (
           <Text size="sm" fw={600} truncate>
-            {t.name}
+            {targetName(t)}
           </Text>
         )}
         {t.error && (
