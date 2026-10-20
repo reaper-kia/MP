@@ -36,11 +36,35 @@ const throwOnError: Middleware = {
   },
 };
 
+// Адрес сервера, заданный во время работы (расширение FE-17: меняется в настройках). Пусто — baseUrl сборки.
+let serverOverride = "";
+
+/** Расширение: все запросы api — на этот адрес (например, http://109.196.167.204:8080). */
+export function setApiServer(url: string) {
+  serverOverride = url.trim().replace(/\/+$/, "");
+}
+
+export const apiUrl = (path: string) => `${serverOverride || (import.meta.env.VITE_API_URL ?? "")}${path}`;
+
+const serverRewrite: Middleware = {
+  async onRequest({ request }) {
+    if (!serverOverride) return undefined;
+    const u = new URL(request.url);
+    const body = request.method === "GET" || request.method === "HEAD" ? undefined : await request.arrayBuffer();
+    return new Request(serverOverride + u.pathname + u.search, {
+      method: request.method,
+      headers: request.headers,
+      body,
+      signal: request.signal,
+    });
+  },
+};
+
 export const api = createClient<paths>({
   baseUrl: import.meta.env.VITE_API_URL ?? "",
   querySerializer: { array: { style: "form", explode: true } },
 });
-api.use(throwOnError);
+api.use(serverRewrite, throwOnError);
 
 /** Ошибки уже брошены middleware, поэтому data на этом месте всегда есть (кроме 204). */
 export async function unwrap<T>(req: Promise<{ data?: T }>): Promise<T> {

@@ -11,7 +11,8 @@
     "preview": "vite preview",
     "gen:api": "openapi-typescript ../contracts/http/openapi.yaml -o src/api/schema.d.ts",
     "mock": "prism mock ../contracts/http/openapi.yaml -p 4010",
-    "build:ext": "node scripts/build-ext.mjs"
+    "build:ext": "vite build -c vite.extension.config.ts --mode extension",
+    "zip:ext": "node scripts/zip-ext.mjs"
   },
   "dependencies": {
     "@mantine/core": "^9.7.3",
@@ -27,6 +28,7 @@
   },
   "devDependencies": {
     "@stoplight/prism-cli": "^5.14.2",
+    "@types/chrome": "^0.1.43",
     "@types/react": "^19.1.0",
     "@types/react-dom": "^19.1.0",
     "@vitejs/plugin-react": "^5.0.0",

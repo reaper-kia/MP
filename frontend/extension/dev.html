@@ -1,0 +1,20 @@
+<!doctype html>
+<html lang="ru">
+  <head>
+    <meta charset="UTF-8" />
+    <title>МедиаПульс — окошко расширения (разработка)</title>
+    <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Manrope:wght@400;500;600;700;800&display=swap" />
+  </head>
+  <!-- Окошко расширения без установки: npm run dev → http://localhost:5173/extension/dev.html?selection=текст&tab=адрес_вкладки (или ?page=options)
+       chrome.* подменён (src/extension/devChrome.ts), service worker работает в этой же странице. -->
+  <body style="margin: 24px; background: #888">
+    <div id="root" style="display: inline-block; box-shadow: 0 8px 30px rgb(0 0 0 / 30%)"></div>
+    <script type="module">
+      await import("../src/extension/devChrome.ts");
+      await import("../src/extension/background.ts");
+      // ?page=options — страница настроек вместо окошка
+      if (new URLSearchParams(location.search).get("page") === "options") await import("../src/extension/options.tsx");
+      else await import("../src/extension/popup.tsx");
+    </script>
+  </body>
+</html>

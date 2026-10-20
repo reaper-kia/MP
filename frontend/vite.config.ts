@@ -29,7 +29,7 @@ export default defineConfig(({ mode }) => ({
   server: {
     port: 5173,
     // сборка расширения (npm run build:ext) не должна перезагружать dev-сервер
-    watch: { ignored: ["**/dist-ext/**", "**/extension/**"] },
+    watch: { ignored: ["**/dist-ext/**"] },
     proxy: {
       "/api": { target: API_TARGET, changeOrigin: true },
     },
