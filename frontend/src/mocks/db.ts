@@ -17,6 +17,7 @@ import {
 
 // Таймлайн поиска, мс от создания
 const T_ANALYZE = 1000;
+const QUEUE_DEMO = 10000;
 const T_COLLECT = 2000;
 const COLLECT_SPAN = 6000;
 const T_SCORE = 8000;
@@ -93,7 +94,8 @@ export function createSearch(input: S["SearchCreateIn"], createdAt = Date.now())
   const rec: SearchRecord = {
     id,
     seed: Math.floor(Math.random() * 2 ** 31),
-    createdAt,
+    // «очередь» в запросе — поиск 10 с ждёт в очереди (B2-15), чтобы показать это состояние
+    createdAt: input.query.toLowerCase().includes("очередь") ? createdAt + QUEUE_DEMO : createdAt,
     scenario,
     params,
     analysis,

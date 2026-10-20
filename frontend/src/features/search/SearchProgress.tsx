@@ -2,6 +2,7 @@ import { Button, Progress } from "@mantine/core";
 
 import type { S } from "../../api/client";
 import { Icon } from "../../components/Icon";
+import { fmtNumber } from "../../lib/format";
 import classes from "./SearchProgress.module.css";
 import { isFinal, stageText } from "./status";
 import { useCancel } from "./useSearch";
@@ -11,33 +12,48 @@ export function SearchProgress({ search }: { search: S["Search"] }) {
   const cancel = useCancel(search.id);
   const running = !isFinal(search.status);
   if (!running && search.warnings.length === 0) return null;
+  // B2-15: одновременно идёт один поиск, остальные ждут в очереди
+  const queued = search.status === "queued" || search.stage === "queued";
 
   return (
     <div className={classes.wrap}>
       {running && (
         <div className={`mp-card ${classes.card}`}>
-          <span className={`${classes.icon} mp-pulse`}>
-            <Icon name="search" size={22} />
+          <span className={`${classes.icon} mp-pulse`} data-queued={queued || undefined}>
+            <Icon name={queued ? "history" : "search"} size={22} />
           </span>
           <div className={classes.body}>
-            <p className={classes.title}>{stageText(search)}</p>
-            <p className={classes.sub}>Проверяем публикации по смыслу — найденное появится ниже по мере обработки</p>
-            <Progress value={search.progress.percent} animated striped size="sm" radius="xl" mt={12} />
+            {queued ? (
+              <>
+                <p className={classes.title}>В очереди — дождитесь окончания предыдущего поиска</p>
+                <p className={classes.sub}>Поиск начнётся сам, страницу можно не обновлять</p>
+              </>
+            ) : (
+              <>
+                <p className={classes.title}>{stageText(search)}</p>
+                <p className={classes.sub}>Проверяем публикации по смыслу — найденное появится ниже по мере обработки</p>
+                <Progress value={search.progress.percent} animated striped size="sm" radius="xl" mt={12} />
+                <p className={classes.meta}>
+                  <span>Обычно 1–3 минуты</span>
+                  <span className={classes.found}>Найдено пока: {fmtNumber(search.counts.total)}</span>
+                </p>
+              </>
+            )}
           </div>
           <Button
             variant="default"
             size="compact-sm"
-            leftSection={<Icon name="stop" size={14} />}
+            leftSection={<Icon name={queued ? "close" : "stop"} size={14} />}
             loading={cancel.isPending}
             onClick={() => cancel.mutate(undefined)}
           >
-            Остановить
+            {queued ? "Отменить" : "Остановить"}
           </Button>
         </div>
       )}
       {search.warnings.map((w) => (
-        <div key={w} className={classes.warning}>
-          <Icon name="info" />
+        <div key={w} className="mp-note">
+          <Icon name="info" size={14} />
           {w}
         </div>
       ))}

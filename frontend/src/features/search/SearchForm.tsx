@@ -1,4 +1,4 @@
-import { Alert, SegmentedControl, Textarea, Tooltip } from "@mantine/core";
+import { SegmentedControl, Textarea, Tooltip } from "@mantine/core";
 import { DatePickerInput } from "@mantine/dates";
 import { useDebouncedValue, useDisclosure } from "@mantine/hooks";
 import { notifications } from "@mantine/notifications";
@@ -12,7 +12,7 @@ import { PlatformLogo } from "../../components/PlatformLogo";
 import { todayYmd } from "../../lib/dates";
 import { errorText, fieldErrors } from "../../lib/errors";
 import { sourcesCount } from "../../lib/format";
-import { PLATFORM_NAME } from "../../lib/platforms";
+import { PLATFORM_NAME, PLATFORM_TITLE } from "../../lib/platforms";
 import { detectPreset, presetPeriod, type Period, type PeriodPreset } from "./period";
 import classes from "./SearchForm.module.css";
 import { loadSelection, saveSelection } from "./sourceSelection";
@@ -157,6 +157,13 @@ export function SearchForm({ initial, onDirtyChange }: Props) {
   const paramErrors = [errors.period, errors.platforms, errors.sources, errors.mode].filter(Boolean);
   const allUnavailable = platformInfo.length > 0 && platformInfo.every((p) => p.status === "unavailable");
   const showAnalysis = analysis.isSuccess && debounced === query.trim();
+  // «Везде» на площадках без поиска по всей площадке — там ищем только по каталогу (FE-14)
+  const sourcesOnlyTitles =
+    mode === "global"
+      ? platformInfo
+          .filter((p) => !p.global_mode && p.status !== "unavailable" && platforms.includes(p.code))
+          .map((p) => PLATFORM_TITLE[p.code])
+      : [];
 
   return (
     <form
@@ -234,9 +241,11 @@ export function SearchForm({ initial, onDirtyChange }: Props) {
             </div>
           )}
           {analysis.data.needs_clarification && analysis.data.clarification_hint && (
-            <Alert color="yellow" variant="light" p="xs" mt={4} icon={<Icon name="info" />}>
+            // заметка, а не Alert: жёлто-оранжевая заливка в тёмной теме перетягивала внимание
+            <p className="mp-note" style={{ margin: 0 }}>
+              <Icon name="info" size={14} />
               {analysis.data.clarification_hint}
-            </Alert>
+            </p>
           )}
         </div>
       )}
@@ -303,24 +312,37 @@ export function SearchForm({ initial, onDirtyChange }: Props) {
         <div className={classes.platforms} role="group" aria-label="Площадки">
           {platformInfo.map((p) => {
             const on = platforms.includes(p.code);
-            const disabled = p.status === "unavailable";
+            const unavailable = p.status === "unavailable";
+            const sourcesOnly = mode === "global" && !p.global_mode && !unavailable;
             const hints = [
-              PLATFORM_NAME[p.code],
-              p.note,
-              mode === "global" && !p.global_mode ? "В режиме «Везде» — только по источникам из списка" : null,
+              unavailable ? `${PLATFORM_NAME[p.code]} — недоступна` : PLATFORM_NAME[p.code],
+              p.note ?? (unavailable ? "Площадка не подключена" : null),
+              sourcesOnly ? "В режиме «Везде» ищем только в ваших источниках этой площадки" : null,
             ].filter(Boolean);
             return (
               <Tooltip key={p.code} label={hints.join(" · ")} multiline maw={280}>
+                {/* aria-disabled, а не disabled: у отключённой кнопки нет событий мыши — не показалась бы подсказка с причиной */}
                 <button
                   type="button"
                   className={classes.platformToggle}
-                  data-on={on || undefined}
-                  disabled={disabled}
-                  aria-pressed={on}
-                  aria-label={PLATFORM_NAME[p.code]}
-                  onClick={() => togglePlatform(p.code)}
+                  data-on={(on && !unavailable) || undefined}
+                  data-unavailable={unavailable || undefined}
+                  aria-disabled={unavailable}
+                  aria-pressed={on && !unavailable}
+                  aria-label={hints.join(". ")}
+                  onClick={() => !unavailable && togglePlatform(p.code)}
                 >
-                  <PlatformLogo platform={p.code} size="sm" />
+                  <PlatformLogo platform={p.code} size="sm" title={null} />
+                  {unavailable && (
+                    <span className={classes.platformMark} data-tone="off" aria-hidden="true">
+                      <Icon name="close" size={8} />
+                    </span>
+                  )}
+                  {sourcesOnly && on && (
+                    <span className={classes.platformMark} aria-hidden="true">
+                      <Icon name="sources" size={8} />
+                    </span>
+                  )}
                 </button>
               </Tooltip>
             );
@@ -342,6 +364,13 @@ export function SearchForm({ initial, onDirtyChange }: Props) {
             </p>
           ))}
         </div>
+      )}
+
+      {sourcesOnlyTitles.length > 0 && (
+        <p className={classes.modeNote}>
+          <Icon name="sources" size={14} />
+          {sourcesOnlyTitles.join(", ")} — только ваши источники: поиск по всей площадке не поддерживается
+        </p>
       )}
 
       {/* без ключей (COLLECTOR_FAKE=false) все площадки unavailable — объясняем, почему искать негде */}

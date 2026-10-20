@@ -5,9 +5,12 @@ import { useSearchParams } from "react-router";
 import type { S } from "../../api/client";
 import { Icon } from "../../components/Icon";
 import { PlatformLogo } from "../../components/PlatformLogo";
+import { PLATFORM_TITLE } from "../../lib/platforms";
 import { isFinal, TARGET_STATUS } from "./status";
 import classes from "./TargetsPanel.module.css";
+import { useNoGlobal } from "./useCatalog";
 import { useRetry } from "./useSearch";
+import { failedTargets, isUnsupportedGlobal } from "./viewState";
 
 const ITEM = "targets";
 
@@ -42,9 +45,13 @@ export function TargetsPanel({ search }: { search: S["Search"] }) {
   };
 
   const retry = useRetry(search.id);
-  const count = (st: S["TargetStatus"]) => search.targets.filter((t) => t.status === st).length;
-  const failed = count("failed");
-  const processed = count("done") + count("empty");
+  const noGlobal = useNoGlobal();
+  const failedList = failedTargets(search, noGlobal);
+  const failed = failedList.length;
+  const unsupported = search.targets.filter((t) => isUnsupportedGlobal(t, noGlobal));
+  // «не поддерживается» — не цель поиска, в «Обработано N из M» её не считаем
+  const targets = search.targets.filter((t) => !unsupported.includes(t));
+  const processed = targets.filter((t) => t.status === "done" || t.status === "empty").length;
 
   return (
     <Accordion
@@ -59,7 +66,7 @@ export function TargetsPanel({ search }: { search: S["Search"] }) {
           <span className={classes.head}>
             <span className={classes.headTitle}>Где искали</span>
             <span className={classes.headMeta}>
-              Обработано {processed} из {search.targets.length}
+              Обработано {processed} из {targets.length}
               {failed > 0 && <span className={classes.headFailed}> · не удалось: {failed}</span>}
               {activeTargets.length > 0 && " · подборка отфильтрована по источнику"}
             </span>
@@ -73,7 +80,7 @@ export function TargetsPanel({ search }: { search: S["Search"] }) {
               mb="xs"
               leftSection={<Icon name="refresh" size={14} />}
               loading={retry.isPending}
-              onClick={() => retry.mutate(undefined)}
+              onClick={() => retry.mutate(failedList.map((t) => t.id))}
             >
               Повторить все неудачные
             </Button>
@@ -84,7 +91,22 @@ export function TargetsPanel({ search }: { search: S["Search"] }) {
             </Text>
           )}
           <div className={classes.list}>
-            {search.targets.map((t) => (
+            {unsupported.map((t) => (
+              <div key={t.id} className={classes.row} data-unsupported title={t.error?.message ?? undefined}>
+                <span className="mp-dot" style={{ background: DOT.skipped }} aria-hidden="true" />
+                <PlatformLogo platform={t.platform} size="sm" />
+                <span className={classes.name}>
+                  <Text size="sm" fw={600}>
+                    {PLATFORM_TITLE[t.platform]}: поиск по всей площадке не поддерживается
+                  </Text>
+                  <Text size="xs" c="dimmed">
+                    Искали только в источниках из списка
+                  </Text>
+                </span>
+                <span className={classes.status}>Не поддерживается</span>
+              </div>
+            ))}
+            {targets.map((t) => (
               <TargetRow
                 key={t.id}
                 target={t}
@@ -155,7 +177,7 @@ function TargetRow({ target: t, active, onToggle, onRetry, retrying }: RowProps)
           </Text>
         )}
         {t.error && (
-          <Text size="xs" c="red">
+          <Text size="xs" c="red" className="mp-clamp-2" title={t.error.message}>
             {t.error.message}
           </Text>
         )}

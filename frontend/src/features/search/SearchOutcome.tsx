@@ -11,11 +11,12 @@ import { plural, publications, sourcesCount } from "../../lib/format";
 import { PLATFORM_TITLE } from "../../lib/platforms";
 import { useResultFilters } from "../results/filters";
 import classes from "./SearchOutcome.module.css";
+import { useNoGlobal } from "./useCatalog";
 import { useRetry } from "./useSearch";
 import { failedTargets, failureReason, foundCount, viewState } from "./viewState";
 
 export function SearchOutcome({ search }: { search: S["Search"] }) {
-  const v = viewState(search);
+  const v = viewState(search, useNoGlobal());
   switch (v) {
     case "partial":
       return <PartialBanner search={search} />;
@@ -51,14 +52,15 @@ function Banner({ tone, title, children, action }: { tone: "amber" | "red" | "gr
 
 function RetryButton({ search }: { search: S["Search"] }) {
   const retry = useRetry(search.id);
-  if (failedTargets(search).length === 0) return null;
+  const failed = failedTargets(search, useNoGlobal());
+  if (failed.length === 0) return null;
   return (
     <Button
       size="compact-sm"
       variant="default"
       leftSection={<Icon name="refresh" size={14} />}
       loading={retry.isPending}
-      onClick={() => retry.mutate(undefined)}
+      onClick={() => retry.mutate(failed.map((t) => t.id))}
     >
       Повторить
     </Button>
@@ -73,7 +75,7 @@ function FailedList({ targets }: { targets: S["SearchTarget"][] }) {
       {shown.map((t) => (
         <p key={t.id} className={classes.failedItem}>
           <PlatformLogo platform={t.platform} size="sm" />
-          <span>
+          <span className="mp-clamp-2" title={t.error?.message ? `${t.name} — ${t.error.message}` : undefined}>
             <b>{t.name}</b>
             {t.error?.message ? ` — ${t.error.message}` : ""}
           </span>
@@ -87,8 +89,9 @@ function FailedList({ targets }: { targets: S["SearchTarget"][] }) {
 }
 
 function PartialBanner({ search }: { search: S["Search"] }) {
-  const failed = failedTargets(search);
+  const failed = failedTargets(search, useNoGlobal());
   const n = failed.length;
+  if (n === 0) return null;
   return (
     <Banner
       tone="amber"
@@ -102,10 +105,12 @@ function PartialBanner({ search }: { search: S["Search"] }) {
 }
 
 function FailedBanner({ search, withResults }: { search: S["Search"]; withResults: boolean }) {
-  const reason = failureReason(search);
+  const reason = failureReason(search, useNoGlobal());
   return (
     <Banner tone="red" title="Поиск не выполнен" action={<RetryButton search={search} />}>
-      <p className={classes.text}>{reason ?? "Ни один источник не удалось обработать."}</p>
+      <p className={`${classes.text} mp-clamp-2`} title={reason ?? undefined}>
+        {reason ?? "Ни один источник не удалось обработать."}
+      </p>
       {withResults && (
         <p className={classes.text}>Ниже — что успели найти до ошибки: {publications(foundCount(search))}.</p>
       )}
