@@ -69,6 +69,19 @@ GENERIC_STEMS = frozenset(
 )
 
 
+def _clean_clarification_hint(hint: str) -> str:
+    """Убирает 'в любом регионе', 'по всей России' и т.д., т.к. регион по умолчанию — Красноярский край."""
+    if not hint:
+        return ""
+    cleaned = re.sub(
+        r",?\s*(?:или\s+)?(?:в\s+любом\s+регионе|по\s+всей\s+россии|в\s+каком\s+регионе|по\s+всей\s+стране)\b",
+        "",
+        hint,
+        flags=re.IGNORECASE,
+    )
+    return cleaned.strip(" ,.-—")
+
+
 # ─────────────────────────── эвристика ───────────────────────────
 
 
@@ -183,6 +196,8 @@ def analyze_query_heuristic(query: str) -> QueryAnalysis:
         summary = f"{'Событие' if has_event else 'Тема'}: {text}"
         search_queries = [_core_phrase(text), text]
 
+    hint_text = hint or ("" if topical else DEFAULT_CLARIFY_HINT)
+    cleaned_hint = _clean_clarification_hint(hint_text)
     return QueryAnalysis(
         query_type=query_type,
         summary=summary[:MAX_SUMMARY_CHARS],
@@ -191,7 +206,7 @@ def analyze_query_heuristic(query: str) -> QueryAnalysis:
         must_concepts=must,
         exclude_concepts=exclude,
         needs_clarification=bool(hint) or not topical,
-        clarification_hint=hint or ("" if topical else DEFAULT_CLARIFY_HINT),
+        clarification_hint=cleaned_hint if (bool(hint) or not topical) else "",
     )
 
 
@@ -267,6 +282,7 @@ person — человек.
 дорожной). Если ловушек нет — пустой список.
 - needs_clarification = true, только если запрос из одного общего слова; тогда в \
 clarification_hint предложи варианты («Уточните тему: дорожная, пожарная, информационная…»).
+- Не предлагай искать «в любом регионе» или «по всей России» — поиск по умолчанию ведётся по Красноярскому краю.
 - Пиши по-русски. Ничего не выдумывай про конкретные новости."""
 
 EXAMPLE = """Пример. Запрос: «Безопасность дорожного движения в Красноярском крае»
@@ -375,7 +391,8 @@ def merge_analysis(answer: _LlmAnalysis, base: QueryAnalysis, query: str) -> Que
     # «нужно уточнить» — только для действительно короткого запроса: модель любит перестраховаться
     short = len(word_stems(query) - REGION_STEMS) <= 2
     needs_clarification = base.needs_clarification or (answer.needs_clarification and short)
-    hint = answer.clarification_hint.strip() or base.clarification_hint
+    raw_hint = answer.clarification_hint.strip() or base.clarification_hint
+    hint = _clean_clarification_hint(raw_hint)
     summary = " ".join(answer.summary.split())[:MAX_SUMMARY_CHARS] or base.summary
     must = _clean_list(answer.must_concepts) or base.must_concepts
     if query_type is QueryType.PERSON and base.query_type is QueryType.PERSON:

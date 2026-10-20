@@ -1,21 +1,10 @@
-"""Качество отбора ML на размеченных наборах (ML-02, ML-09).
+"""Качество отбора ML на размеченных наборах (ML-02, ML-09, ML-12).
 
 Запуск из корня репозитория:
     uv run --project services/ml_service python eval/run_eval.py               # stub: эвристики
-    LLM_PROVIDER=ollama EMBED_PROVIDER=ollama \\
+    LLM_PROVIDER=ollama EMBED_PROVIDER=ollama \
     uv run --project services/ml_service python eval/run_eval.py --details     # локальные модели
-
-Гоняет core через MlEngine (без gRPC) так же, как search_service: AnalyzeQuery один раз на запрос,
-ScorePosts батчами по 30, GroupPosts по прошедшим отбор. Пишет markdown-таблицу в eval/report.md
-(её берут в README и на слайд «Качество»).
-
-Формулы (как в docs/tasks/ML.md):
-    найдено   = предсказано direct | indirect | disputed
-    recall    = найдено ∩ (метка direct | indirect) / (метка direct | indirect)
-    precision = найдено ∩ (метка direct | indirect) / найдено
-    спорных   = доля disputed среди найденного — работа для человека
-Режим --mode global (по умолчанию) повторяет правило search_service для поиска «везде»: пост
-без регионального источника и без привязки к краю в тексте отсеивается.
+    uv run --project services/ml_service python eval/run_eval.py --dataset-dir eval/datasets_real --report eval/report_real.md
 """
 
 import argparse
@@ -40,7 +29,7 @@ FOUND = {Relevance.DIRECT, Relevance.INDIRECT, Relevance.DISPUTED}
 RELEVANT = {"direct", "indirect"}
 SCENARIOS = {
     "bdd_krasnoyarsk": "Тема: безопасность дорожного движения",
-    "event": "Событие: открытие парка",
+    "event": "Событие: открытие сквера / парка",
     "person": "Человек: губернатор",
     "news_text": "Текст новости: пожар на складе",
 }
@@ -222,13 +211,20 @@ def pct(x: float) -> str:
     return f"{x * 100:.0f} %"
 
 
-def render(results: list[Result], mode: str, engine: MlEngine, settings: Settings) -> str:
+def render(
+    results: list[Result], mode: str, engine: MlEngine, settings: Settings, dataset_name: str = ""
+) -> str:
+    is_real = "real" in dataset_name.lower()
+    dataset_label = (
+        "**РЕАЛЬНЫЕ посты соцсетей Красноярского края** (ML-12)"
+        if is_real
+        else "**тексты придуманные** (подбор порогов, не замер на реальных постах)"
+    )
     lines = [
-        "# Качество отбора ML (eval)",
+        f"# Качество отбора ML ({'РЕАЛЬНЫЕ ПОСТЫ' if is_real else 'eval'})",
         "",
         f"Прогон: {datetime.now():%Y-%m-%d %H:%M}, `{engine.describe}`, режим `{mode}`, "
-        f"батч {BATCH}. Наборы `eval/datasets/*.jsonl` — **тексты придуманные** (подбор порогов, "
-        "не замер на реальных постах).",
+        f"батч {BATCH}. Наборы `{dataset_name or 'eval/datasets'}/*.jsonl` — {dataset_label}.",
         "",
         "| Сценарий | Постов | Recall | Precision | F1 | Direct: recall / F1 | Спорных "
         "| Ловушки отсеяны | мс/пост | Разбор запроса | Модель |",
@@ -307,18 +303,20 @@ def render(results: list[Result], mode: str, engine: MlEngine, settings: Setting
 async def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     parser.add_argument("--mode", choices=["global", "selected"], default="global")
+    parser.add_argument("--dataset-dir", default=str(ROOT / "datasets"))
     parser.add_argument("--report", default=str(ROOT / "report.md"))
     parser.add_argument("--details", action="store_true", help="печатать ошибки по постам")
     parser.add_argument("--only", help="один набор: bdd_krasnoyarsk | event | person | news_text")
     args = parser.parse_args()
 
+    dataset_path = Path(args.dataset_dir).resolve()
     report_path = Path(args.report).resolve()  # до chdir: путь относительно места запуска
     os.chdir(ROOT.parent / "services" / "ml_service")  # .env сервиса, как при запуске сервиса
     settings = Settings()
     engine = build_engine(settings)
     results: list[Result] = []
     try:
-        for path in sorted((ROOT / "datasets").glob("*.jsonl")):
+        for path in sorted(dataset_path.glob("*.jsonl")):
             if args.only and path.stem != args.only:
                 continue
             for rows in load(path).values():
@@ -326,7 +324,7 @@ async def main() -> int:
     finally:
         await engine.aclose()
 
-    report = render(results, args.mode, engine, settings)
+    report = render(results, args.mode, engine, settings, dataset_path.name)
     report_path.write_text(report, encoding="utf-8")
     print(report)
     if args.details:

@@ -102,6 +102,34 @@ async def test_clarification_for_news_without_topic() -> None:
     assert not analysis.needs_clarification
 
 
+async def test_analyze_query_caches_successful_llm_call() -> None:
+    calls = 0
+
+    def fake_response(s: str, u: str) -> str:
+        nonlocal calls
+        calls += 1
+        return json.dumps(ANALYSIS_JSON, ensure_ascii=False)
+
+    eng = engine(FakeLLM(fake_response))
+    res1, degraded1 = await eng.analyze_query("Тестовый запрос для кэша")
+    assert not degraded1 and calls == 1
+
+    # Повторный запрос должен мгновенно вернуться из кэша без вызова LLM
+    res2, degraded2 = await eng.analyze_query("Тестовый запрос для кэша")
+    assert not degraded2 and calls == 1
+    assert res1.summary == res2.summary
+
+
+async def test_clarification_hint_strips_other_regions() -> None:
+    data = dict(ANALYSIS_JSON)
+    data["needs_clarification"] = True
+    data["clarification_hint"] = "Уточните тему в любом регионе или Красноярском крае"
+
+    llm = FakeLLM(lambda s, u: json.dumps(data, ensure_ascii=False))
+    analysis, _ = await engine(llm).analyze_query("безопасность")
+    assert "в любом регионе" not in analysis.clarification_hint
+
+
 # ───────────────────────── ScorePosts ─────────────────────────
 
 POSTS = [

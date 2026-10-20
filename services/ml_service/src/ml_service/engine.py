@@ -11,6 +11,7 @@ degraded:
 import asyncio
 import logging
 import time
+from collections import OrderedDict
 from dataclasses import dataclass
 
 from ml_service.core.grouping import group_posts_heuristic
@@ -45,6 +46,7 @@ MAX_QUERY_CHARS = 20_000
 MAX_EXCERPT = 300
 MAX_EMBED_CHARS = 2_000
 ORDER = [Relevance.IRRELEVANT, Relevance.DISPUTED, Relevance.INDIRECT, Relevance.DIRECT]
+QUERY_CACHE_SIZE = 1000
 
 
 @dataclass(frozen=True, slots=True)
@@ -74,6 +76,7 @@ class MlEngine:
         self._embedder = embedder
         self._limits = limits or EngineLimits(max_posts_per_call=max_posts_per_call)
         self._judge_cache = JudgeCache()
+        self._query_cache: OrderedDict[str, QueryAnalysis] = OrderedDict()
         self.last_judge_stats = JudgeStats()
         self.last_similarities: list[float] | None = None  # для eval --details
 
@@ -97,6 +100,13 @@ class MlEngine:
         text = query.strip()
         if len(text) < 3 or len(text) > MAX_QUERY_CHARS:
             raise InvalidRequestError("Запрос должен быть от 3 до 20000 символов")
+
+        # Кэш разбора по тексту запроса (ML-13)
+        cache_key = text.lower()
+        if cache_key in self._query_cache:
+            self._query_cache.move_to_end(cache_key)
+            return self._query_cache[cache_key], False
+
         base = analyze_query_heuristic(text)
         if not self._llm.available:
             return base, True
@@ -107,6 +117,11 @@ class MlEngine:
         except (MlUnavailableError, LlmAnswerError, TimeoutError) as e:
             logger.warning("AnalyzeQuery: LLM не ответила по делу (%s) — эвристика", _short(e))
             return base, True
+
+        self._query_cache[cache_key] = analysis
+        if len(self._query_cache) > QUERY_CACHE_SIZE:
+            self._query_cache.popitem(last=False)
+
         return analysis, False
 
     # ───────────────────────── ScorePosts ─────────────────────────

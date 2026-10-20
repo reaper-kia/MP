@@ -34,9 +34,9 @@ class Settings(BaseSettings):
     # после сбоя модель не дёргаем столько секунд (сразу эвристика), потом пробуем снова
     breaker_cooldown_seconds: float = 30.0
 
-    # бюджеты на весь RPC — меньше таймаутов search_service (AnalyzeQuery 20 с, ScorePosts и
+    # бюджеты на весь RPC — меньше таймаутов search_service (AnalyzeQuery 20-25 с, ScorePosts и
     # GroupPosts 60 с), чтобы успеть отдать хотя бы эвристику, а не упасть по таймауту
-    analyze_budget_seconds: float = 15.0
+    analyze_budget_seconds: float = 20.0
     score_budget_seconds: float = 45.0
     group_budget_seconds: float = 40.0
 
