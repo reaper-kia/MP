@@ -103,6 +103,17 @@ export function planTargets(scenario: Scenario, params: S["SearchParams"], searc
         },
       };
     }
+    // как настоящий бэкенд: цель «поиск по площадке» создаётся и там, где площадка его не умеет, и падает
+    if (info.kind === "platform_search" && !PLATFORMS.find((p) => p.code === info.platform)?.global_mode) {
+      return {
+        info,
+        final: {
+          status: "failed",
+          fetched: 0,
+          error: { code: "PLATFORM_UNAVAILABLE", message: `${PLATFORM_NAME[info.platform]}: поиск по всей площадке не поддерживается` },
+        },
+      };
+    }
     if (scenario === "empty") {
       return { info, final: i % 2 ? { status: "empty", fetched: 0, error: null } : { status: "done", fetched: 30 + i * 7, error: null } };
     }
@@ -128,11 +139,10 @@ function targetsFromParams(params: S["SearchParams"]): Omit<TargetInfo, "id">[] 
   } else {
     for (const p of params.platforms) {
       const info = PLATFORMS.find((x) => x.code === p);
-      if (info?.global_mode) {
-        out.push({ kind: "platform_search", platform: p, source_id: null, name: `Поиск по всему ${p.toUpperCase()}`, url: null });
-      } else {
-        out.push(...SOURCES.filter((s) => s.platform === p && s.is_active).map(fromSource));
-      }
+      // как бэкенд: поиск по площадке — для каждой площадки (без global_mode он упадёт),
+      // плюс активные источники каталога там, где поиска по всей площадке нет
+      out.push({ kind: "platform_search", platform: p, source_id: null, name: `Поиск по всему ${p.toUpperCase()}`, url: null });
+      if (!info?.global_mode) out.push(...SOURCES.filter((s) => s.platform === p && s.is_active).map(fromSource));
     }
   }
   if (out.length === 0) {

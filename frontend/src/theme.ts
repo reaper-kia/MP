@@ -83,7 +83,7 @@ export const cssVariablesResolver: CSSVariablesResolver = () => ({
   light: {
     "--mantine-color-body": "#fffefa",
     "--mantine-color-text": "#171914",
-    "--mantine-color-dimmed": "#74786a",
+    "--mantine-color-dimmed": "#65695b",
     "--mantine-color-placeholder": "#979b8d",
     "--mantine-color-default": "#fffefa",
     "--mantine-color-default-hover": "#f2f1e9",
@@ -95,7 +95,7 @@ export const cssVariablesResolver: CSSVariablesResolver = () => ({
   dark: {
     "--mantine-color-body": "#1c1f18",
     "--mantine-color-text": "#f3f4eb",
-    "--mantine-color-dimmed": "#a4a998",
+    "--mantine-color-dimmed": "#b0b5a4",
     "--mantine-color-placeholder": "#74776c",
     "--mantine-color-default": "#1c1f18",
     "--mantine-color-default-hover": "#25291f",

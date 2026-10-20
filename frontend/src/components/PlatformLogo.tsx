@@ -4,14 +4,22 @@ import { PLATFORM_NAME } from "../lib/platforms";
 import { Icon } from "./Icon";
 import classes from "./PlatformLogo.module.css";
 
-export function PlatformLogo({ platform, size = "md" }: { platform: S["Platform"]; size?: "sm" | "md" }) {
+interface Props {
+  platform: S["Platform"];
+  size?: "sm" | "md";
+  /** Нативная подсказка; null — не показывать (когда снаружи уже есть Tooltip). */
+  title?: string | null;
+}
+
+export function PlatformLogo({ platform, size = "md", title }: Props) {
   const cls = `${classes.logo} ${size === "sm" ? classes.sm : classes.md}`;
   const glyph = size === "sm" ? classes.glyphSm : classes.glyphMd;
   const label = PLATFORM_NAME[platform];
+  const hint = title === null ? undefined : (title ?? label);
 
   if (platform === "vk") {
     return (
-      <span className={cls} style={{ background: "#2787f5" }} role="img" aria-label={label} title={label}>
+      <span className={cls} style={{ background: "#2787f5" }} role="img" aria-label={label} title={hint}>
         <svg viewBox="0 0 24 24" className={glyph} aria-hidden="true">
           <path
             fill="white"
@@ -23,7 +31,7 @@ export function PlatformLogo({ platform, size = "md" }: { platform: S["Platform"
   }
   if (platform === "ok") {
     return (
-      <span className={cls} style={{ background: "#ee8208" }} role="img" aria-label={label} title={label}>
+      <span className={cls} style={{ background: "#ee8208" }} role="img" aria-label={label} title={hint}>
         <svg
           viewBox="0 0 24 24"
           className={glyph}
@@ -41,13 +49,13 @@ export function PlatformLogo({ platform, size = "md" }: { platform: S["Platform"
   }
   if (platform === "max") {
     return (
-      <span className={cls} role="img" aria-label={label} title={label}>
+      <span className={cls} role="img" aria-label={label} title={hint}>
         <img src={`${import.meta.env.BASE_URL}max-logo.webp`} alt="" className={classes.image} />
       </span>
     );
   }
   return (
-    <span className={`${cls} ${classes.news}`} role="img" aria-label={label} title={label}>
+    <span className={`${cls} ${classes.news}`} role="img" aria-label={label} title={hint}>
       <Icon name="news" size={size === "sm" ? 14 : 22} />
     </span>
   );

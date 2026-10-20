@@ -65,7 +65,7 @@
 
 .failedItem {
   display: flex;
-  align-items: center;
+  align-items: flex-start;
   gap: 8px;
   margin: 0;
   font-size: 13px;

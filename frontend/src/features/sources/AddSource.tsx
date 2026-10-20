@@ -75,7 +75,7 @@ export function AddSource({ onShowExisting, onAdded, initialUrl }: Props) {
           size="md"
           leftSection={<Icon name="plus" />}
           label="Добавить источник по ссылке"
-          description="ВКонтакте, Одноклассники или MAX. Проверим ссылку и покажем, что это за источник."
+          description="Группа ВКонтакте или Одноклассников, канал MAX, новостной сайт. Проверим ссылку и покажем, что это за источник."
           placeholder="https://vk.com/krsk_news"
           value={url}
           onChange={(e) => onChange(e.currentTarget.value)}

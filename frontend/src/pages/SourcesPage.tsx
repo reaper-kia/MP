@@ -19,6 +19,7 @@ import {
 import { useDebouncedValue } from "@mantine/hooks";
 import { notifications } from "@mantine/notifications";
 import { useEffect, useState } from "react";
+import { useSearchParams } from "react-router";
 
 import type { S } from "../api/client";
 import { Icon } from "../components/Icon";
@@ -46,6 +47,9 @@ export function SourcesPage() {
   const [page, setPage] = useState(1);
   const [highlight, setHighlight] = useState<string | null>(null);
   const [toDelete, setToDelete] = useState<S["Source"] | null>(null);
+  // ?add=<ссылка> — расширение Chrome (FE-10) прислало адрес открытой вкладки: сразу проверяем его
+  const [params] = useSearchParams();
+  const addUrl = params.get("add") ?? undefined;
 
   // Сменили фильтр — на первую страницу
   useEffect(() => setPage(1), [debouncedQ, platform]);
@@ -88,7 +92,7 @@ export function SourcesPage() {
 
       <PlatformStats />
 
-      <AddSource onShowExisting={showExisting} onAdded={showAdded} />
+      <AddSource key={addUrl} initialUrl={addUrl} onShowExisting={showExisting} onAdded={showAdded} />
 
       <Group gap="sm" wrap="wrap">
         <TextInput
@@ -243,10 +247,16 @@ function PlatformStats() {
         const active = items.filter((s) => s.platform === p.code && s.is_active).length;
         const st = STATUS_VIEW[p.status];
         return (
-          <Tooltip key={p.code} label={p.note} disabled={!p.note} multiline maw={280}>
+          <Tooltip
+            key={p.code}
+            label={p.note ?? (p.status === "unavailable" ? "Площадка не подключена" : "")}
+            disabled={!p.note && p.status !== "unavailable"}
+            multiline
+            maw={280}
+          >
             <div className={classes.stat}>
               <div className={classes.statHead}>
-                <PlatformLogo platform={p.code} />
+                <PlatformLogo platform={p.code} title={null} />
                 <div>
                   <p className={classes.statName}>{PLATFORM_NAME[p.code]}</p>
                   <p className={classes.statMeta}>

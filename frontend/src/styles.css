@@ -12,8 +12,9 @@
   --mp-border-strong: #c5c9ba;
   --mp-text: #171914;
   --mp-text-2: #575b4e;
-  --mp-muted: #74786a;
-  --mp-faint: #979b8d;
+  /* muted/faint темнее макета: на проекторе #979b8d на «бумаге» (2.8:1) не читался — теперь ≥4:1 */
+  --mp-muted: #65695b;
+  --mp-faint: #7a7e70;
   --mp-ink: #171914;
   --mp-ink-hover: #2d3027;
   --mp-ink-text: #fffefa;
@@ -39,8 +40,8 @@
   --mp-border-strong: #555c48;
   --mp-text: #f3f4eb;
   --mp-text-2: #c9cdbf;
-  --mp-muted: #a4a998;
-  --mp-faint: #969b8b;
+  --mp-muted: #b0b5a4;
+  --mp-faint: #a0a595;
   --mp-ink: #f3f4eb;
   --mp-ink-hover: #d9f99d;
   --mp-ink-text: #171914;
@@ -192,6 +193,34 @@ body {
 
 .mp-text-action:hover {
   color: var(--mp-text);
+}
+
+/* Заметка — жёлтая полоска слева, без заливки: предупреждения, «уточните запрос», «параметры изменены» */
+.mp-note {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  padding: 6px 12px;
+  border-left: 2px solid #fbbf24;
+  font-size: 12px;
+  line-height: 1.5;
+  color: var(--mp-text-2);
+}
+
+.mp-note > svg {
+  flex-shrink: 0;
+  margin-top: 1px;
+  color: #d97706;
+}
+
+/* Длинные технические причины (ошибки целей): две строки и «…», полный текст — в title */
+.mp-clamp-2 {
+  display: -webkit-box;
+  overflow: hidden;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  line-clamp: 2;
+  overflow-wrap: anywhere;
 }
 
 .mp-dot {

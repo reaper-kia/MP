@@ -1,6 +1,7 @@
 import { useQuery } from "@tanstack/react-query";
+import { useMemo } from "react";
 
-import { api, unwrap } from "../../api/client";
+import { api, unwrap, type S } from "../../api/client";
 
 export function usePlatforms() {
   return useQuery({
@@ -17,4 +18,10 @@ export function useAllSources() {
     queryFn: () => unwrap(api.GET("/api/v1/sources", { params: { query: { limit: 200, offset: 0 } } })),
     staleTime: 60_000,
   });
+}
+
+/** Площадки без поиска по всей площадке — для пометок режима «Везде» (FE-14). */
+export function useNoGlobal(): ReadonlySet<S["Platform"]> {
+  const { data } = usePlatforms();
+  return useMemo(() => new Set((data ?? []).filter((p) => !p.global_mode).map((p) => p.code)), [data]);
 }

@@ -97,3 +97,11 @@
     min-width: 0;
   }
 }
+
+.row[data-unsupported] {
+  cursor: default;
+}
+
+.row[data-unsupported]:hover {
+  background: transparent;
+}

@@ -102,6 +102,15 @@
   color: #d97706;
 }
 
+.modeNote {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin: 10px 0 0;
+  font-size: 12px;
+  color: var(--mp-muted);
+}
+
 /* ───────── как понят запрос ───────── */
 
 .analysis {
@@ -196,12 +205,17 @@
 }
 
 .platformToggle {
+  position: relative;
   display: flex;
   padding: 0;
   border: 0;
   border-radius: 6px;
   background: none;
   cursor: pointer;
+}
+
+/* приглушаем сам логотип, а не кнопку — значок в углу остаётся ярким */
+.platformToggle > [role="img"] {
   opacity: 0.3;
   filter: grayscale(1);
   transition:
@@ -209,18 +223,47 @@
     filter 150ms ease;
 }
 
-.platformToggle:hover:not(:disabled) {
+.platformToggle:hover:not([data-unavailable]) > [role="img"] {
   opacity: 0.6;
 }
 
-.platformToggle[data-on] {
+.platformToggle[data-on] > [role="img"] {
   opacity: 1;
   filter: none;
 }
 
-.platformToggle:disabled {
+.platformToggle[data-unavailable] {
   cursor: not-allowed;
-  opacity: 0.15;
+}
+
+.platformToggle[data-unavailable] > [role="img"] {
+  opacity: 0.25;
+}
+
+.platformToggle:focus-visible {
+  outline: 2px solid var(--mp-accent-line);
+  outline-offset: 2px;
+}
+
+/* Значок в углу логотипа: × — площадка недоступна, «источники» — в «Везде» ищем только по вашему списку */
+.platformMark {
+  position: absolute;
+  right: -4px;
+  bottom: -4px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 13px;
+  height: 13px;
+  border: 1.5px solid var(--mp-hero);
+  border-radius: 50%;
+  background: #fbbf24;
+  color: #171914;
+}
+
+.platformMark[data-tone="off"] {
+  background: #f87171;
+  color: #fff;
 }
 
 .platformToggle:focus-visible {

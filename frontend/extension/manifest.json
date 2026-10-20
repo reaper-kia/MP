@@ -1,0 +1,12 @@
+{
+  "manifest_version": 3,
+  "name": "МедиаПульс",
+  "short_name": "МедиаПульс",
+  "description": "Мониторинг публикаций Красноярского края в боковой панели Chrome. Добавляет открытую страницу как источник.",
+  "version": "0.1.0",
+  "minimum_chrome_version": "116",
+  "action": { "default_title": "Открыть МедиаПульс" },
+  "side_panel": { "default_path": "sidepanel.html" },
+  "background": { "service_worker": "background.js" },
+  "permissions": ["sidePanel", "tabs", "storage"]
+}

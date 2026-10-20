@@ -150,17 +150,20 @@
 }
 
 .bulk {
-  position: sticky;
-  top: 150px;
-  z-index: 5;
+  position: fixed;
+  bottom: 24px;
+  left: 50%;
+  z-index: 50;
   display: flex;
   align-items: center;
   gap: 8px;
+  width: min(640px, calc(100vw - 32px));
   padding: 10px 16px;
   border: 1px solid var(--mp-accent-line);
   border-radius: 16px;
   background: var(--mp-surface);
-  box-shadow: var(--mp-shadow-card);
+  box-shadow: var(--mp-shadow-ink);
+  transform: translateX(-50%);
   font-size: 13px;
   font-weight: 700;
 }
@@ -206,7 +209,8 @@
 }
 
 .footnote {
-  margin: 0;
+  /* запас под плавающую полосу действий */
+  margin: 0 0 72px;
   font-size: 12px;
   text-align: center;
   color: var(--mp-faint);
