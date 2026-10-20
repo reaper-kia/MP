@@ -1,10 +1,8 @@
 import "@mantine/core/styles.css";
-import "@mantine/dates/styles.css";
 import "@mantine/notifications/styles.css";
 import "./styles.css";
 
 import { MantineProvider } from "@mantine/core";
-import { DatesProvider } from "@mantine/dates";
 import { Notifications } from "@mantine/notifications";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { StrictMode } from "react";
@@ -30,12 +28,10 @@ enableMocks().then(() => {
     <StrictMode>
       {/* тема: как в системе, переключатель в шапке запоминает выбор */}
       <MantineProvider theme={theme} cssVariablesResolver={cssVariablesResolver} defaultColorScheme="auto">
-        <DatesProvider settings={{ locale: "ru", firstDayOfWeek: 1 }}>
-          <Notifications position="top-right" />
-          <QueryClientProvider client={queryClient}>
-            <App />
-          </QueryClientProvider>
-        </DatesProvider>
+        <Notifications position="top-right" />
+        <QueryClientProvider client={queryClient}>
+          <App />
+        </QueryClientProvider>
       </MantineProvider>
     </StrictMode>,
   );

@@ -11,8 +11,25 @@ export default defineConfig(({ mode }) => ({
   // worker-only: плагин только отдаёт mockServiceWorker.js, запуск — в src/main.tsx
   plugins: [react(), ...(mode === "mocks" ? [msw({ mode: "worker-only" })] : [])],
   define: mode === "mocks" ? { "import.meta.env.VITE_MOCKS": JSON.stringify("1") } : {},
+  build: {
+    rollupOptions: {
+      output: {
+        // библиотеки — отдельными файлами: кэшируются между выкладками, страницы грузятся по требованию (FE-16)
+        manualChunks(id) {
+          if (!id.includes("node_modules")) return undefined;
+          if (/[\/]@mantine[\/]dates[\/]/.test(id)) return "mantine-dates";
+          if (/[\/]@mantine[\/]/.test(id)) return "mantine";
+          if (/[\/](react|react-dom|react-router|scheduler)[\/]/.test(id)) return "react";
+          if (/[\/]@tanstack[\/]/.test(id)) return "query";
+          return undefined; // мелочь (dayjs, clsx…) — куда решит сборщик
+        },
+      },
+    },
+  },
   server: {
     port: 5173,
+    // сборка расширения (npm run build:ext) не должна перезагружать dev-сервер
+    watch: { ignored: ["**/dist-ext/**", "**/extension/**"] },
     proxy: {
       "/api": { target: API_TARGET, changeOrigin: true },
     },

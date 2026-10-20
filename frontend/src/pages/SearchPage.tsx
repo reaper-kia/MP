@@ -1,5 +1,5 @@
 import { Loader } from "@mantine/core";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { Link, useParams } from "react-router";
 
 import { ApiError } from "../api/client";
@@ -23,6 +23,7 @@ export function SearchPage() {
   const [dirty, setDirty] = useState(false);
   const { filters } = useResultFilters();
   useConnectionNotice(search);
+  usePageTitle(search.data?.params.query);
 
   if (!searchId) {
     return (
@@ -73,4 +74,18 @@ export function SearchPage() {
       {(showsResults(data) || filters.tab === "rejected") && <ResultsView key={`results-${data.id}`} search={data} />}
     </div>
   );
+}
+
+const BASE_TITLE = document.title;
+
+/** Во вкладке браузера — запрос подборки: несколько открытых поисков различимы (FE-16). */
+function usePageTitle(query: string | undefined) {
+  useEffect(() => {
+    if (!query) return;
+    const q = query.replace(/\s+/g, " ").trim();
+    document.title = `«${q.length > 60 ? `${q.slice(0, 59).trimEnd()}…` : q}» — МедиаПульс`;
+    return () => {
+      document.title = BASE_TITLE;
+    };
+  }, [query]);
 }

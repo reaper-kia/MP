@@ -1,5 +1,7 @@
 import { SegmentedControl, Textarea, Tooltip } from "@mantine/core";
-import { DatePickerInput } from "@mantine/dates";
+// @mantine/dates — только здесь: календарь грузится вместе со страницей поиска, а не на главной (FE-16)
+import "@mantine/dates/styles.css";
+import { DatePickerInput, DatesProvider } from "@mantine/dates";
 import { useDebouncedValue, useDisclosure } from "@mantine/hooks";
 import { notifications } from "@mantine/notifications";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
@@ -273,24 +275,26 @@ export function SearchForm({ initial, onDirtyChange }: Props) {
             ]}
             classNames={{ root: classes.segment }}
           />
-          <DatePickerInput
-            type="range"
-            size="xs"
-            value={period}
-            onChange={(v) => {
-              setPeriod([v[0], v[1]]);
-              setPreset("custom");
-              setErrors((x) => ({ ...x, period: undefined }));
-            }}
-            maxDate={todayYmd()}
-            allowSingleDateInRange
-            valueFormat="DD.MM.YYYY"
-            placeholder="Выберите даты"
-            error={!!errors.period}
-            aria-label="Период публикации"
-            w={184}
-            classNames={{ input: classes.dateInput }}
-          />
+          <DatesProvider settings={{ locale: "ru", firstDayOfWeek: 1 }}>
+            <DatePickerInput
+              type="range"
+              size="xs"
+              value={period}
+              onChange={(v) => {
+                setPeriod([v[0], v[1]]);
+                setPreset("custom");
+                setErrors((x) => ({ ...x, period: undefined }));
+              }}
+              maxDate={todayYmd()}
+              allowSingleDateInRange
+              valueFormat="DD.MM.YYYY"
+              placeholder="Выберите даты"
+              error={!!errors.period}
+              aria-label="Период публикации"
+              w={184}
+              classNames={{ input: classes.dateInput }}
+            />
+          </DatesProvider>
         </div>
 
         <span className={classes.divider} />

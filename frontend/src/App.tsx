@@ -1,20 +1,21 @@
 import { createBrowserRouter, createHashRouter, RouterProvider } from "react-router";
 
 import { AppLayout } from "./layout/AppLayout";
-import { HistoryPage } from "./pages/HistoryPage";
 import { HomePage } from "./pages/HomePage";
-import { SearchPage } from "./pages/SearchPage";
-import { SourcesPage } from "./pages/SourcesPage";
 
+// Страницы, кроме главной, грузятся при переходе (FE-16): главная не тянет форму поиска, даты и таблицы.
 const routes = [
   {
     element: <AppLayout />,
     children: [
       { path: "/", element: <HomePage /> },
-      { path: "/search", element: <SearchPage /> },
-      { path: "/search/:searchId", element: <SearchPage /> },
-      { path: "/sources", element: <SourcesPage /> },
-      { path: "/history", element: <HistoryPage /> },
+      { path: "/search", lazy: () => import("./pages/SearchPage").then((m) => ({ Component: m.SearchPage })) },
+      {
+        path: "/search/:searchId",
+        lazy: () => import("./pages/SearchPage").then((m) => ({ Component: m.SearchPage })),
+      },
+      { path: "/sources", lazy: () => import("./pages/SourcesPage").then((m) => ({ Component: m.SourcesPage })) },
+      { path: "/history", lazy: () => import("./pages/HistoryPage").then((m) => ({ Component: m.HistoryPage })) },
     ],
   },
 ];
