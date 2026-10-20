@@ -27,6 +27,7 @@ def build_engine(settings: Settings) -> MlEngine:
             judge_batch_size=settings.judge_batch_size,
             judge_concurrency=settings.judge_concurrency,
             judge_max_post_chars=settings.judge_max_post_chars,
+            anchor_gate=settings.anchor_gate,
         ),
     )
 

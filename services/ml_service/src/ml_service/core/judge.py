@@ -111,6 +111,8 @@ TOPIC_SYSTEM = """Ты — аналитик медиамониторинга а�
 - disputed — не уверен, нужна проверка человеком;
 - irrelevant — о другом, в том числе то же слово в другом смысле.
 {type_rule}
+Совпадение только общих слов («соревнования», «призёры», «фестиваль», «программа») связью не \
+считается — важно «Главное»: турнир по футболу не про киберспорт. «Не путать с» — irrelevant.
 Полнота важнее: сомневаешься между irrelevant и другим классом — ставь disputed.
 explanation — ОДНО предложение по-русски до 120 символов, только по тексту поста: о чём пост \
 и почему такой класс («Пост о рейде ГИБДД у школ Ачинска»). Ничего не выдумывай.
@@ -169,7 +171,7 @@ def _user_prompt(query: str, analysis: QueryAnalysis, posts: list[Post], max_cha
     if analysis.summary:
         lines.append(f"Как понят: {analysis.summary}")
     if analysis.must_concepts:
-        lines.append("Главное: " + "; ".join(analysis.must_concepts))
+        lines.append("Главное (хотя бы одно): " + "; ".join(analysis.must_concepts))
     if analysis.exclude_concepts:
         lines.append("Не путать с: " + "; ".join(analysis.exclude_concepts))
     return "\n".join(lines) + f"\n\nПосты:\n{rendered}"
