@@ -26,7 +26,8 @@ class Settings(BaseSettings):
     # таймауты вызовов, секунды
     collector_resolve_timeout: float = 20.0
     collector_collect_timeout: float = 60.0
-    ml_analyze_timeout: float = 20.0
+    # больше бюджета AnalyzeQuery в ml_service (20 с): ml успевает отдать хотя бы эвристику
+    ml_analyze_timeout: float = 25.0
     ml_score_timeout: float = 60.0
     ml_group_timeout: float = 60.0
     # ML без моделей (эвристики) → предупреждение «ML работал в упрощённом режиме» у поиска.

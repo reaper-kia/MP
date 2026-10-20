@@ -15,6 +15,7 @@ degraded:
 import asyncio
 import logging
 import time
+from collections import OrderedDict
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
 from typing import Any, TypeVar
@@ -52,6 +53,7 @@ MAX_QUERY_CHARS = 20_000
 MAX_EXCERPT = 300
 MAX_EMBED_CHARS = 2_000
 ORDER = [Relevance.IRRELEVANT, Relevance.DISPUTED, Relevance.INDIRECT, Relevance.DIRECT]
+QUERY_CACHE_SIZE = 1000  # разборов запросов в памяти (ML-13)
 T = TypeVar("T")
 
 
@@ -83,6 +85,9 @@ class MlEngine:
         self._embedder = as_chain(embedder)
         self._limits = limits or EngineLimits(max_posts_per_call=max_posts_per_call)
         self._judge_cache = JudgeCache()
+        # разбор запроса моделью по тексту (ML-13): поиск и подсказка на фронте разбирают один и
+        # тот же запрос — второй раз ответ сразу. Кэшируем только ответ модели, не эвристику
+        self._query_cache: OrderedDict[str, QueryAnalysis] = OrderedDict()
         self.last_judge_stats = JudgeStats()
         self.last_similarities: list[float] | None = None  # для eval --details
 
@@ -114,6 +119,11 @@ class MlEngine:
         text = query.strip()
         if len(text) < 3 or len(text) > MAX_QUERY_CHARS:
             raise InvalidRequestError("Запрос должен быть от 3 до 20000 символов")
+        key = " ".join(text.split()).lower()
+        cached = self._query_cache.get(key)
+        if cached is not None:
+            self._query_cache.move_to_end(key)
+            return cached, False
         base = analyze_query_heuristic(text)
         if not self._llm.available:
             return base, True
@@ -124,6 +134,9 @@ class MlEngine:
         except (MlUnavailableError, LlmAnswerError, TimeoutError) as e:
             logger.warning("AnalyzeQuery: LLM не ответила по делу (%s) — эвристика", _short(e))
             return base, True
+        self._query_cache[key] = analysis
+        if len(self._query_cache) > QUERY_CACHE_SIZE:
+            self._query_cache.popitem(last=False)
         return analysis, False
 
     # ───────────────────────── ScorePosts ─────────────────────────
