@@ -371,20 +371,8 @@
   background: var(--mp-surface);
 }
 
-.paramGroup {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-}
 
-.paramIcon {
-  color: var(--mp-faint);
-}
 
-.paramLabel {
-  font-size: 12px;
-  color: var(--mp-muted);
-}
 
 .divider {
   width: 1px;
@@ -396,9 +384,6 @@
   background: var(--mp-surface-2);
 }
 
-.dateInput {
-  font-weight: 600;
-}
 
 .platforms {
   display: flex;

@@ -14,7 +14,7 @@ interface NavItem {
   match: (p: string) => boolean;
 }
 
-export const NAV: NavItem[] = [
+const NAV: NavItem[] = [
   { to: "/", label: "Главная", description: "На первую страницу", icon: "logo", match: (p) => p === "/" },
   {
     to: "/search",
@@ -80,7 +80,7 @@ export function AppLayout() {
 }
 
 /** Знак «М»-кардиограмма; под курсором раскрывается в «МедиаПульс». */
-export function BrandLogo({ to = "/" }: { to?: string }) {
+function BrandLogo({ to = "/" }: { to?: string }) {
   return (
     <Link to={to} className={`${classes.logo} mp-press`} aria-label="МедиаПульс — на главную">
       <span className={classes.logoSymbol}>

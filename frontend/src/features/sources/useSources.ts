@@ -5,7 +5,6 @@ import {
   keepPreviousData,
   useInfiniteQuery,
   useMutation,
-  useQuery,
   useQueryClient,
   type InfiniteData,
 } from "@tanstack/react-query";
@@ -14,32 +13,6 @@ import { api, unwrap, type S } from "../../api/client";
 import { errorText } from "../../lib/errors";
 
 export const SOURCES_PAGE = 50;
-
-export interface SourceFilters {
-  q: string;
-  platform: S["Platform"] | null;
-  page: number; // с 1
-}
-
-export function useSourcePage(f: SourceFilters) {
-  return useQuery({
-    queryKey: ["sources", "page", f],
-    queryFn: () =>
-      unwrap(
-        api.GET("/api/v1/sources", {
-          params: {
-            query: {
-              q: f.q || undefined,
-              platform: f.platform ? [f.platform] : undefined,
-              limit: SOURCES_PAGE,
-              offset: (f.page - 1) * SOURCES_PAGE,
-            },
-          },
-        }),
-      ),
-    placeholderData: keepPreviousData,
-  });
-}
 
 /** Источники одной площадки для раскрывающегося блока на странице «Источники»: по 50, «Показать ещё». */
 export function usePlatformSources(platform: S["Platform"], q: string, enabled: boolean) {
