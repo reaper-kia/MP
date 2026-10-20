@@ -122,6 +122,8 @@ class Search:
     # подборка из кэша (B2-20): копия поиска cached_from_search_id, завершённого в cached_at
     cached_from_search_id: uuid.UUID | None = None
     cached_at: datetime | None = None
+    # анонимный id браузера, запустившего поиск: история у каждого своя (не авторизация)
+    owner: str = ""
 
     def start(self) -> None:
         if self.status is not SearchStatus.QUEUED:

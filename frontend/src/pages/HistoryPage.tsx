@@ -51,7 +51,7 @@ export function HistoryPage() {
           <h1 className="mp-page-title" style={{ marginTop: 12 }}>
             История
           </h1>
-          <p className="mp-page-lead">Все подборки, которые собирали, — с параметрами и результатами.</p>
+          <p className="mp-page-lead">Ваши подборки в этом браузере — с параметрами и результатами. Другим пользователям они не видны.</p>
         </div>
         <Link to="/search" className="mp-accent-button">
           <Icon name="plus" /> Новый поиск

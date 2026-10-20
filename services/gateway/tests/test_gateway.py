@@ -217,6 +217,24 @@ async def test_start_search_202_and_mapping(client: Any) -> None:
     assert fakes.search.last.period_from == "2026-10-01"
     assert fakes.search.last.context.request_id == "req-1"
     assert list(fakes.search.last.platforms) == [platform_pb2.PLATFORM_VK, platform_pb2.PLATFORM_OK]
+    assert fakes.search.last.context.actor_user_id == ""  # без X-Client-Id — пусто
+
+
+async def test_client_id_goes_to_context_and_junk_is_dropped(client: Any) -> None:
+    """X-Client-Id → actor_user_id: по нему search_service показывает только свою историю."""
+    c, fakes = client
+    body = {
+        "query": "Безопасность дорожного движения",
+        "period_from": "2026-10-01",
+        "period_to": "2026-10-19",
+        "mode": "global",
+        "platforms": ["vk"],
+    }
+    browser = "3f2c7a10-8b1e-4c55-9d6f-0a1b2c3d4e5f"
+    await c.post("/api/v1/searches", json=body, headers={"X-Client-Id": browser})
+    assert fakes.search.last.context.actor_user_id == browser
+    await c.post("/api/v1/searches", json=body, headers={"X-Client-Id": "<script>"})
+    assert fakes.search.last.context.actor_user_id == ""
 
 
 async def test_invalid_params_go_to_details(client: Any) -> None:

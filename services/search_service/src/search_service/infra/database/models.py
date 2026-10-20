@@ -81,6 +81,8 @@ class SearchModel(Base):
         UUID(as_uuid=True), nullable=True
     )
     cached_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    # анонимный id браузера (X-Client-Id): история поисков у каждого своя
+    owner_id: Mapped[str | None] = mapped_column(Text, nullable=True, index=True)
 
     targets: Mapped[list[SearchTargetModel]] = relationship(
         "SearchTargetModel", back_populates="search", cascade="all, delete-orphan"

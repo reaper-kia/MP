@@ -59,7 +59,7 @@ class InMemorySearches:
         self._targets = targets
         self._results = results
 
-    async def clone_finished(self, source_id, new_id, created_at):
+    async def clone_finished(self, source_id, new_id, created_at, owner=""):
         src = self.store.get(source_id)
         if src is None or src.status not in {"completed", "partial"}:
             return False
@@ -77,6 +77,7 @@ class InMemorySearches:
             finished_at=created_at,
             cached_from_search_id=src.id,
             cached_at=src.finished_at,
+            owner=owner,
         )
         self.store[new_id] = copy
         for r in await self._results.get_by_search(source_id):
@@ -98,9 +99,16 @@ class InMemorySearches:
     async def get_with_targets(self, i):
         return self.store.get(i)
 
-    async def list(self, **kw):
-        items = list(self.store.values())
-        return items, len(items), False
+    async def list(self, *, owner, limit=50, offset=0):
+        if not owner:
+            return [], 0, False
+        mine = sorted(
+            (s for s in self.store.values() if s.owner == owner),
+            key=lambda s: s.created_at,
+            reverse=True,
+        )
+        page = mine[offset : offset + limit]
+        return page, len(mine), offset + len(page) < len(mine)
 
     async def list_running_or_queued(self):
         return [s for s in self.store.values() if s.status in {"queued", "running"}]

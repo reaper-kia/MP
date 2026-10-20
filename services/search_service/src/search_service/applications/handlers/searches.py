@@ -44,6 +44,7 @@ class StartSearchRequest:
     platforms: list[str]
     source_ids: list[uuid.UUID]
     fresh: bool = False  # мимо кэша готовых подборок
+    owner: str = ""  # анонимный id браузера: история у каждого своя
 
 
 class SearchHandler:
@@ -59,7 +60,7 @@ class SearchHandler:
         self.collector = collector
         self.cache = cache
 
-    async def _from_cache(self, key: str) -> Search | None:
+    async def _from_cache(self, key: str, owner: str) -> Search | None:
         """Готовая подборка с теми же параметрами (B2-20) → её копия: новый поиск сразу в
         финальном статусе. Копия, а не тот же search_id: исключения одного пользователя не должны
         появляться у другого. Исходного поиска уже нет (или он перезапущен) — промах."""
@@ -72,7 +73,7 @@ class SearchHandler:
         new_id = uuid.uuid4()
         search: Search | None = None
         async with self.uow:
-            if await self.uow.searches.clone_finished(source_id, new_id, utcnow()):
+            if await self.uow.searches.clone_finished(source_id, new_id, utcnow(), owner):
                 await self.uow.commit()
                 search = await self.uow.searches.get_with_targets(new_id)
         if search is None:
@@ -125,7 +126,8 @@ class SearchHandler:
                     mode=req.mode,
                     platforms=platforms,
                     source_ids=req.source_ids,
-                )
+                ),
+                req.owner,
             )
             if cached is not None:
                 return cached
@@ -194,6 +196,7 @@ class SearchHandler:
                 platforms=platforms,
                 source_ids=list(dict.fromkeys(req.source_ids)),
                 targets=targets,
+                owner=req.owner,
             )
             await self.uow.searches.add(search)
             for t in targets:
@@ -212,10 +215,13 @@ class SearchHandler:
                 raise NotFoundError("SEARCH_NOT_FOUND")
             return search
 
-    async def list(self, limit: int = 50, offset: int = 0) -> tuple[list[Search], int, bool]:
+    async def list(
+        self, limit: int = 50, offset: int = 0, *, owner: str
+    ) -> tuple[list[Search], int, bool]:
+        """История одного браузера: чужие поиски не видны (owner пустой — история пустая)."""
         limit = max(1, min(limit or 50, 200))
         async with self.uow:
-            return await self.uow.searches.list(limit=limit, offset=offset)
+            return await self.uow.searches.list(owner=owner, limit=limit, offset=offset)
 
 
 # ---------------------------------------------------------------------------
@@ -257,6 +263,7 @@ class StartSearchCommandHandler:
                     platforms=[p.value for p in cmd.platforms],
                     source_ids=list(cmd.source_ids),
                     fresh=cmd.fresh,
+                    owner=cmd.ctx.actor,
                 )
             )
             return await load_search_view(self.uow, search.id)
@@ -280,7 +287,7 @@ class ListSearchesQueryHandler:
     async def handle(self, query: ListSearchesQuery) -> SearchPage:
         """Новые сверху, без targets."""
         searches, _, has_more = await SearchHandler(self.uow, self.runner).list(
-            limit=query.limit, offset=query.offset
+            limit=query.limit, offset=query.offset, owner=query.ctx.actor
         )
         async with self.uow:
             items = [

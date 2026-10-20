@@ -36,6 +36,46 @@ const throwOnError: Middleware = {
   },
 };
 
+// Анонимный id браузера (не вход): сервер показывает в «Истории» только поиски с этим id.
+// Хранится в localStorage; где его нет (service worker расширения, запрет хранилища) — в памяти.
+// crypto.randomUUID работает только по https, а стенд открыт по http — поэтому getRandomValues.
+const CLIENT_ID_KEY = "mp_client_id";
+const CLIENT_ID_RE = /^[A-Za-z0-9-]{8,64}$/;
+let cachedClientId = "";
+
+function randomId(): string {
+  const bytes = new Uint8Array(16);
+  crypto.getRandomValues(bytes);
+  return Array.from(bytes, (b) => b.toString(16).padStart(2, "0")).join("");
+}
+
+export function clientId(): string {
+  if (cachedClientId) return cachedClientId;
+  let id = "";
+  try {
+    id = globalThis.localStorage?.getItem(CLIENT_ID_KEY) ?? "";
+  } catch {
+    id = ""; // хранилище запрещено — id только на эту вкладку
+  }
+  if (!CLIENT_ID_RE.test(id)) {
+    id = randomId();
+    try {
+      globalThis.localStorage?.setItem(CLIENT_ID_KEY, id);
+    } catch {
+      // не сохранилось — история живёт до перезагрузки страницы
+    }
+  }
+  cachedClientId = id;
+  return id;
+}
+
+const withClientId: Middleware = {
+  async onRequest({ request }) {
+    request.headers.set("X-Client-Id", clientId());
+    return request;
+  },
+};
+
 // Адрес сервера, заданный во время работы (расширение FE-17: меняется в настройках). Пусто — baseUrl сборки.
 let serverOverride = "";
 
@@ -64,7 +104,7 @@ export const api = createClient<paths>({
   baseUrl: import.meta.env.VITE_API_URL ?? "",
   querySerializer: { array: { style: "form", explode: true } },
 });
-api.use(serverRewrite, throwOnError);
+api.use(withClientId, serverRewrite, throwOnError);
 
 /** Ошибки уже брошены middleware, поэтому data на этом месте всегда есть (кроме 204). */
 export async function unwrap<T>(req: Promise<{ data?: T }>): Promise<T> {

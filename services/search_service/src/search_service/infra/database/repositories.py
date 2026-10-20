@@ -7,6 +7,7 @@ from datetime import datetime
 
 from sqlalchemy import (
     DateTime,
+    Text,
     and_,
     case,
     column,
@@ -78,6 +79,7 @@ def _search_to_entity(m: SearchModel) -> Search:
         finished_at=m.finished_at,
         cached_from_search_id=m.cached_from_search_id,
         cached_at=m.cached_at,
+        owner=m.owner_id or "",
     )
 
 
@@ -252,12 +254,20 @@ class SearchRepo:
         return e
 
     async def list(
-        self, *, limit: int = 50, offset: int = 0
+        self, *, owner: str, limit: int = 50, offset: int = 0
     ) -> tuple[builtins.list[Search], int, bool]:
-        count_stmt = select(func.count()).select_from(SearchModel)
+        """История одного браузера (owner); пустой owner — пустая история, чужое не показываем."""
+        if not owner:
+            return [], 0, False
+        mine = SearchModel.owner_id == owner
+        count_stmt = select(func.count()).select_from(SearchModel).where(mine)
         total = (await self.s.execute(count_stmt)).scalar_one()
         stmt = (
-            select(SearchModel).order_by(SearchModel.created_at.desc()).offset(offset).limit(limit)
+            select(SearchModel)
+            .where(mine)
+            .order_by(SearchModel.created_at.desc())
+            .offset(offset)
+            .limit(limit)
         )
         r = await self.s.execute(stmt)
         items = [_search_to_entity(m) for m in r.scalars().all()]
@@ -288,11 +298,12 @@ class SearchRepo:
             finished_at=e.finished_at,
             cached_from_search_id=e.cached_from_search_id,
             cached_at=e.cached_at,
+            owner_id=e.owner or None,
         )
         self.s.add(m)
 
     async def clone_finished(
-        self, source_id: uuid.UUID, new_id: uuid.UUID, created_at: datetime
+        self, source_id: uuid.UUID, new_id: uuid.UUID, created_at: datetime, owner: str = ""
     ) -> bool:
         """Копия готового поиска для кэша (B2-20): поиск, цели, результаты и группы — тремя
         INSERT … SELECT в транзакции вызывающего. У результатов excluded=false: исключения одного
@@ -323,6 +334,7 @@ class SearchRepo:
                     "finished_at",
                     "cached_from_search_id",
                     "cached_at",
+                    "owner_id",
                 ],
                 select(
                     new_search,
@@ -342,6 +354,7 @@ class SearchRepo:
                     literal(created_at, DateTime(timezone=True)),
                     SearchModel.id,
                     SearchModel.finished_at,
+                    literal(owner or None, Text()),
                 ).where(SearchModel.id == source_id),
             )
         )

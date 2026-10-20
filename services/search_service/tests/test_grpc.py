@@ -21,7 +21,7 @@ from search_service.infra.runner import SearchRunner
 from search_service.transport.grpc.server import create_server
 from tests.fakes import FakeCollector, FakeMl, InMemoryUoW
 
-CTX = common_pb2.RequestContext(request_id="test")
+CTX = common_pb2.RequestContext(request_id="test", actor_user_id="browser-a")
 URL = "https://vk.com/krsk_news"
 TODAY = datetime.now(UTC)
 FINAL = {
@@ -164,6 +164,14 @@ async def test_full_chain(stand: Stand) -> None:
     searches = await stub.ListSearches(pb.ListSearchesRequest(context=CTX))
     assert [s.id for s in searches.searches] == [search.id]
     assert not searches.searches[0].targets
+
+    # история своя у каждого браузера: чужой и «без id» её не видят, по ссылке поиск открывается
+    other = common_pb2.RequestContext(request_id="t2", actor_user_id="browser-b")
+    assert not (await stub.ListSearches(pb.ListSearchesRequest(context=other))).searches
+    nobody = common_pb2.RequestContext(request_id="t3")
+    assert not (await stub.ListSearches(pb.ListSearchesRequest(context=nobody))).searches
+    shared = await stub.GetSearch(pb.GetSearchRequest(context=other, search_id=search.id))
+    assert shared.search.id == search.id
 
 
 async def test_retry_only_failed_targets(stand: Stand) -> None:

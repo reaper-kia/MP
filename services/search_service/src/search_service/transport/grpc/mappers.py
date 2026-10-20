@@ -126,7 +126,7 @@ DATE_STATUS_FROM_PROTO: dict[int, DateStatus] = {v: k for k, v in DATE_STATUS_TO
 
 
 def context_from_proto(ctx: common_pb2.RequestContext) -> RequestContext:
-    return RequestContext(request_id=ctx.request_id)
+    return RequestContext(request_id=ctx.request_id, actor=ctx.actor_user_id)
 
 
 def parse_uuid(value: str, error: Callable[[str], Exception]) -> UUID:
