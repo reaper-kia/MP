@@ -16,13 +16,15 @@ from search_service.applications.ports.ml_client import MlClient, QueryAnalysis
 from search_service.applications.ports.search_cache import SearchCache
 from search_service.applications.ports.uow import UnitOfWork
 from search_service.applications.search_cache import key_of
-from search_service.domain.entities import Search, SearchTarget
+from search_service.domain.entities import Search, SearchTarget, utcnow
 from search_service.domain.enums import Platform, QueryType, SearchStage, SearchStatus
 from search_service.domain.errors import CollectorError, NotFoundError
 
 log = structlog.get_logger()
 
 CACHEABLE_STATUSES = frozenset({SearchStatus.COMPLETED, SearchStatus.PARTIAL})
+# пока повтор ждёт такой же идущий поиск (B2-20 P2); копия заменит его предупреждениями оригинала
+WAITING_FOR_TWIN = "Такой же поиск уже идёт — покажем его подборку, как только он закончится"
 
 # русские сообщения об ошибках по коду
 ERROR_MESSAGES = {
@@ -103,6 +105,46 @@ class Pipeline:
         except Exception as e:
             log.exception("pipeline crashed", search_id=str(search_id), error=str(e))
             await self._force_fail(search_id, f"Непредвиденная ошибка: {e}")
+        finally:
+            await self._drop_running(search_id)
+
+    async def _drop_running(self, search_id: uuid.UUID) -> None:
+        """Поиск закончился (как угодно) — повторы больше не ждут его, а берут кэш или ищут сами."""
+        if self.cache is None or not self.cache.enabled:
+            return
+        try:
+            async with self.uow:
+                search = await self.uow.searches.get_by_id(search_id)
+            if search is not None:
+                await self.cache.drop_running(key_of(search), search_id)
+        except Exception as e:  # noqa: BLE001 — отметка сама истечёт по TTL
+            log.warning("running mark not dropped", search_id=str(search_id), error=str(e))
+
+    async def is_final(self, search_id: uuid.UUID) -> bool:
+        """Поиск закончился или пропал (для повтора, который ждёт оригинал из другого процесса)."""
+        async with self.uow:
+            search = await self.uow.searches.get_by_id(search_id)
+        return search is None or SearchStatus(search.status).is_final
+
+    async def adopt(self, search_id: uuid.UUID, leader_id: uuid.UUID) -> bool:
+        """Повтор search_id получает копию готовой подборки leader_id под своим id (B2-20 P2).
+        Оригинал не дал подборки или повтор отменён → False, ничего не меняется."""
+        async with self.uow:
+            if not await self.uow.searches.replace_with_copy(leader_id, search_id, utcnow()):
+                return False
+            await self.uow.commit()
+        log.info("cache join", search_id=str(search_id), from_search_id=str(leader_id))
+        return True
+
+    async def forget_twin(self, search_id: uuid.UUID) -> None:
+        """Оригинал упал или отменён — повтор ищет сам: убираем «такой же поиск уже идёт»."""
+        async with self.uow:
+            search = await self.uow.searches.get_by_id(search_id)
+            if search is None or WAITING_FOR_TWIN not in search.warnings:
+                return
+            search.warnings = [w for w in search.warnings if w != WAITING_FOR_TWIN]
+            await self.uow.searches.save(search)
+            await self.uow.commit()
 
     async def _run_inner(self, search_id: uuid.UUID) -> None:
         # 1. старт

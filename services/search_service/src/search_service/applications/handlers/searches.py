@@ -13,6 +13,7 @@ from search_service.applications.commands.searches import (
 from search_service.applications.exceptions import UpstreamError
 from search_service.applications.handlers.control import ControlHandler
 from search_service.applications.handlers.errors import domain_errors
+from search_service.applications.handlers.pipeline import WAITING_FOR_TWIN
 from search_service.applications.handlers.views import counts_view, search_view
 from search_service.applications.ports.collector_client import CollectorClient
 from search_service.applications.ports.runner import SearchRunner
@@ -22,7 +23,7 @@ from search_service.applications.queries.searches import GetSearchQuery, ListSea
 from search_service.applications.results.read_models import SearchPage, SearchView
 from search_service.applications.search_cache import search_cache_key
 from search_service.domain.entities import Search, SearchTarget, utcnow
-from search_service.domain.enums import SearchMode, TargetKind
+from search_service.domain.enums import SearchMode, SearchStatus, TargetKind
 from search_service.domain.errors import NotFoundError, SearchInvalidParams
 from search_service.domain.value_objects import Period
 
@@ -82,6 +83,21 @@ class SearchHandler:
         log.info("cache hit", key=key, from_search_id=str(source_id), search_id=str(new_id))
         return search
 
+    async def _running_twin(self, key: str) -> uuid.UUID | None:
+        """Такой же поиск сейчас идёт (в очереди или собирает) → его id: повтор подождёт его,
+        а не запустит второй сбор с моделью (B2-20 P2). Отметка устарела — None."""
+        if self.cache is None:
+            return None
+        leader_id = await self.cache.get_running(key)
+        if leader_id is None:
+            return None
+        async with self.uow:
+            leader = await self.uow.searches.get_by_id(leader_id)
+        if leader is None or SearchStatus(leader.status).is_final:
+            return None
+        log.info("cache join planned", key=key, leader_id=str(leader_id))
+        return leader_id
+
     async def _global_platforms(self, platforms: list[str]) -> set[str]:
         """Где «везде» добавляет поиск по всей площадке: только там, где collector его умеет.
 
@@ -117,20 +133,21 @@ class SearchHandler:
             raise SearchInvalidParams("platforms", "выберите хотя бы одну площадку")
 
         platforms = list(dict.fromkeys(req.platforms))
-        if self.cache is not None and self.cache.enabled and not req.fresh:
-            cached = await self._from_cache(
-                search_cache_key(
-                    query=req.query,
-                    period_from=pf,
-                    period_to=pt,
-                    mode=req.mode,
-                    platforms=platforms,
-                    source_ids=req.source_ids,
-                ),
-                req.owner,
-            )
+        use_cache = self.cache is not None and self.cache.enabled
+        key = search_cache_key(
+            query=req.query,
+            period_from=pf,
+            period_to=pt,
+            mode=req.mode,
+            platforms=platforms,
+            source_ids=req.source_ids,
+        )
+        leader_id: uuid.UUID | None = None
+        if use_cache and not req.fresh:
+            cached = await self._from_cache(key, req.owner)
             if cached is not None:
                 return cached
+            leader_id = await self._running_twin(key)
 
         searchable: set[str] = set()
         if req.mode is SearchMode.GLOBAL:
@@ -198,14 +215,21 @@ class SearchHandler:
                 targets=targets,
                 owner=req.owner,
             )
+            if leader_id is not None:
+                search.add_warning(WAITING_FOR_TWIN)
             await self.uow.searches.add(search)
             for t in targets:
                 t.search_id = search.id
                 await self.uow.targets.add(t)
             await self.uow.commit()
 
-        # фоновый запуск
-        await self.runner.launch(search.id)
+        # фоновый запуск: повтор ждёт оригинал, иначе — свой пайплайн, и повторы будут ждать его
+        if leader_id is not None:
+            await self.runner.follow(search.id, leader_id)
+        else:
+            if use_cache and self.cache is not None:
+                await self.cache.put_running(key, search.id)
+            await self.runner.launch(search.id)
         return search
 
     async def get(self, search_id: uuid.UUID) -> Search:

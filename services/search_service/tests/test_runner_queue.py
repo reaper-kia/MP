@@ -76,3 +76,55 @@ async def test_cancel_queued_search_never_runs() -> None:
     assert pipeline.started == [first, third]
     pipeline.finish(third)
     await settle()
+
+
+class TwinPipeline(GatedPipeline):
+    """Оригинал идёт «в другом процессе»: is_final из базы, adopt — копия готовой подборки."""
+
+    def __init__(self, leader_ok: bool = True) -> None:
+        super().__init__()
+        self.final = False
+        self.leader_ok = leader_ok
+        self.adopted: list[uuid.UUID] = []
+        self.forgotten: list[uuid.UUID] = []
+
+    async def is_final(self, search_id: uuid.UUID) -> bool:
+        return self.final
+
+    async def adopt(self, search_id: uuid.UUID, leader_id: uuid.UUID) -> bool:
+        if self.leader_ok:
+            self.adopted.append(search_id)
+        return self.leader_ok
+
+    async def forget_twin(self, search_id: uuid.UUID) -> None:
+        self.forgotten.append(search_id)
+
+
+async def test_follower_polls_leader_from_other_process(monkeypatch) -> None:
+    import search_service.infra.runner as runner_module
+
+    monkeypatch.setattr(runner_module, "FOLLOW_POLL_SECONDS", 0.01)
+    pipeline = TwinPipeline()
+    runner = SearchRunner(pipeline, max_parallel=1)  # type: ignore[arg-type]
+    leader, repeat = uuid.uuid4(), uuid.uuid4()
+    await runner.follow(repeat, leader)
+    await asyncio.sleep(0.05)
+    assert pipeline.adopted == [] and pipeline.started == []
+    pipeline.final = True
+    await asyncio.sleep(0.05)
+    assert pipeline.adopted == [repeat] and pipeline.started == []
+
+
+async def test_follower_runs_itself_without_selection() -> None:
+    pipeline = TwinPipeline(leader_ok=False)
+    runner = SearchRunner(pipeline, max_parallel=1)  # type: ignore[arg-type]
+    leader, repeat = uuid.uuid4(), uuid.uuid4()
+    await runner.launch(leader)
+    await runner.follow(repeat, leader)
+    await settle()
+    assert pipeline.started == [leader]  # повтор ждёт, слот не занимает
+    pipeline.finish(leader)
+    await settle()
+    assert pipeline.forgotten == [repeat] and pipeline.started == [leader, repeat]
+    pipeline.finish(repeat)
+    await settle()

@@ -54,7 +54,27 @@ def key(query: str = "ДТП Красноярск", **kw: object) -> str:
 def test_key_normalizes_query_and_order() -> None:
     assert key("  ДТП   Красноярск ") == key("дтп красноярск")
     assert key(platforms=["ok", "vk", "vk"]) == key(platforms=["vk", "ok"])
-    assert key().startswith("mp:search:v1:") and "дтп" not in key().lower()
+    assert key().startswith("mp:search:v2:") and "дтп" not in key().lower()
+
+
+def test_key_same_for_similar_wording() -> None:
+    """Похожие формулировки — один ключ: порядок слов, предлоги, окончания, «ё», хэштеги."""
+    base = key("ДТП в Красноярске")
+    assert key("красноярск, ДТП") == base
+    assert key("#ДТП #Красноярск") == base
+    assert key("Безопасность дорожного движения в Красноярском крае") == key(
+        "безопасность дорожное движение красноярский край"
+    )
+    assert key("#КрасноярскийКрай пожар") == key("пожар Красноярский край")
+    assert key("Пожары в Ачинске") == key("ачинск пожар")
+    assert key("Ёлка на площади") == key("елки площадь")
+
+
+def test_key_differs_when_meaning_differs() -> None:
+    assert key("ДТП в Красноярске") != key("ДТП в Ачинске")
+    assert key("ДТП в Красноярске") != key("ДТП не в Красноярске")
+    assert key("пожар") != key("пожар без жертв")
+    assert key("ремонт моста") != key("ремонт дороги")
 
 
 def test_key_differs_by_period_platform_source_and_mode() -> None:
@@ -83,8 +103,15 @@ class FakeRedis:
         self.data[name], self.ex[name] = value.encode(), ex
         return True
 
+    async def delete(self, *names: str) -> int:
+        return sum(self.data.pop(n, None) is not None for n in names)
+
     async def ping(self) -> bool:
         return True
+
+    def ready(self) -> dict[str, bytes]:
+        """Готовые подборки (без отметок «идёт»)."""
+        return {k: v for k, v in self.data.items() if not k.startswith("mp:search:running:")}
 
 
 class BrokenRedis:
@@ -92,6 +119,9 @@ class BrokenRedis:
         raise ConnectionError("redis down")
 
     async def set(self, name: str, value: str, *, ex: int | None = None) -> bool:
+        raise ConnectionError("redis down")
+
+    async def delete(self, *names: str) -> int:
         raise ConnectionError("redis down")
 
     async def ping(self) -> bool:
@@ -312,7 +342,7 @@ async def test_failed_and_cancelled_are_not_cached(stand: Stand) -> None:
     stand.collector.failing["-2034"] = "PLATFORM_UNAVAILABLE"
     failed = await wait_final(stub, (await start(stub, [source_id])).id)
     assert failed.status == pb.SEARCH_STATUS_FAILED
-    assert stand.redis.data == {}  # type: ignore[attr-defined]
+    assert stand.redis.ready() == {}  # type: ignore[attr-defined]
 
     del stand.collector.failing["-2034"]
     stand.collector.delay = 5
@@ -320,7 +350,7 @@ async def test_failed_and_cancelled_are_not_cached(stand: Stand) -> None:
     await stub.CancelSearch(pb.CancelSearchRequest(context=CTX, search_id=running.id))
     cancelled = await wait_final(stub, running.id)
     assert cancelled.status == pb.SEARCH_STATUS_CANCELLED
-    assert stand.redis.data == {}  # type: ignore[attr-defined]
+    assert stand.redis.ready() == {}  # type: ignore[attr-defined]
 
     stand.collector.delay = 0
     again = await start(stub, [source_id])
@@ -375,7 +405,7 @@ async def test_cache_logs_hit_miss_store_without_query_text(stand: Stand) -> Non
     with structlog.testing.capture_logs() as logs:
         await wait_final(stub, (await start(stub, [source_id])).id)
         await start(stub, [source_id])
-    events = [e["event"] for e in logs if str(e.get("key", "")).startswith("mp:search:v1:")]
+    events = [e["event"] for e in logs if str(e.get("key", "")).startswith("mp:search:v2:")]
     assert events == ["cache miss", "cache store", "cache hit"]
     assert not any("дорожного" in str(e) for e in logs if e["event"].startswith("cache"))
 
@@ -384,3 +414,90 @@ def test_cacheable_statuses() -> None:
     from search_service.applications.handlers.pipeline import CACHEABLE_STATUSES
 
     assert CACHEABLE_STATUSES == {SearchStatus.COMPLETED, SearchStatus.PARTIAL}
+
+
+# ---------- такой же поиск уже идёт (P2) ----------
+
+
+async def test_repeat_while_running_waits_and_gets_copy(stand: Stand) -> None:
+    """Повтор (другие пробелы и порядок слов) во время идущего поиска не запускает второй сбор:
+    стоит в очереди с пометкой и после финала оригинала получает копию под своим id."""
+    stub = stand.stub
+    source_id = await add_source(stub)
+    stand.collector.delay = 0.3
+    first = await start(stub, [source_id])
+    repeat = await start(stub, [source_id], query="движения дорожного  Безопасность")
+    assert repeat.id != first.id
+    assert repeat.status == pb.SEARCH_STATUS_QUEUED and not repeat.HasField("cache")
+    assert any("уже идёт" in w for w in repeat.warnings)
+
+    done_first = await wait_final(stub, first.id)
+    done_repeat = await wait_final(stub, repeat.id)
+    assert done_first.status == done_repeat.status == pb.SEARCH_STATUS_COMPLETED
+    assert done_repeat.cache.from_search_id == first.id
+    assert done_repeat.counts.total == done_first.counts.total == 2
+    assert not any("уже идёт" in w for w in done_repeat.warnings)
+    assert [c for c in stand.collector.calls if c.startswith("collect:")] == ["collect:vk:-2034"]
+    # отметка «идёт» снята, готовая подборка в кэше
+    assert not any(k.startswith("mp:search:running:") for k in stand.redis.data)  # type: ignore[attr-defined]
+    assert len(stand.redis.ready()) == 1  # type: ignore[attr-defined]
+
+
+async def test_repeat_runs_itself_when_original_cancelled(stand: Stand) -> None:
+    stub = stand.stub
+    source_id = await add_source(stub)
+    stand.collector.delay = 5
+    first = await start(stub, [source_id])
+    repeat = await start(stub, [source_id])
+    assert repeat.status == pb.SEARCH_STATUS_QUEUED
+    stand.collector.delay = 0
+    await stub.CancelSearch(pb.CancelSearchRequest(context=CTX, search_id=first.id))
+
+    done = await wait_final(stub, repeat.id)
+    assert done.status == pb.SEARCH_STATUS_COMPLETED and not done.HasField("cache")
+    assert done.counts.total == 2
+    assert not any("уже идёт" in w for w in done.warnings)
+
+
+async def test_fresh_does_not_join_running(stand: Stand) -> None:
+    stub = stand.stub
+    source_id = await add_source(stub)
+    stand.collector.delay = 0.3
+    first = await start(stub, [source_id])
+    fresh = await start(stub, [source_id], fresh=True)
+    assert not any("уже идёт" in w for w in fresh.warnings)
+    await wait_final(stub, first.id)
+    done = await wait_final(stub, fresh.id)
+    assert not done.HasField("cache")
+    assert len([c for c in stand.collector.calls if c.startswith("collect:")]) == 2
+
+
+async def test_cancel_repeat_keeps_original_running(stand: Stand) -> None:
+    stub = stand.stub
+    source_id = await add_source(stub)
+    stand.collector.delay = 0.3
+    first = await start(stub, [source_id])
+    repeat = await start(stub, [source_id])
+    await stub.CancelSearch(pb.CancelSearchRequest(context=CTX, search_id=repeat.id))
+    assert (await wait_final(stub, repeat.id)).status == pb.SEARCH_STATUS_CANCELLED
+    assert (await wait_final(stub, first.id)).status == pb.SEARCH_STATUS_COMPLETED
+
+
+async def test_stale_running_mark_is_ignored(stand: Stand) -> None:
+    """Отметка «идёт» есть, а поиск уже закончился (не снялась) — обычный поиск или кэш."""
+    stub = stand.stub
+    source_id = await add_source(stub)
+    first = await wait_final(stub, (await start(stub, [source_id])).id)
+    stand.redis.data.clear()  # type: ignore[attr-defined]
+    k = search_cache_key(
+        query="безопасность дорожного движения",
+        period_from=(TODAY - timedelta(days=30)).date(),
+        period_to=TODAY.date(),
+        mode=SearchMode.SELECTED,
+        platforms=[],
+        source_ids=[uuid.UUID(source_id)],
+    )
+    await RedisSearchCache(stand.redis, ttl_seconds=60).put_running(k, uuid.UUID(first.id))  # type: ignore[arg-type]
+    again = await start(stub, [source_id])
+    assert not any("уже идёт" in w for w in again.warnings)
+    await wait_final(stub, again.id)

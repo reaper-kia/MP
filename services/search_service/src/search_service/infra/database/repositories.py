@@ -11,6 +11,7 @@ from sqlalchemy import (
     and_,
     case,
     column,
+    delete,
     false,
     func,
     insert,
@@ -462,6 +463,34 @@ class SearchRepo:
             )
         )
         return True
+
+    async def replace_with_copy(
+        self, source_id: uuid.UUID, search_id: uuid.UUID, created_at: datetime
+    ) -> bool:
+        """Поиск-повтор ждал такой же идущий поиск (B2-20 P2) — тот готов: заменяем повтор копией
+        его подборки под тем же id (фронт уже опрашивает этот id). Повтор ещё не собирал постов,
+        поэтому удаляем только его цели и саму запись, затем clone_finished в той же транзакции.
+        Исходный поиск не completed/partial или повтор уже не в очереди (отменён) → False."""
+        src_status = (
+            await self.s.execute(select(SearchModel.status).where(SearchModel.id == source_id))
+        ).scalar_one_or_none()
+        if src_status not in (SearchStatus.COMPLETED, SearchStatus.PARTIAL):
+            return False
+        mine = (
+            await self.s.execute(
+                select(SearchModel.status, SearchModel.owner_id).where(SearchModel.id == search_id)
+            )
+        ).one_or_none()
+        if mine is None or mine.status != SearchStatus.QUEUED:
+            return False
+        await self.s.execute(
+            delete(SearchResultModel).where(SearchResultModel.search_id == search_id)
+        )
+        await self.s.execute(
+            delete(SearchTargetModel).where(SearchTargetModel.search_id == search_id)
+        )
+        await self.s.execute(delete(SearchModel).where(SearchModel.id == search_id))
+        return await self.clone_finished(source_id, search_id, created_at, mine.owner_id or "")
 
     async def save(self, e: Search) -> None:
         await self.s.execute(

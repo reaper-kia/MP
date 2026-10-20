@@ -38,6 +38,9 @@ class SearchRepository(Protocol):
     async def clone_finished(
         self, source_id: uuid.UUID, new_id: uuid.UUID, created_at: datetime, owner: str = ""
     ) -> bool: ...
+    async def replace_with_copy(
+        self, source_id: uuid.UUID, search_id: uuid.UUID, created_at: datetime
+    ) -> bool: ...
 
 
 class TargetRepository(Protocol):

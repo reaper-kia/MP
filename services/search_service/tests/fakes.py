@@ -93,6 +93,17 @@ class InMemorySearches:
             self._results.store[clone.id] = clone
         return True
 
+    async def replace_with_copy(self, source_id, search_id, created_at):
+        src, mine = self.store.get(source_id), self.store.get(search_id)
+        if src is None or src.status not in {"completed", "partial"}:
+            return False
+        if mine is None or mine.status != "queued":
+            return False
+        for t in await self._targets.list_by_search(search_id):
+            del self._targets.store[t.id]
+        del self.store[search_id]
+        return await self.clone_finished(source_id, search_id, created_at, mine.owner)
+
     async def get_by_id(self, i):
         return self.store.get(i)
 
@@ -350,10 +361,14 @@ class FakeRunner:
 
     def __init__(self) -> None:
         self.launched: list[uuid.UUID] = []
+        self.followed: list[tuple[uuid.UUID, uuid.UUID]] = []
         self.cancelled: list[uuid.UUID] = []
 
     async def launch(self, search_id: uuid.UUID) -> None:
         self.launched.append(search_id)
+
+    async def follow(self, search_id: uuid.UUID, leader_id: uuid.UUID) -> None:
+        self.followed.append((search_id, leader_id))
 
     async def cancel(self, search_id: uuid.UUID) -> None:
         self.cancelled.append(search_id)
