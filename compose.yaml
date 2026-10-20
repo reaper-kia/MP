@@ -76,11 +76,22 @@ services:
       VK_TOKEN_FILE: /vk/token.json
       YC_FOLDER_ID: ${YC_FOLDER_ID:-}
       YC_SEARCH_API_KEY: ${YC_SEARCH_API_KEY:-}
+      # MAX Bot API (B1-11): токен бота; бот — администратор каналов, которые собираем
+      MAX_BOT_TOKEN: ${MAX_BOT_TOKEN:-}
+      MAX_API_URL: ${MAX_API_URL:-https://platform-api.max.ru}
+      # корневой сертификат Минцифры для TLS к MAX: положить PEM в infra/certs/ и указать
+      # HTTP_CA_BUNDLE=/certs/<файл>.pem (пусто — только certifi и системные корни)
+      HTTP_CA_BUNDLE: ${HTTP_CA_BUNDLE:-}
+      # новостные сайты (B1-15): без значения — встроенный перечень (infra/config.py);
+      # задать в .env: NEWS_SITES='хост|адрес RSS|Название; …' — сайт добавляется без правки кода
+      NEWS_SITES:
+      NEWS_OPEN_ARTICLES:
       # сколько постов на одну цель уходит в ML: локальная модель проверяет ~3 поста/с на всех
       DEFAULT_MAX_POSTS_SEARCH: ${DEFAULT_MAX_POSTS_SEARCH:-200} # «везде» по площадке
       DEFAULT_MAX_POSTS_SOURCE: ${DEFAULT_MAX_POSTS_SOURCE:-150} # стена одного источника
     volumes:
       - ./.vk:/vk
+      - ./infra/certs:/certs:ro
     ports:
       - "127.0.0.1:50054:50054"
 
@@ -92,9 +103,16 @@ services:
     restart: unless-stopped
     environment:
       LLM_PROVIDER: ${LLM_PROVIDER:-stub}
-      EMBED_PROVIDER: ${EMBED_PROVIDER:-stub}
+      EMBED_PROVIDER: ${EMBED_PROVIDER:-} # пусто — как LLM_PROVIDER
       YC_FOLDER_ID: ${YC_FOLDER_ID:-}
       YC_API_KEY: ${YC_API_KEY:-}
+      # Yandex AI Studio (LLM_PROVIDER=yandex / EMBED_PROVIDER=yandex), пусто — значения по умолчанию
+      YC_LLM_MODEL: ${YC_LLM_MODEL:-yandexgpt-lite/latest}
+      YC_JUDGE_MODEL: ${YC_JUDGE_MODEL:-}
+      # пороги косинуса эмбеддингов (по умолчанию — bge-m3); для Яндекса подобрать по eval
+      SIM_LOW: ${SIM_LOW:-0.38}
+      SIM_HIGH: ${SIM_HIGH:-0.68}
+      SIM_RETELL: ${SIM_RETELL:-0.86}
       # Ollama в compose (профиль llm-local) или на хосте: OLLAMA_URL=http://host.docker.internal:11434
       OLLAMA_URL: ${OLLAMA_URL:-http://ollama:11434}
       OLLAMA_LLM_MODEL: ${OLLAMA_LLM_MODEL:-qwen2.5:7b-instruct}

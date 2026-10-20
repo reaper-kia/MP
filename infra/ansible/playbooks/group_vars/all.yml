@@ -12,8 +12,10 @@ http_port: 80
 # На демо — ВСЕГДА false: только реальные публикации
 collector_fake: false
 
-# Модели по умолчанию, если LLM_PROVIDER не задан в окружении деплоя: stub | ollama | yandex
-llm_provider: stub
+# Модели на сервере (нет GPU): yandex — Yandex AI Studio (YandexGPT Lite + эмбеддинги text-search),
+# нужны YC_FOLDER_ID и YC_API_KEY в .env машины деплоя. Без ключа ml_service стартует на эвристиках.
+# Переопределить: LLM_PROVIDER=stub make deploy (вариант без LLM: LLM_PROVIDER=stub EMBED_PROVIDER=yandex)
+llm_provider: yandex
 
 # Docker Hub из РФ бывает недоступен — зеркала. [] — без зеркал.
 docker_registry_mirrors:

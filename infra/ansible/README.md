@@ -43,7 +43,8 @@ make smoke URL=http://1.2.3.4                # проверка снаружи
 Ключи API передаются из окружения при деплое (в git их нет):
 
 ```bash
-VK_SERVICE_TOKEN=... YC_FOLDER_ID=... YC_API_KEY=... YC_SEARCH_API_KEY=... LLM_PROVIDER=yandex \
+VK_SERVICE_TOKEN=... YC_FOLDER_ID=... YC_API_KEY=... YC_SEARCH_API_KEY=... MAX_BOT_TOKEN=... \
+  LLM_PROVIDER=yandex \
   make deploy HOST=1.2.3.4 SSH_USER=ubuntu
 ```
 
