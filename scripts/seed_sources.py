@@ -106,6 +106,15 @@ def api(base: str, method: str, path: str, body: dict[str, object] | None = None
             return e.code, None
 
 
+def create(base: str, body: dict[str, object]) -> tuple[int, object]:
+    """POST /sources с одним повтором при таймауте: площадка могла ответить медленно, а источник —
+    уже создаться (тогда повтор вернёт 409 «уже есть»)."""
+    try:
+        return api(base, "POST", "/api/v1/sources", body)
+    except TimeoutError:
+        return api(base, "POST", "/api/v1/sources", body)
+
+
 def describe(status: int, payload: object) -> str:
     error = payload.get("error", {}) if isinstance(payload, dict) else {}
     code, message = error.get("code", ""), error.get("message", "")
@@ -139,10 +148,15 @@ def main(argv: list[str]) -> int:
         if row.name:
             body["name"] = row.name
         try:
-            status, payload = api(base, "POST", "/api/v1/sources", body)
+            status, payload = create(base, body)
         except (urllib.error.URLError, TimeoutError) as e:
-            print(f"Не достучался до {base}: {e}. Поднят ли gateway? (README → «Быстрый старт»)")
-            return 1
+            if not (added or existed or errors):  # первая же строка — стенд не поднят
+                print(f"Не достучался до {base}: {e}.")
+                print("Поднят ли стенд? (README → «Быстрый старт»)")
+                return 1
+            # одна площадка долго отвечает (VK / OK) — не бросаем остальные строки
+            errors.append((row.number, row.url, f"нет ответа ({e}) — запустите make seed ещё раз"))
+            continue
         if status == 201:
             added += 1
             print(f"  + {row.number:>3}  {row.url}  →  {payload.get('name', '')}")
